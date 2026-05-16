@@ -1269,16 +1269,28 @@ function deleteSelectedEntities() {
   setStatus(`${deletableIds.length} entit${deletableIds.length === 1 ? "y" : "ies"} deleted.`);
 }
 
-function selectEntityAtPoint(worldPoint) {
+function selectEntityAtPoint(worldPoint, append = false) {
   const selectable = state.entities
     .filter(canSelectEntity)
     .slice()
     .reverse();
 
   const hit = selectable.find((entity) => hitTestEntity(entity, worldPoint));
-  state.selectedEntityIds = hit ? [hit.id] : [];
+  if (!append) {
+    state.selectedEntityIds = hit ? [hit.id] : [];
+  } else if (hit) {
+    state.selectedEntityIds = state.selectedEntityIds.includes(hit.id)
+      ? state.selectedEntityIds.filter((entityId) => entityId !== hit.id)
+      : [...state.selectedEntityIds, hit.id];
+  }
   syncAfterStateChange();
-  setStatus(hit ? `Selected ${hit.id}.` : "Selection cleared.");
+  setStatus(
+    state.selectedEntityIds.length
+      ? `${state.selectedEntityIds.length} entit${state.selectedEntityIds.length === 1 ? "y" : "ies"} selected.`
+      : hit && append
+        ? "Selection cleared."
+        : "Selection cleared."
+  );
 }
 
 function isPointInsideRect(screenPoint, rect) {
@@ -1372,11 +1384,13 @@ function selectEntitiesByWindow(selectionWindow) {
     })
     .map((entity) => entity.id);
 
-  state.selectedEntityIds = selectedIds;
+  state.selectedEntityIds = selectionWindow.append
+    ? [...new Set([...state.selectedEntityIds, ...selectedIds])]
+    : selectedIds;
   syncAfterStateChange();
   setStatus(
-    selectedIds.length
-      ? `${selectedIds.length} entit${selectedIds.length === 1 ? "y" : "ies"} selected.`
+    state.selectedEntityIds.length
+      ? `${state.selectedEntityIds.length} entit${state.selectedEntityIds.length === 1 ? "y" : "ies"} selected.`
       : "Selection cleared."
   );
 }
@@ -1483,6 +1497,7 @@ function onCanvasMouseDown(event) {
 
   if (uiState.activeTool === "select") {
     uiState.selectionWindow = {
+      append: event.shiftKey,
       startScreen: screenPoint,
       currentScreen: screenPoint,
       startWorld: screenToWorld(screenPoint),
@@ -1560,7 +1575,7 @@ function onWindowMouseUp(event) {
     uiState.selectionWindow = null;
 
     if (Math.hypot(rect.width, rect.height) < CLICK_SELECT_THRESHOLD_PX) {
-      selectEntityAtPoint(selectionWindow.currentWorld);
+      selectEntityAtPoint(selectionWindow.currentWorld, selectionWindow.append);
       return;
     }
 
