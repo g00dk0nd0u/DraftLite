@@ -23,6 +23,8 @@ const loadJsonInput = document.getElementById("loadJsonInput");
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
   line: document.getElementById("toolLineButton"),
+  move: document.getElementById("moveButton"),
+  copy: document.getElementById("copyButton"),
 };
 
 const deleteButton = document.getElementById("deleteButton");
@@ -45,6 +47,7 @@ let history = {
 const uiState = {
   activeTool: "select",
   lineDraft: null,
+  transformDraft: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   panning: false,
@@ -131,6 +134,7 @@ function redo() {
 
 function clearTransientState() {
   uiState.lineDraft = null;
+  uiState.transformDraft = null;
 }
 
 function createEntityId() {
@@ -592,6 +596,10 @@ function draw() {
     drawDraftLine(uiState.lineDraft.start, uiState.hoverWorld);
   }
 
+  if (uiState.transformDraft) {
+    drawTransformPreview(uiState.transformDraft);
+  }
+
   zoomReadout.textContent = `Zoom: ${Math.round(state.view.zoom * 100)}%`;
 }
 
@@ -711,6 +719,56 @@ function drawDraftLine(start, end) {
   ctx.restore();
 }
 
+function drawTransformPreview(transformDraft) {
+  const offset = getTransformOffset(transformDraft);
+  transformDraft.entities.forEach((entity) => {
+    if (entity.type !== "line") {
+      return;
+    }
+    const previewLine = {
+      ...entity,
+      p1: {
+        x: entity.p1.x + offset.dx,
+        y: entity.p1.y + offset.dy,
+      },
+      p2: {
+        x: entity.p2.x + offset.dx,
+        y: entity.p2.y + offset.dy,
+      },
+    };
+    drawPreviewLineEntity(previewLine);
+  });
+}
+
+function drawPreviewLineEntity(entity) {
+  const layer = getLayerById(entity.layerId);
+  if (!layer || !isLayerVisible(entity.layerId)) {
+    return;
+  }
+  const screenP1 = worldToScreen(entity.p1);
+  const screenP2 = worldToScreen(entity.p2);
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.setLineDash([9, 6]);
+  ctx.strokeStyle = "rgba(98, 73, 45, 0.82)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(screenP1.x, screenP1.y);
+  ctx.lineTo(screenP2.x, screenP2.y);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.22)";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(screenP1.x, screenP1.y);
+  ctx.lineTo(screenP2.x, screenP2.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function getEntityById(entityId) {
   return state.entities.find((entity) => entity.id === entityId) || null;
 }
@@ -744,6 +802,103 @@ function addLineEntity(p1, p2) {
   state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus(`Line created: ${formatWorldPoint(snappedP1)} -> ${formatWorldPoint(snappedP2)}.`);
+}
+
+function getSelectedTransformableEntities() {
+  return state.selectedEntityIds
+    .map(getEntityById)
+    .filter((entity) => entity && entity.type === "line" && canSelectEntity(entity));
+}
+
+function canStartTransformTool() {
+  return getSelectedTransformableEntities().length > 0;
+}
+
+function startTransformDraft(worldPoint) {
+  const selectedEntities = getSelectedTransformableEntities();
+  if (!selectedEntities.length) {
+    setStatus("Select at least one visible, unlocked line before using Move or Copy.");
+    return false;
+  }
+
+  uiState.transformDraft = {
+    mode: uiState.activeTool,
+    startPoint: worldPoint,
+    currentPoint: worldPoint,
+    entityIds: selectedEntities.map((entity) => entity.id),
+    entities: deepClone(selectedEntities),
+  };
+  setStatus(`${capitalize(uiState.activeTool)} start set at ${formatWorldPoint(worldPoint)}.`);
+  draw();
+  return true;
+}
+
+function getTransformOffset(transformDraft) {
+  const currentPoint = transformDraft.currentPoint || transformDraft.startPoint;
+  return {
+    dx: currentPoint.x - transformDraft.startPoint.x,
+    dy: currentPoint.y - transformDraft.startPoint.y,
+  };
+}
+
+function updateTransformDraft(worldPoint) {
+  if (!uiState.transformDraft) {
+    return;
+  }
+  uiState.transformDraft.currentPoint = worldPoint;
+  draw();
+}
+
+function applyTransformDraft() {
+  const transformDraft = uiState.transformDraft;
+  if (!transformDraft) {
+    return;
+  }
+
+  const offset = getTransformOffset(transformDraft);
+  pushUndoState();
+
+  if (transformDraft.mode === "move") {
+    state.entities = state.entities.map((entity) => {
+      if (!transformDraft.entityIds.includes(entity.id)) {
+        return entity;
+      }
+      if (!canSelectEntity(entity)) {
+        return entity;
+      }
+      return {
+        ...entity,
+        p1: {
+          x: entity.p1.x + offset.dx,
+          y: entity.p1.y + offset.dy,
+        },
+        p2: {
+          x: entity.p2.x + offset.dx,
+          y: entity.p2.y + offset.dy,
+        },
+      };
+    });
+  } else if (transformDraft.mode === "copy") {
+    const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
+    const newEntities = sourceEntities.map((entity) => ({
+      ...deepClone(entity),
+      id: createEntityId(),
+      p1: {
+        x: entity.p1.x + offset.dx,
+        y: entity.p1.y + offset.dy,
+      },
+      p2: {
+        x: entity.p2.x + offset.dx,
+        y: entity.p2.y + offset.dy,
+      },
+    }));
+    state.entities.push(...newEntities);
+  }
+
+  uiState.transformDraft = null;
+  state.selectedEntityIds = [];
+  syncAfterStateChange();
+  setStatus(`${capitalize(transformDraft.mode)} applied.`);
 }
 
 function deleteSelectedEntities() {
@@ -826,6 +981,11 @@ function onPointerMove(event) {
     return;
   }
 
+  if (uiState.transformDraft) {
+    updateTransformDraft(snappedWorld);
+    return;
+  }
+
   if (uiState.lineDraft) {
     draw();
   }
@@ -855,6 +1015,11 @@ function onCanvasMouseDown(event) {
 
   if (uiState.activeTool === "line") {
     handleLineToolClick(worldPoint);
+    return;
+  }
+
+  if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
+    startTransformDraft(worldPoint);
     return;
   }
 
@@ -908,6 +1073,24 @@ function stopPan() {
   uiState.panning = false;
   delete document.body.dataset.panning;
   draw();
+}
+
+function onWindowMouseUp(event) {
+  if (event.button === 1) {
+    stopPan();
+    return;
+  }
+
+  if (event.button !== 0) {
+    return;
+  }
+
+  if (uiState.transformDraft) {
+    applyTransformDraft();
+    return;
+  }
+
+  stopPan();
 }
 
 function onCanvasWheel(event) {
@@ -966,12 +1149,17 @@ function fitAll() {
 }
 
 function setActiveTool(tool) {
-  uiState.activeTool = tool;
-  if (tool !== "line") {
-    uiState.lineDraft = null;
+  const missingTransformTarget = (tool === "move" || tool === "copy") && !canStartTransformTool();
+  if (uiState.activeTool !== tool) {
+    clearTransientState();
   }
+  uiState.activeTool = tool;
   syncToolButtons();
   draw();
+  if (missingTransformTarget) {
+    setStatus("Select at least one visible, unlocked line before using Move or Copy.");
+    return;
+  }
   setStatus(`${capitalize(tool)} tool active.`);
 }
 
@@ -1104,11 +1292,19 @@ function addLayer() {
 function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
 
-  if (event.key === "Escape" && uiState.lineDraft) {
-    uiState.lineDraft = null;
-    draw();
-    setStatus("Line command cancelled.");
-    return;
+  if (event.key === "Escape") {
+    if (uiState.transformDraft) {
+      uiState.transformDraft = null;
+      draw();
+      setStatus(`${capitalize(uiState.activeTool)} cancelled.`);
+      return;
+    }
+    if (uiState.lineDraft) {
+      uiState.lineDraft = null;
+      draw();
+      setStatus("Line command cancelled.");
+      return;
+    }
   }
 
   if (event.key === "Delete" || event.key === "Backspace") {
@@ -1139,7 +1335,7 @@ function bindEvents() {
   canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
-  window.addEventListener("mouseup", stopPan);
+  window.addEventListener("mouseup", onWindowMouseUp);
   window.addEventListener("mousemove", onPointerMove);
   window.addEventListener("resize", () => {
     resizeCanvas();
@@ -1149,6 +1345,8 @@ function bindEvents() {
 
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
+  toolButtons.move.addEventListener("click", () => setActiveTool("move"));
+  toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);

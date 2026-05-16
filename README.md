@@ -14,6 +14,8 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 
 - Line drawing
 - Selection
+- Move selected lines
+- Copy selected lines
 - Delete
 - Pan/Zoom
 - Layers

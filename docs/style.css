@@ -227,6 +227,11 @@ body[data-tool="select"] #draftCanvas {
   cursor: default;
 }
 
+body[data-tool="move"] #draftCanvas,
+body[data-tool="copy"] #draftCanvas {
+  cursor: move;
+}
+
 body[data-panning="true"] #draftCanvas {
   cursor: grab;
 }
