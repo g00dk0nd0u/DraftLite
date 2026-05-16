@@ -1331,7 +1331,7 @@ function scheduleTransformNumericPreview() {
   uiState.transformPreviewTimer = window.setTimeout(() => {
     uiState.transformPreviewTimer = null;
     applyTransformNumericPreview();
-  }, 500);
+  }, 250);
 }
 
 function findEditableGripAtPoint(worldPoint) {
