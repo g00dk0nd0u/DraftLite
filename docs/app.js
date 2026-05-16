@@ -856,6 +856,13 @@ function applyTransformDraft() {
   }
 
   const offset = getTransformOffset(transformDraft);
+  if (offset.dx === 0 && offset.dy === 0) {
+    uiState.transformDraft = null;
+    draw();
+    setStatus(`${capitalize(transformDraft.mode)} canceled.`);
+    return;
+  }
+
   pushUndoState();
 
   if (transformDraft.mode === "move") {
