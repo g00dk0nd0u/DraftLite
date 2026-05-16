@@ -18,6 +18,8 @@
 - `Line` / `Grip edit` Dynamic Input should be shown near the edited segment.
 - Internal coordinates must remain `0.5 mm` integer units.
 - Do not turn DraftLite into a floating-point CAD model.
-- Do not break the existing JSON and SVG save formats.
+- JSON save/load must remain compatible.
+- DXF is the primary export target going forward.
+- DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
 - Keep changes small, safe, and easy to verify.
 - After implementation, run `node --check docs/app.js`.

@@ -34,7 +34,7 @@ const redoButton = document.getElementById("redoButton");
 const fitAllButton = document.getElementById("fitAllButton");
 const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
-const exportSvgButton = document.getElementById("exportSvgButton");
+const exportDxfButton = document.getElementById("exportDxfButton");
 const addLayerButton = document.getElementById("addLayerButton");
 
 const ctx = canvas.getContext("2d");
@@ -2185,7 +2185,7 @@ function loadJsonFromFile(file) {
   reader.readAsText(file, "utf-8");
 }
 
-function exportSvg() {
+function exportDxf() {
   const visibleLines = state.entities.filter(
     (entity) => entity.type === "line" && isLayerVisible(entity.layerId)
   );
@@ -2195,43 +2195,59 @@ function exportSvg() {
     return;
   }
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+  const visibleLayers = state.layers.filter((layer) =>
+    visibleLines.some((line) => line.layerId === layer.id)
+  );
 
-  visibleLines.forEach((line) => {
-    minX = Math.min(minX, line.p1.x, line.p2.x);
-    minY = Math.min(minY, line.p1.y, line.p2.y);
-    maxX = Math.max(maxX, line.p1.x, line.p2.x);
-    maxY = Math.max(maxY, line.p1.y, line.p2.y);
+  const dxfLines = [];
+  dxfLines.push("0", "SECTION", "2", "HEADER");
+  dxfLines.push("9", "$ACADVER", "1", "AC1009");
+  dxfLines.push("9", "$INSUNITS", "70", "4");
+  dxfLines.push("0", "ENDSEC");
+
+  dxfLines.push("0", "SECTION", "2", "TABLES");
+  dxfLines.push("0", "TABLE", "2", "LTYPE", "70", "1");
+  dxfLines.push("0", "LTYPE", "2", "CONTINUOUS", "70", "0", "3", "Solid line", "72", "65", "73", "0", "40", "0.0");
+  dxfLines.push("0", "ENDTAB");
+  dxfLines.push("0", "TABLE", "2", "LAYER", "70", String(visibleLayers.length));
+  visibleLayers.forEach((layer) => {
+    dxfLines.push("0", "LAYER");
+    dxfLines.push("2", sanitizeDxfText(layer.name));
+    dxfLines.push("70", "0");
+    dxfLines.push("62", "7");
+    dxfLines.push("6", "CONTINUOUS");
   });
+  dxfLines.push("0", "ENDTAB");
+  dxfLines.push("0", "ENDSEC");
 
-  const widthMm = Math.max(1, unitsToMm(maxX - minX));
-  const heightMm = Math.max(1, unitsToMm(maxY - minY));
+  dxfLines.push("0", "SECTION", "2", "ENTITIES");
+  visibleLines.forEach((line) => {
+    const layer = getLayerById(line.layerId);
+    dxfLines.push("0", "LINE");
+    dxfLines.push("8", sanitizeDxfText(layer ? layer.name : "0"));
+    dxfLines.push("10", formatDxfNumber(unitsToMm(line.p1.x)));
+    dxfLines.push("20", formatDxfNumber(unitsToMm(line.p1.y)));
+    dxfLines.push("30", "0.0");
+    dxfLines.push("11", formatDxfNumber(unitsToMm(line.p2.x)));
+    dxfLines.push("21", formatDxfNumber(unitsToMm(line.p2.y)));
+    dxfLines.push("31", "0.0");
+  });
+  dxfLines.push("0", "ENDSEC", "0", "EOF");
 
-  const svgLines = visibleLines
-    .map((line) => {
-      const layer = getLayerById(line.layerId);
-      return `<line x1="${unitsToMm(line.p1.x - minX)}" y1="${unitsToMm(line.p1.y - minY)}" x2="${unitsToMm(
-        line.p2.x - minX
-      )}" y2="${unitsToMm(line.p2.y - minY)}" stroke="${escapeAttribute(layer ? layer.color : "#2e3135")}" stroke-width="1" vector-effect="non-scaling-stroke" />`;
-    })
-    .join("\n");
-
-  const svg = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${widthMm} ${heightMm}" width="${widthMm}mm" height="${heightMm}mm">`,
-    svgLines,
-    "</svg>",
-  ].join("\n");
-
-  downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `draftlite-${createTimestampLabel()}.svg`);
-  setStatus("SVG exported.");
+  const dxfText = `${dxfLines.join("\n")}\n`;
+  downloadBlob(
+    new Blob([dxfText], { type: "application/dxf" }),
+    `draftlite-${createTimestampLabel()}.dxf`
+  );
+  setStatus("DXF exported.");
 }
 
-function escapeAttribute(value) {
-  return String(value).replaceAll('"', "&quot;");
+function sanitizeDxfText(value) {
+  return String(value || "0").replaceAll("\r", " ").replaceAll("\n", " ");
+}
+
+function formatDxfNumber(value) {
+  return Number(value).toFixed(1);
 }
 
 function downloadBlob(blob, filename) {
@@ -2505,7 +2521,7 @@ function bindEvents() {
   fitAllButton.addEventListener("click", fitAll);
   saveJsonButton.addEventListener("click", saveJsonToFile);
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());
-  exportSvgButton.addEventListener("click", exportSvg);
+  exportDxfButton.addEventListener("click", exportDxf);
   addLayerButton.addEventListener("click", addLayer);
 
   loadJsonInput.addEventListener("change", () => {

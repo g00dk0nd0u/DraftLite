@@ -31,7 +31,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - 250ms delayed numeric preview for Line / Move / Copy / Grip edit
 - Move / Copy / Grip edit numeric input preview
 - JSON save/load
-- SVG export
+- DXF export
 
 ## Current MVP scope
 
@@ -52,7 +52,7 @@ Included in this first pass:
 - Layer visible / lock / color / active controls
 - JSON save/load
 - localStorage autosave restore
-- SVG export for visible lines
+- DXF export for visible lines
 
 ## Coordinate model
 
@@ -96,7 +96,6 @@ Included in this first pass:
 - Trim
 - Fillet
 - Offset
-- DXF export
 - Print / PDF export
 
 ## Run
