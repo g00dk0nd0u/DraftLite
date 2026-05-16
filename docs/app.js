@@ -1230,6 +1230,19 @@ function createLineFromNumericInput() {
 
   clearLinePreviewTimer();
 
+  if (uiState.lineDraft.previewPoint) {
+    const createdEntity = addLineEntity(uiState.lineDraft.start, uiState.lineDraft.previewPoint);
+    if (!createdEntity) {
+      return false;
+    }
+
+    beginLineDraft(
+      createdEntity.p2,
+      `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
+    );
+    return true;
+  }
+
   const rawLengthMm = uiState.lineDraft.numericInputBuffer;
   const lengthMm = Number.parseInt(rawLengthMm, 10);
   if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
