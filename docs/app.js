@@ -85,7 +85,7 @@ function createInitialState() {
       gridUnit: 1,
       snapTolerancePx: 10,
       showGrid: true,
-      ortho: false,
+      ortho: true,
     },
     nextEntityNumber: 1,
     nextLayerNumber: 2,
@@ -270,11 +270,12 @@ function applyOrthoConstraint(startPoint, worldPoint, orthoEnabled) {
 
 function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
   let constrainedWorld = worldPoint;
+  const orthoEnabled = !shiftKey;
 
   if (uiState.lineDraft) {
-    constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, shiftKey);
+    constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, orthoEnabled);
   } else if (uiState.transformDraft) {
-    constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, shiftKey);
+    constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, orthoEnabled);
   }
 
   return getSnapPoint(constrainedWorld);
@@ -297,6 +298,17 @@ function refreshPointerConstraint(shiftKey) {
 
 function setStatus(message) {
   statusReadout.textContent = message;
+}
+
+function updateLineDraftStatus(prefix) {
+  if (!uiState.lineDraft) {
+    return;
+  }
+
+  const inputSuffix = uiState.lineDraft.numericInputBuffer
+    ? ` Length: ${uiState.lineDraft.numericInputBuffer} mm`
+    : " Length: -";
+  setStatus(`${prefix}${inputSuffix}`);
 }
 
 function getLayerById(layerId) {
@@ -404,7 +416,7 @@ function normalizeDocument(raw) {
       gridUnit: Math.max(1, Math.round(Number(source && source.settings && source.settings.gridUnit) || base.settings.gridUnit)),
       snapTolerancePx: Math.max(1, Number(source && source.settings && source.settings.snapTolerancePx) || base.settings.snapTolerancePx),
       showGrid: source && source.settings ? source.settings.showGrid !== false : base.settings.showGrid,
-      ortho: Boolean(source && source.settings && source.settings.ortho),
+      ortho: source && source.settings && typeof source.settings.ortho === "boolean" ? source.settings.ortho : base.settings.ortho,
     },
     nextEntityNumber: Math.max(maxEntityNumber + 1, Number(source && source.nextEntityNumber) || 1),
     nextLayerNumber: Math.max(maxLayerNumber + 1, Number(source && source.nextLayerNumber) || 2),
@@ -931,6 +943,43 @@ function addLineEntity(p1, p2) {
   setStatus(`Line created: ${formatWorldPoint(snappedP1)} -> ${formatWorldPoint(snappedP2)}.`);
 }
 
+function createLineFromNumericInput() {
+  if (!uiState.lineDraft) {
+    return false;
+  }
+
+  const rawLengthMm = uiState.lineDraft.numericInputBuffer;
+  const lengthMm = Number.parseInt(rawLengthMm, 10);
+  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
+    setStatus("Enter a positive line length in mm.");
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.lineDraft.start.x;
+  const directionY = uiState.hoverWorld.y - uiState.lineDraft.start.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    setStatus("Move the pointer to indicate a line direction before pressing Enter.");
+    return false;
+  }
+
+  const lengthUnits = mmToUnits(lengthMm);
+  if (lengthUnits <= 0) {
+    setStatus("Line length must be greater than zero.");
+    return false;
+  }
+
+  const targetPoint = {
+    x: roundToGridUnit(uiState.lineDraft.start.x + (directionX / directionLength) * lengthUnits),
+    y: roundToGridUnit(uiState.lineDraft.start.y + (directionY / directionLength) * lengthUnits),
+  };
+
+  addLineEntity(uiState.lineDraft.start, targetPoint);
+  uiState.lineDraft = null;
+  draw();
+  return true;
+}
+
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
@@ -1171,8 +1220,9 @@ function handleLineToolClick(worldPoint) {
     }
     uiState.lineDraft = {
       start: worldPoint,
+      numericInputBuffer: "",
     };
-    setStatus(`Line start set at ${formatWorldPoint(worldPoint)}.`);
+    updateLineDraftStatus(`Line start set at ${formatWorldPoint(worldPoint)}.`);
     draw();
     return;
   }
@@ -1425,6 +1475,7 @@ function addLayer() {
 
 function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
+  const activeTag = document.activeElement ? document.activeElement.tagName : "";
 
   if (event.key === "Shift") {
     refreshPointerConstraint(true);
@@ -1438,6 +1489,12 @@ function onKeyDown(event) {
       return;
     }
     if (uiState.lineDraft) {
+      if (uiState.lineDraft.numericInputBuffer) {
+        uiState.lineDraft.numericInputBuffer = "";
+        updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
+        draw();
+        return;
+      }
       uiState.lineDraft = null;
       draw();
       setStatus("Line command cancelled.");
@@ -1445,9 +1502,34 @@ function onKeyDown(event) {
     }
   }
 
+  if (uiState.lineDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+      uiState.lineDraft.numericInputBuffer += event.key;
+      updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
+      draw();
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      if (uiState.lineDraft.numericInputBuffer) {
+        event.preventDefault();
+        uiState.lineDraft.numericInputBuffer = uiState.lineDraft.numericInputBuffer.slice(0, -1);
+        updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
+        draw();
+        return;
+      }
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createLineFromNumericInput();
+      return;
+    }
+  }
+
   if (event.key === "Delete" || event.key === "Backspace") {
-    const tag = document.activeElement ? document.activeElement.tagName : "";
-    if (tag === "INPUT" || tag === "TEXTAREA") {
+    if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
       return;
     }
     event.preventDefault();
