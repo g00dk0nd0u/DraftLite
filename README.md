@@ -50,6 +50,7 @@ Included in this first pass:
 - Example: `3000 mm = 6000 units`
 - Display values are shown in `mm`
 - Saved document geometry remains integer `unit` data
+- Internal precision remains `0.5 mm`, while the display grid uses `100 mm` minor and `1000 mm` major intervals
 
 ## File layout
 
