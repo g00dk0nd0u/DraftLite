@@ -52,6 +52,17 @@ Included in this first pass:
 - Saved document geometry remains integer `unit` data
 - Internal precision remains `0.5 mm`, while the display grid uses `100 mm` minor and `1000 mm` major intervals
 
+## Interaction principles
+
+- Interaction feel is intentionally biased toward AutoCAD-experienced users
+- `Line` continues segment-by-segment until `Esc` or empty `Enter`
+- `Move` uses `base point -> second point` and finishes after one confirmed move
+- `Copy` keeps the same base point and supports continuous copy placement until `Esc` or empty `Enter`
+- Ortho is ON by default, and holding `Shift` temporarily enables free-angle input
+- `Select` uses left-to-right `Window selection` and right-to-left `Crossing selection`
+- `Shift + click` and `Shift + selection window` add to the current selection
+- Numeric input is entered in `mm`, while internal geometry remains `0.5 mm` integer units
+
 ## File layout
 
 - `docs/index.html`
