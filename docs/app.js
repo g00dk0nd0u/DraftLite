@@ -839,6 +839,8 @@ function draw() {
     drawSnapMarker(uiState.snapMarker);
   }
 
+  drawDynamicInput();
+
   zoomReadout.textContent = `Zoom: ${Math.round(state.view.zoom * 100)}%`;
 }
 
@@ -1026,6 +1028,93 @@ function drawGripEditPreview(gripEditDraft) {
     p2: gripEditDraft.endpoint === "p2" ? gripEditDraft.currentPoint : gripEditDraft.fixedPoint,
   };
   drawPreviewLineEntity(previewLine);
+}
+
+function formatDistanceMmFromPoints(p1, p2) {
+  return (unitsToMm(Math.hypot(p2.x - p1.x, p2.y - p1.y))).toFixed(1);
+}
+
+function drawDynamicInput() {
+  if (uiState.gripEditDraft) {
+    const text = uiState.gripEditDraft.numericInputBuffer || formatDistanceMmFromPoints(
+      uiState.gripEditDraft.startPoint,
+      uiState.gripEditDraft.currentPoint
+    );
+    drawDynamicInputLabel(
+      text,
+      {
+        x: (uiState.gripEditDraft.startPoint.x + uiState.gripEditDraft.currentPoint.x) / 2,
+        y: (uiState.gripEditDraft.startPoint.y + uiState.gripEditDraft.currentPoint.y) / 2,
+      },
+      { emphasized: Boolean(uiState.gripEditDraft.numericInputBuffer) }
+    );
+    return;
+  }
+
+  if (uiState.transformDraft) {
+    const text = uiState.transformDraft.numericInputBuffer || formatDistanceMmFromPoints(
+      uiState.transformDraft.startPoint,
+      uiState.transformDraft.currentPoint
+    );
+    drawDynamicInputLabel(
+      text,
+      {
+        x: (uiState.transformDraft.startPoint.x + uiState.transformDraft.currentPoint.x) / 2,
+        y: (uiState.transformDraft.startPoint.y + uiState.transformDraft.currentPoint.y) / 2,
+      },
+      { emphasized: Boolean(uiState.transformDraft.numericInputBuffer) }
+    );
+    return;
+  }
+
+  if (uiState.lineDraft) {
+    const text = uiState.lineDraft.numericInputBuffer || formatDistanceMmFromPoints(
+      uiState.lineDraft.start,
+      uiState.hoverWorld
+    );
+    drawDynamicInputLabel(
+      text,
+      {
+        x: (uiState.lineDraft.start.x + uiState.hoverWorld.x) / 2,
+        y: (uiState.lineDraft.start.y + uiState.hoverWorld.y) / 2,
+      },
+      { emphasized: Boolean(uiState.lineDraft.numericInputBuffer) }
+    );
+  }
+}
+
+function drawDynamicInputLabel(text, worldPoint, options = {}) {
+  if (!text) {
+    return;
+  }
+
+  const screenPoint = worldToScreen(worldPoint);
+  const offsetY = options.offsetY ?? -18;
+  const label = String(text);
+
+  ctx.save();
+  ctx.font = options.emphasized ? '600 12px ui-sans-serif, system-ui, sans-serif' : '500 12px ui-sans-serif, system-ui, sans-serif';
+  const metrics = ctx.measureText(label);
+  const paddingX = 8;
+  const paddingY = 5;
+  const width = Math.ceil(metrics.width + paddingX * 2);
+  const height = 24;
+  const x = Math.round(screenPoint.x - width / 2);
+  const y = Math.round(screenPoint.y + offsetY - height / 2);
+
+  ctx.fillStyle = options.emphasized ? "rgba(255, 252, 245, 0.98)" : "rgba(250, 247, 240, 0.94)";
+  ctx.strokeStyle = "rgba(112, 104, 93, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = options.emphasized ? "#17120f" : "rgba(23, 18, 15, 0.72)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x + width / 2, y + height / 2 + 0.5);
+  ctx.restore();
 }
 
 function drawPreviewLineEntity(entity) {
