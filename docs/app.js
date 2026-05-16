@@ -48,6 +48,7 @@ const uiState = {
   activeTool: "select",
   lineDraft: null,
   transformDraft: null,
+  snapMarker: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   panning: false,
@@ -135,6 +136,7 @@ function redo() {
 function clearTransientState() {
   uiState.lineDraft = null;
   uiState.transformDraft = null;
+  uiState.snapMarker = null;
 }
 
 function createEntityId() {
@@ -189,12 +191,59 @@ function distanceScreenPx(a, b) {
   return Math.hypot(screenA.x - screenB.x, screenA.y - screenB.y);
 }
 
-function collectSnapCandidates() {
-  return [];
+function getLineMidpoint(entity) {
+  return roundWorldPoint({
+    x: (entity.p1.x + entity.p2.x) / 2,
+    y: (entity.p1.y + entity.p2.y) / 2,
+  });
+}
+
+function collectSnapCandidates(worldPoint) {
+  return state.entities
+    .filter((entity) => entity.type === "line" && isLayerVisible(entity.layerId))
+    .flatMap((entity) => {
+      const midpoint = getLineMidpoint(entity);
+      return [
+        {
+          kind: "endpoint",
+          point: entity.p1,
+          distancePx: distanceScreenPx(worldPoint, entity.p1),
+        },
+        {
+          kind: "endpoint",
+          point: entity.p2,
+          distancePx: distanceScreenPx(worldPoint, entity.p2),
+        },
+        {
+          kind: "midpoint",
+          point: midpoint,
+          distancePx: distanceScreenPx(worldPoint, midpoint),
+        },
+      ];
+    });
 }
 
 function getSnapPoint(worldPoint) {
-  collectSnapCandidates();
+  const candidates = collectSnapCandidates(worldPoint);
+  const closestCandidate = candidates.reduce((best, candidate) => {
+    if (candidate.distancePx > state.settings.snapTolerancePx) {
+      return best;
+    }
+    if (!best || candidate.distancePx < best.distancePx) {
+      return candidate;
+    }
+    return best;
+  }, null);
+
+  if (closestCandidate) {
+    uiState.snapMarker = {
+      kind: closestCandidate.kind,
+      point: closestCandidate.point,
+    };
+    return closestCandidate.point;
+  }
+
+  uiState.snapMarker = null;
   return roundWorldPoint(worldPoint);
 }
 
@@ -532,6 +581,11 @@ function renderPropertiesPanel() {
 }
 
 function renderStatusPanel() {
+  const snapLabel = uiState.snapMarker
+    ? uiState.snapMarker.kind === "midpoint"
+      ? "Midpoint"
+      : "Endpoint"
+    : "Grid";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
     ["Units", `1 unit = ${MM_PER_UNIT} mm`],
@@ -540,7 +594,7 @@ function renderStatusPanel() {
     ["Selected", String(state.selectedEntityIds.length)],
     ["Active layer", activeLayer ? activeLayer.name : "-"],
     ["Visible layers", String(state.layers.filter((layer) => layer.visible).length)],
-    ["Snap", "Grid"],
+    ["Snap", snapLabel],
   ];
 
   statusPanel.innerHTML = rows
@@ -598,6 +652,10 @@ function draw() {
 
   if (uiState.transformDraft) {
     drawTransformPreview(uiState.transformDraft);
+  }
+
+  if (uiState.snapMarker) {
+    drawSnapMarker(uiState.snapMarker);
   }
 
   zoomReadout.textContent = `Zoom: ${Math.round(state.view.zoom * 100)}%`;
@@ -705,9 +763,8 @@ function drawLineEntity(entity) {
 }
 
 function drawDraftLine(start, end) {
-  const snappedEnd = getSnapPoint(end);
   const screenP1 = worldToScreen(start);
-  const screenP2 = worldToScreen(snappedEnd);
+  const screenP2 = worldToScreen(end);
   ctx.save();
   ctx.strokeStyle = "rgba(98, 73, 45, 0.85)";
   ctx.setLineDash([8, 6]);
@@ -716,6 +773,28 @@ function drawDraftLine(start, end) {
   ctx.moveTo(screenP1.x, screenP1.y);
   ctx.lineTo(screenP2.x, screenP2.y);
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawSnapMarker(snapMarker) {
+  const screenPoint = worldToScreen(snapMarker.point);
+  ctx.save();
+  ctx.strokeStyle = snapMarker.kind === "midpoint" ? "rgba(80, 87, 96, 0.95)" : "rgba(194, 105, 62, 0.95)";
+  ctx.fillStyle = "#fffaf2";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(screenPoint.x, screenPoint.y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  if (snapMarker.kind === "midpoint") {
+    ctx.beginPath();
+    ctx.moveTo(screenPoint.x - 6, screenPoint.y);
+    ctx.lineTo(screenPoint.x + 6, screenPoint.y);
+    ctx.moveTo(screenPoint.x, screenPoint.y - 6);
+    ctx.lineTo(screenPoint.x, screenPoint.y + 6);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -990,12 +1069,12 @@ function onPointerMove(event) {
 
   if (uiState.transformDraft) {
     updateTransformDraft(snappedWorld);
+    renderStatusPanel();
     return;
   }
 
-  if (uiState.lineDraft) {
-    draw();
-  }
+  draw();
+  renderStatusPanel();
 }
 
 function getScreenPointFromEvent(event) {
