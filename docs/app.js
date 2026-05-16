@@ -310,6 +310,7 @@ function updateLineDraftStatus(prefix) {
     ? ` Length: ${uiState.lineDraft.numericInputBuffer} mm`
     : " Length: -";
   setStatus(`${prefix}${inputSuffix}`);
+  renderStatusPanel();
 }
 
 function updateTransformDraftStatus(prefix) {
@@ -321,6 +322,33 @@ function updateTransformDraftStatus(prefix) {
     ? ` Distance: ${uiState.transformDraft.numericInputBuffer} mm`
     : " Distance: -";
   setStatus(`${prefix}${inputSuffix}`);
+  renderStatusPanel();
+}
+
+function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
+  uiState.lineDraft = {
+    start: startPoint,
+    numericInputBuffer: "",
+  };
+  updateLineDraftStatus(prefix);
+  draw();
+  renderStatusPanel();
+}
+
+function endLineDraft(message = "Line command ended.") {
+  uiState.lineDraft = null;
+  draw();
+  renderStatusPanel();
+  setStatus(message);
+}
+
+function endTransformDraft(message = `${capitalize(uiState.activeTool)} command ended.`) {
+  uiState.transformDraft = null;
+  state.selectedEntityIds = [];
+  draw();
+  renderPropertiesPanel();
+  renderStatusPanel();
+  setStatus(message);
 }
 
 function getLayerById(layerId) {
@@ -667,8 +695,21 @@ function renderStatusPanel() {
     uiState.transformDraft && uiState.transformDraft.numericInputBuffer
       ? `${uiState.transformDraft.numericInputBuffer} mm`
       : "-";
+  const commandStateLabel = uiState.lineDraft
+    ? "Line: specify next point"
+    : uiState.transformDraft
+      ? `${capitalize(uiState.transformDraft.mode)}: specify second point`
+      : uiState.activeTool === "line"
+        ? "Line: specify first point"
+        : uiState.activeTool === "move"
+          ? "Move: specify base point"
+          : uiState.activeTool === "copy"
+            ? "Copy: specify base point"
+            : "Select: pick entity";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
+    ["Tool", capitalize(uiState.activeTool)],
+    ["Command state", commandStateLabel],
     ["Units", `1 unit = ${MM_PER_UNIT} mm`],
     ["Grid", `${state.settings.gridUnit} unit`],
     ["Entities", String(state.entities.length)],
@@ -951,20 +992,22 @@ function addLineEntity(p1, p2) {
   const snappedP2 = getSnapPoint(p2);
   if (snappedP1.x === snappedP2.x && snappedP1.y === snappedP2.y) {
     setStatus("Line length must be greater than zero.");
-    return;
+    return null;
   }
 
   pushUndoState();
-  state.entities.push({
+  const createdEntity = {
     id: createEntityId(),
     type: "line",
     layerId: state.activeLayerId,
     p1: snappedP1,
     p2: snappedP2,
-  });
+  };
+  state.entities.push(createdEntity);
   state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus(`Line created: ${formatWorldPoint(snappedP1)} -> ${formatWorldPoint(snappedP2)}.`);
+  return createdEntity;
 }
 
 function createLineFromNumericInput() {
@@ -998,9 +1041,15 @@ function createLineFromNumericInput() {
     y: roundToGridUnit(uiState.lineDraft.start.y + (directionY / directionLength) * lengthUnits),
   };
 
-  addLineEntity(uiState.lineDraft.start, targetPoint);
-  uiState.lineDraft = null;
-  draw();
+  const createdEntity = addLineEntity(uiState.lineDraft.start, targetPoint);
+  if (!createdEntity) {
+    return false;
+  }
+
+  beginLineDraft(
+    createdEntity.p2,
+    `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
+  );
   return true;
 }
 
@@ -1071,6 +1120,7 @@ function startTransformDraft(worldPoint) {
     `${capitalize(uiState.activeTool)} start set at ${formatWorldPoint(worldPoint)}.`
   );
   draw();
+  renderStatusPanel();
   return true;
 }
 
@@ -1093,15 +1143,15 @@ function updateTransformDraft(worldPoint) {
 function applyTransformDraft() {
   const transformDraft = uiState.transformDraft;
   if (!transformDraft) {
-    return;
+    return false;
   }
 
   const offset = getTransformOffset(transformDraft);
   if (offset.dx === 0 && offset.dy === 0) {
-    uiState.transformDraft = null;
     draw();
-    setStatus(`${capitalize(transformDraft.mode)} canceled.`);
-    return;
+    renderStatusPanel();
+    setStatus(`${capitalize(transformDraft.mode)} distance must be greater than zero.`);
+    return false;
   }
 
   pushUndoState();
@@ -1143,10 +1193,19 @@ function applyTransformDraft() {
     state.entities.push(...newEntities);
   }
 
-  uiState.transformDraft = null;
-  state.selectedEntityIds = [];
+  if (transformDraft.mode === "move") {
+    uiState.transformDraft = null;
+    state.selectedEntityIds = [];
+    syncAfterStateChange();
+    setStatus("Move applied.");
+    return true;
+  }
+
+  uiState.transformDraft.numericInputBuffer = "";
+  uiState.transformDraft.currentPoint = uiState.transformDraft.startPoint;
   syncAfterStateChange();
-  setStatus(`${capitalize(transformDraft.mode)} applied.`);
+  updateTransformDraftStatus("Copy created. Specify next point or press Enter/Escape to finish.");
+  return true;
 }
 
 function deleteSelectedEntities() {
@@ -1268,7 +1327,12 @@ function onCanvasMouseDown(event) {
   }
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
-    startTransformDraft(worldPoint);
+    if (!uiState.transformDraft) {
+      startTransformDraft(worldPoint);
+      return;
+    }
+    uiState.transformDraft.currentPoint = worldPoint;
+    applyTransformDraft();
     return;
   }
 
@@ -1284,18 +1348,18 @@ function handleLineToolClick(worldPoint) {
       setStatus("Choose a visible, unlocked active layer before drawing.");
       return;
     }
-    uiState.lineDraft = {
-      start: worldPoint,
-      numericInputBuffer: "",
-    };
-    updateLineDraftStatus(`Line start set at ${formatWorldPoint(worldPoint)}.`);
-    draw();
+    beginLineDraft(worldPoint);
     return;
   }
 
-  addLineEntity(uiState.lineDraft.start, worldPoint);
-  uiState.lineDraft = null;
-  draw();
+  const createdEntity = addLineEntity(uiState.lineDraft.start, worldPoint);
+  if (!createdEntity) {
+    return;
+  }
+  beginLineDraft(
+    createdEntity.p2,
+    `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
+  );
 }
 
 function startPan(event) {
@@ -1332,11 +1396,6 @@ function onWindowMouseUp(event) {
   }
 
   if (event.button !== 0) {
-    return;
-  }
-
-  if (uiState.transformDraft) {
-    applyTransformDraft();
     return;
   }
 
@@ -1406,6 +1465,7 @@ function setActiveTool(tool) {
   uiState.activeTool = tool;
   syncToolButtons();
   draw();
+  renderStatusPanel();
   if (missingTransformTarget) {
     setStatus("Select at least one visible, unlocked line before using Move or Copy.");
     return;
@@ -1560,9 +1620,7 @@ function onKeyDown(event) {
         draw();
         return;
       }
-      uiState.transformDraft = null;
-      draw();
-      setStatus(`${capitalize(uiState.activeTool)} cancelled.`);
+      endTransformDraft(`${capitalize(uiState.activeTool)} cancelled.`);
       return;
     }
     if (uiState.lineDraft) {
@@ -1572,9 +1630,7 @@ function onKeyDown(event) {
         draw();
         return;
       }
-      uiState.lineDraft = null;
-      draw();
-      setStatus("Line command cancelled.");
+      endLineDraft("Line command cancelled.");
       return;
     }
   }
@@ -1600,7 +1656,11 @@ function onKeyDown(event) {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      createLineFromNumericInput();
+      if (uiState.lineDraft.numericInputBuffer) {
+        createLineFromNumericInput();
+        return;
+      }
+      endLineDraft("Line command ended.");
       return;
     }
   }
@@ -1637,7 +1697,11 @@ function onKeyDown(event) {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      createTransformFromNumericInput();
+      if (uiState.transformDraft.numericInputBuffer) {
+        createTransformFromNumericInput();
+        return;
+      }
+      endTransformDraft(`${capitalize(uiState.transformDraft.mode)} command ended.`);
       return;
     }
   }
