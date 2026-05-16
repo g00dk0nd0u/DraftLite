@@ -53,6 +53,8 @@ const uiState = {
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
+  linePreviewTimer: null,
+  gripPreviewTimer: null,
   transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
@@ -144,6 +146,8 @@ function clearTransientState() {
   uiState.gripEditDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  clearLinePreviewTimer();
+  clearGripPreviewTimer();
   clearTransformPreviewTimer();
 }
 
@@ -344,10 +348,26 @@ function clearTransformPreviewTimer() {
   }
 }
 
+function clearLinePreviewTimer() {
+  if (uiState.linePreviewTimer) {
+    window.clearTimeout(uiState.linePreviewTimer);
+    uiState.linePreviewTimer = null;
+  }
+}
+
+function clearGripPreviewTimer() {
+  if (uiState.gripPreviewTimer) {
+    window.clearTimeout(uiState.gripPreviewTimer);
+    uiState.gripPreviewTimer = null;
+  }
+}
+
 function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
+  clearLinePreviewTimer();
   uiState.lineDraft = {
     start: startPoint,
     numericInputBuffer: "",
+    previewPoint: null,
   };
   updateLineDraftStatus(prefix);
   draw();
@@ -355,6 +375,7 @@ function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoi
 }
 
 function endLineDraft(message = "Line command ended.") {
+  clearLinePreviewTimer();
   uiState.lineDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange(false);
@@ -383,6 +404,7 @@ function updateGripEditStatus(prefix) {
 }
 
 function cancelGripEdit(message = "Grip edit cancelled.") {
+  clearGripPreviewTimer();
   uiState.gripEditDraft = null;
   draw();
   renderStatusPanel();
@@ -830,7 +852,7 @@ function draw() {
   });
 
   if (uiState.lineDraft) {
-    drawDraftLine(uiState.lineDraft.start, uiState.hoverWorld);
+    drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
   }
 
   if (uiState.transformDraft) {
@@ -1206,6 +1228,8 @@ function createLineFromNumericInput() {
     return false;
   }
 
+  clearLinePreviewTimer();
+
   const rawLengthMm = uiState.lineDraft.numericInputBuffer;
   const lengthMm = Number.parseInt(rawLengthMm, 10);
   if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
@@ -1242,6 +1266,52 @@ function createLineFromNumericInput() {
     `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
   );
   return true;
+}
+
+function applyLineNumericPreview() {
+  if (!uiState.lineDraft || !uiState.lineDraft.numericInputBuffer) {
+    return false;
+  }
+
+  const rawLengthMm = uiState.lineDraft.numericInputBuffer;
+  const lengthMm = Number.parseInt(rawLengthMm, 10);
+  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.lineDraft.start.x;
+  const directionY = uiState.hoverWorld.y - uiState.lineDraft.start.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    return false;
+  }
+
+  const lengthUnits = mmToUnits(lengthMm);
+  if (lengthUnits <= 0) {
+    return false;
+  }
+
+  uiState.lineDraft.previewPoint = {
+    x: roundToGridUnit(uiState.lineDraft.start.x + (directionX / directionLength) * lengthUnits),
+    y: roundToGridUnit(uiState.lineDraft.start.y + (directionY / directionLength) * lengthUnits),
+  };
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function scheduleLineNumericPreview() {
+  if (!uiState.lineDraft) {
+    return;
+  }
+  clearLinePreviewTimer();
+  if (!uiState.lineDraft.numericInputBuffer) {
+    return;
+  }
+  uiState.linePreviewTimer = window.setTimeout(() => {
+    uiState.linePreviewTimer = null;
+    applyLineNumericPreview();
+  }, 250);
 }
 
 function createTransformFromNumericInput() {
@@ -1378,6 +1448,9 @@ function updateGripEdit(worldPoint) {
   if (!uiState.gripEditDraft) {
     return;
   }
+  if (uiState.gripEditDraft.numericInputBuffer) {
+    return;
+  }
   uiState.gripEditDraft.currentPoint = worldPoint;
   draw();
 }
@@ -1428,6 +1501,8 @@ function createGripEditFromNumericInput() {
     return false;
   }
 
+  clearGripPreviewTimer();
+
   const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
   const lengthMm = Number.parseInt(rawLengthMm, 10);
   if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
@@ -1458,6 +1533,56 @@ function createGripEditFromNumericInput() {
     ),
   };
   return applyGripEdit();
+}
+
+function applyGripNumericPreview() {
+  if (!uiState.gripEditDraft || !uiState.gripEditDraft.numericInputBuffer) {
+    return false;
+  }
+
+  const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
+  const lengthMm = Number.parseInt(rawLengthMm, 10);
+  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.startPoint.x;
+  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.startPoint.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    return false;
+  }
+
+  const deltaUnits = mmToUnits(lengthMm);
+  if (deltaUnits <= 0) {
+    return false;
+  }
+
+  uiState.gripEditDraft.currentPoint = {
+    x: roundToGridUnit(
+      uiState.gripEditDraft.startPoint.x + (directionX / directionLength) * deltaUnits
+    ),
+    y: roundToGridUnit(
+      uiState.gripEditDraft.startPoint.y + (directionY / directionLength) * deltaUnits
+    ),
+  };
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function scheduleGripNumericPreview() {
+  if (!uiState.gripEditDraft) {
+    return;
+  }
+  clearGripPreviewTimer();
+  if (!uiState.gripEditDraft.numericInputBuffer) {
+    return;
+  }
+  uiState.gripPreviewTimer = window.setTimeout(() => {
+    uiState.gripPreviewTimer = null;
+    applyGripNumericPreview();
+  }, 250);
 }
 
 function getSelectedTransformableEntities() {
@@ -2149,7 +2274,9 @@ function onKeyDown(event) {
   if (event.key === "Escape") {
     if (uiState.gripEditDraft) {
       if (uiState.gripEditDraft.numericInputBuffer) {
+        clearGripPreviewTimer();
         uiState.gripEditDraft.numericInputBuffer = "";
+        uiState.gripEditDraft.currentPoint = uiState.hoverWorld;
         updateGripEditStatus("Grip edit active.");
         draw();
         return;
@@ -2175,7 +2302,9 @@ function onKeyDown(event) {
     }
     if (uiState.lineDraft) {
       if (uiState.lineDraft.numericInputBuffer) {
+        clearLinePreviewTimer();
         uiState.lineDraft.numericInputBuffer = "";
+        uiState.lineDraft.previewPoint = null;
         updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
         draw();
         return;
@@ -2189,6 +2318,7 @@ function onKeyDown(event) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.gripEditDraft.numericInputBuffer += event.key;
+      scheduleGripNumericPreview();
       updateGripEditStatus("Grip edit active.");
       draw();
       return;
@@ -2201,6 +2331,12 @@ function onKeyDown(event) {
           0,
           -1
         );
+        clearGripPreviewTimer();
+        if (!uiState.gripEditDraft.numericInputBuffer) {
+          uiState.gripEditDraft.currentPoint = uiState.hoverWorld;
+        } else {
+          scheduleGripNumericPreview();
+        }
         updateGripEditStatus("Grip edit active.");
         draw();
         return;
@@ -2222,6 +2358,7 @@ function onKeyDown(event) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.lineDraft.numericInputBuffer += event.key;
+      scheduleLineNumericPreview();
       updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
       draw();
       return;
@@ -2231,6 +2368,12 @@ function onKeyDown(event) {
       if (uiState.lineDraft.numericInputBuffer) {
         event.preventDefault();
         uiState.lineDraft.numericInputBuffer = uiState.lineDraft.numericInputBuffer.slice(0, -1);
+        clearLinePreviewTimer();
+        if (!uiState.lineDraft.numericInputBuffer) {
+          uiState.lineDraft.previewPoint = null;
+        } else {
+          scheduleLineNumericPreview();
+        }
         updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
         draw();
         return;
