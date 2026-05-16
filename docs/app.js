@@ -1676,6 +1676,11 @@ function onCanvasMouseDown(event) {
   }
 
   if (uiState.activeTool === "select") {
+    if (uiState.gripEditDraft) {
+      uiState.gripEditDraft.currentPoint = worldPoint;
+      applyGripEdit();
+      return;
+    }
     const gripHit = findEditableGripAtPoint(worldPoint);
     if (gripHit) {
       startGripEdit(gripHit, worldPoint);
@@ -1747,11 +1752,6 @@ function onWindowMouseUp(event) {
   }
 
   if (event.button !== 0) {
-    return;
-  }
-
-  if (uiState.gripEditDraft) {
-    applyGripEdit();
     return;
   }
 
