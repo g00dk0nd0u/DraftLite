@@ -1272,30 +1272,30 @@ function createGripEditFromNumericInput() {
   const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
   const lengthMm = Number.parseInt(rawLengthMm, 10);
   if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
-    setStatus("Enter a positive line length in mm.");
+    setStatus("Enter a positive grip edit distance in mm.");
     return false;
   }
 
-  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.fixedPoint.x;
-  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.fixedPoint.y;
+  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.startPoint.x;
+  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.startPoint.y;
   const directionLength = Math.hypot(directionX, directionY);
   if (directionLength === 0) {
     setStatus("Move the pointer to indicate a grip edit direction before pressing Enter.");
     return false;
   }
 
-  const lengthUnits = mmToUnits(lengthMm);
-  if (lengthUnits <= 0) {
+  const deltaUnits = mmToUnits(lengthMm);
+  if (deltaUnits <= 0) {
     setStatus("Line length must be greater than zero.");
     return false;
   }
 
   uiState.gripEditDraft.currentPoint = {
     x: roundToGridUnit(
-      uiState.gripEditDraft.fixedPoint.x + (directionX / directionLength) * lengthUnits
+      uiState.gripEditDraft.startPoint.x + (directionX / directionLength) * deltaUnits
     ),
     y: roundToGridUnit(
-      uiState.gripEditDraft.fixedPoint.y + (directionY / directionLength) * lengthUnits
+      uiState.gripEditDraft.startPoint.y + (directionY / directionLength) * deltaUnits
     ),
   };
   return applyGripEdit();
