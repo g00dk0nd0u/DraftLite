@@ -49,6 +49,7 @@ const uiState = {
   lineDraft: null,
   transformDraft: null,
   snapMarker: null,
+  isShiftPressed: false,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   panning: false,
@@ -646,6 +647,11 @@ function renderStatusPanel() {
       ? "Midpoint"
       : "Endpoint"
     : "Grid";
+  const orthoLabel = uiState.isShiftPressed ? "Free angle" : "Ortho ON";
+  const lengthInputLabel =
+    uiState.lineDraft && uiState.lineDraft.numericInputBuffer
+      ? `${uiState.lineDraft.numericInputBuffer} mm`
+      : "-";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
     ["Units", `1 unit = ${MM_PER_UNIT} mm`],
@@ -655,6 +661,8 @@ function renderStatusPanel() {
     ["Active layer", activeLayer ? activeLayer.name : "-"],
     ["Visible layers", String(state.layers.filter((layer) => layer.visible).length)],
     ["Snap", snapLabel],
+    ["Ortho", orthoLabel],
+    ["Length input", lengthInputLabel],
   ];
 
   statusPanel.innerHTML = rows
@@ -1149,6 +1157,7 @@ function formatWorldPoint(point) {
 }
 
 function onPointerMove(event) {
+  uiState.isShiftPressed = event.shiftKey;
   const screenPoint = getScreenPointFromEvent(event);
   const worldPoint = screenToWorld(screenPoint);
   const snappedWorld = resolveConstrainedSnapPoint(worldPoint, event.shiftKey);
@@ -1478,6 +1487,7 @@ function onKeyDown(event) {
   const activeTag = document.activeElement ? document.activeElement.tagName : "";
 
   if (event.key === "Shift") {
+    uiState.isShiftPressed = true;
     refreshPointerConstraint(true);
   }
 
@@ -1551,6 +1561,7 @@ function onKeyDown(event) {
 
 function onKeyUp(event) {
   if (event.key === "Shift") {
+    uiState.isShiftPressed = false;
     refreshPointerConstraint(false);
   }
 }
