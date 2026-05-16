@@ -8,6 +8,7 @@ const GRID_MAJOR_UNIT = 2000;
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 50;
 const DOUBLE_CLICK_MS = 320;
+const CLICK_SELECT_THRESHOLD_PX = 4;
 
 const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
@@ -48,6 +49,7 @@ const uiState = {
   activeTool: "select",
   lineDraft: null,
   transformDraft: null,
+  selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
   hoverWorld: { x: 0, y: 0 },
@@ -137,6 +139,7 @@ function redo() {
 function clearTransientState() {
   uiState.lineDraft = null;
   uiState.transformDraft = null;
+  uiState.selectionWindow = null;
   uiState.snapMarker = null;
 }
 
@@ -349,6 +352,18 @@ function endTransformDraft(message = `${capitalize(uiState.activeTool)} command 
   renderPropertiesPanel();
   renderStatusPanel();
   setStatus(message);
+}
+
+function getSelectionRect(selectionWindow) {
+  return {
+    left: Math.min(selectionWindow.startScreen.x, selectionWindow.currentScreen.x),
+    right: Math.max(selectionWindow.startScreen.x, selectionWindow.currentScreen.x),
+    top: Math.min(selectionWindow.startScreen.y, selectionWindow.currentScreen.y),
+    bottom: Math.max(selectionWindow.startScreen.y, selectionWindow.currentScreen.y),
+    width: Math.abs(selectionWindow.currentScreen.x - selectionWindow.startScreen.x),
+    height: Math.abs(selectionWindow.currentScreen.y - selectionWindow.startScreen.y),
+    isCrossing: selectionWindow.currentScreen.x < selectionWindow.startScreen.x,
+  };
 }
 
 function getLayerById(layerId) {
@@ -695,7 +710,11 @@ function renderStatusPanel() {
     uiState.transformDraft && uiState.transformDraft.numericInputBuffer
       ? `${uiState.transformDraft.numericInputBuffer} mm`
       : "-";
-  const commandStateLabel = uiState.lineDraft
+  const commandStateLabel = uiState.selectionWindow
+    ? getSelectionRect(uiState.selectionWindow).isCrossing
+      ? "Select: crossing window"
+      : "Select: window"
+    : uiState.lineDraft
     ? "Line: specify next point"
     : uiState.transformDraft
       ? `${capitalize(uiState.transformDraft.mode)}: specify second point`
@@ -777,6 +796,10 @@ function draw() {
 
   if (uiState.transformDraft) {
     drawTransformPreview(uiState.transformDraft);
+  }
+
+  if (uiState.selectionWindow) {
+    drawSelectionWindow(uiState.selectionWindow);
   }
 
   if (uiState.snapMarker) {
@@ -920,6 +943,20 @@ function drawSnapMarker(snapMarker) {
     ctx.lineTo(screenPoint.x, screenPoint.y + 6);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+function drawSelectionWindow(selectionWindow) {
+  const rect = getSelectionRect(selectionWindow);
+  ctx.save();
+  ctx.fillStyle = rect.isCrossing ? "rgba(194, 105, 62, 0.10)" : "rgba(120, 94, 63, 0.08)";
+  ctx.strokeStyle = rect.isCrossing ? "rgba(194, 105, 62, 0.82)" : "rgba(120, 94, 63, 0.86)";
+  ctx.lineWidth = 1.2;
+  if (rect.isCrossing) {
+    ctx.setLineDash([8, 6]);
+  }
+  ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+  ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
   ctx.restore();
 }
 
@@ -1244,6 +1281,106 @@ function selectEntityAtPoint(worldPoint) {
   setStatus(hit ? `Selected ${hit.id}.` : "Selection cleared.");
 }
 
+function isPointInsideRect(screenPoint, rect) {
+  return (
+    screenPoint.x >= rect.left &&
+    screenPoint.x <= rect.right &&
+    screenPoint.y >= rect.top &&
+    screenPoint.y <= rect.bottom
+  );
+}
+
+function isLineFullyInsideRect(entity, rect) {
+  const screenP1 = worldToScreen(entity.p1);
+  const screenP2 = worldToScreen(entity.p2);
+  return isPointInsideRect(screenP1, rect) && isPointInsideRect(screenP2, rect);
+}
+
+function orientation(a, b, c) {
+  const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  if (Math.abs(value) < 0.000001) {
+    return 0;
+  }
+  return value > 0 ? 1 : 2;
+}
+
+function onSegment(a, b, c) {
+  return (
+    b.x <= Math.max(a.x, c.x) &&
+    b.x >= Math.min(a.x, c.x) &&
+    b.y <= Math.max(a.y, c.y) &&
+    b.y >= Math.min(a.y, c.y)
+  );
+}
+
+function segmentsIntersect(a1, a2, b1, b2) {
+  const o1 = orientation(a1, a2, b1);
+  const o2 = orientation(a1, a2, b2);
+  const o3 = orientation(b1, b2, a1);
+  const o4 = orientation(b1, b2, a2);
+
+  if (o1 !== o2 && o3 !== o4) {
+    return true;
+  }
+  if (o1 === 0 && onSegment(a1, b1, a2)) {
+    return true;
+  }
+  if (o2 === 0 && onSegment(a1, b2, a2)) {
+    return true;
+  }
+  if (o3 === 0 && onSegment(b1, a1, b2)) {
+    return true;
+  }
+  if (o4 === 0 && onSegment(b1, a2, b2)) {
+    return true;
+  }
+  return false;
+}
+
+function doesLineCrossRect(entity, rect) {
+  const screenP1 = worldToScreen(entity.p1);
+  const screenP2 = worldToScreen(entity.p2);
+  if (isPointInsideRect(screenP1, rect) || isPointInsideRect(screenP2, rect)) {
+    return true;
+  }
+
+  const corners = [
+    { x: rect.left, y: rect.top },
+    { x: rect.right, y: rect.top },
+    { x: rect.right, y: rect.bottom },
+    { x: rect.left, y: rect.bottom },
+  ];
+  const edges = [
+    [corners[0], corners[1]],
+    [corners[1], corners[2]],
+    [corners[2], corners[3]],
+    [corners[3], corners[0]],
+  ];
+
+  return edges.some(([edgeStart, edgeEnd]) => segmentsIntersect(screenP1, screenP2, edgeStart, edgeEnd));
+}
+
+function selectEntitiesByWindow(selectionWindow) {
+  const rect = getSelectionRect(selectionWindow);
+  const selectedIds = state.entities
+    .filter(canSelectEntity)
+    .filter((entity) => {
+      if (entity.type !== "line") {
+        return false;
+      }
+      return rect.isCrossing ? doesLineCrossRect(entity, rect) : isLineFullyInsideRect(entity, rect);
+    })
+    .map((entity) => entity.id);
+
+  state.selectedEntityIds = selectedIds;
+  syncAfterStateChange();
+  setStatus(
+    selectedIds.length
+      ? `${selectedIds.length} entit${selectedIds.length === 1 ? "y" : "ies"} selected.`
+      : "Selection cleared."
+  );
+}
+
 function hitTestEntity(entity, worldPoint) {
   if (entity.type !== "line") {
     return false;
@@ -1295,6 +1432,14 @@ function onPointerMove(event) {
     return;
   }
 
+  if (uiState.selectionWindow) {
+    uiState.selectionWindow.currentScreen = screenPoint;
+    uiState.selectionWindow.currentWorld = worldPoint;
+    draw();
+    renderStatusPanel();
+    return;
+  }
+
   draw();
   renderStatusPanel();
 }
@@ -1337,7 +1482,13 @@ function onCanvasMouseDown(event) {
   }
 
   if (uiState.activeTool === "select") {
-    selectEntityAtPoint(worldPoint);
+    uiState.selectionWindow = {
+      startScreen: screenPoint,
+      currentScreen: screenPoint,
+      startWorld: screenToWorld(screenPoint),
+      currentWorld: screenToWorld(screenPoint),
+    };
+    draw();
   }
 }
 
@@ -1396,6 +1547,24 @@ function onWindowMouseUp(event) {
   }
 
   if (event.button !== 0) {
+    return;
+  }
+
+  if (uiState.selectionWindow) {
+    const selectionWindow = {
+      ...uiState.selectionWindow,
+      currentScreen: getScreenPointFromEvent(event),
+      currentWorld: screenToWorld(getScreenPointFromEvent(event)),
+    };
+    const rect = getSelectionRect(selectionWindow);
+    uiState.selectionWindow = null;
+
+    if (Math.hypot(rect.width, rect.height) < CLICK_SELECT_THRESHOLD_PX) {
+      selectEntityAtPoint(selectionWindow.currentWorld);
+      return;
+    }
+
+    selectEntitiesByWindow(selectionWindow);
     return;
   }
 
