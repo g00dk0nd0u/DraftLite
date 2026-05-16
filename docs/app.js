@@ -287,6 +287,9 @@ function refreshPointerConstraint(shiftKey) {
 
   const snappedWorld = resolveConstrainedSnapPoint(uiState.pointerWorld, shiftKey);
   uiState.hoverWorld = snappedWorld;
+  if (uiState.transformDraft) {
+    uiState.transformDraft.currentPoint = snappedWorld;
+  }
   pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
   draw();
   renderStatusPanel();
