@@ -53,6 +53,7 @@ const uiState = {
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
+  transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   panning: false,
@@ -143,6 +144,7 @@ function clearTransientState() {
   uiState.gripEditDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  clearTransformPreviewTimer();
 }
 
 function createEntityId() {
@@ -335,6 +337,13 @@ function updateTransformDraftStatus(prefix) {
   renderStatusPanel();
 }
 
+function clearTransformPreviewTimer() {
+  if (uiState.transformPreviewTimer) {
+    window.clearTimeout(uiState.transformPreviewTimer);
+    uiState.transformPreviewTimer = null;
+  }
+}
+
 function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
   uiState.lineDraft = {
     start: startPoint,
@@ -353,6 +362,7 @@ function endLineDraft(message = "Line command ended.") {
 }
 
 function endTransformDraft(message = `${capitalize(uiState.activeTool)} command ended.`) {
+  clearTransformPreviewTimer();
   uiState.transformDraft = null;
   state.selectedEntityIds = [];
   uiState.activeTool = "select";
@@ -1061,8 +1071,8 @@ function drawDynamicInput() {
       uiState.pointerWorld,
       {
         emphasized: Boolean(uiState.transformDraft.numericInputBuffer),
-        offsetX: 18,
-        offsetY: 18,
+        offsetX: 12,
+        offsetY: 12,
         anchor: "top-left",
       }
     );
@@ -1239,6 +1249,8 @@ function createTransformFromNumericInput() {
     return false;
   }
 
+  clearTransformPreviewTimer();
+
   const rawDistanceMm = uiState.transformDraft.numericInputBuffer;
   const distanceMm = Number.parseInt(rawDistanceMm, 10);
   if (!rawDistanceMm || !Number.isFinite(distanceMm) || distanceMm <= 0) {
@@ -1270,6 +1282,56 @@ function createTransformFromNumericInput() {
   };
   applyTransformDraft();
   return true;
+}
+
+function applyTransformNumericPreview() {
+  if (!uiState.transformDraft || !uiState.transformDraft.numericInputBuffer) {
+    return false;
+  }
+
+  const rawDistanceMm = uiState.transformDraft.numericInputBuffer;
+  const distanceMm = Number.parseInt(rawDistanceMm, 10);
+  if (!rawDistanceMm || !Number.isFinite(distanceMm) || distanceMm <= 0) {
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.transformDraft.startPoint.x;
+  const directionY = uiState.hoverWorld.y - uiState.transformDraft.startPoint.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    return false;
+  }
+
+  const distanceUnits = mmToUnits(distanceMm);
+  if (distanceUnits <= 0) {
+    return false;
+  }
+
+  uiState.transformDraft.currentPoint = {
+    x: roundToGridUnit(
+      uiState.transformDraft.startPoint.x + (directionX / directionLength) * distanceUnits
+    ),
+    y: roundToGridUnit(
+      uiState.transformDraft.startPoint.y + (directionY / directionLength) * distanceUnits
+    ),
+  };
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function scheduleTransformNumericPreview() {
+  if (!uiState.transformDraft) {
+    return;
+  }
+  clearTransformPreviewTimer();
+  if (!uiState.transformDraft.numericInputBuffer) {
+    return;
+  }
+  uiState.transformPreviewTimer = window.setTimeout(() => {
+    uiState.transformPreviewTimer = null;
+    applyTransformNumericPreview();
+  }, 500);
 }
 
 function findEditableGripAtPoint(worldPoint) {
@@ -1443,6 +1505,9 @@ function updateTransformDraft(worldPoint) {
   if (!uiState.transformDraft) {
     return;
   }
+  if (uiState.transformDraft.numericInputBuffer) {
+    return;
+  }
   uiState.transformDraft.currentPoint = worldPoint;
   draw();
 }
@@ -1452,6 +1517,8 @@ function applyTransformDraft() {
   if (!transformDraft) {
     return false;
   }
+
+  clearTransformPreviewTimer();
 
   const offset = getTransformOffset(transformDraft);
   if (offset.dx === 0 && offset.dy === 0) {
@@ -2092,7 +2159,9 @@ function onKeyDown(event) {
     }
     if (uiState.transformDraft) {
       if (uiState.transformDraft.numericInputBuffer) {
+        clearTransformPreviewTimer();
         uiState.transformDraft.numericInputBuffer = "";
+        uiState.transformDraft.currentPoint = uiState.hoverWorld;
         updateTransformDraftStatus(
           `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
             uiState.transformDraft.startPoint
@@ -2183,6 +2252,7 @@ function onKeyDown(event) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.transformDraft.numericInputBuffer += event.key;
+      scheduleTransformNumericPreview();
       updateTransformDraftStatus(
         `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
           uiState.transformDraft.startPoint
@@ -2199,6 +2269,12 @@ function onKeyDown(event) {
           0,
           -1
         );
+        clearTransformPreviewTimer();
+        if (!uiState.transformDraft.numericInputBuffer) {
+          uiState.transformDraft.currentPoint = uiState.hoverWorld;
+        } else {
+          scheduleTransformNumericPreview();
+        }
         updateTransformDraftStatus(
           `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
             uiState.transformDraft.startPoint
