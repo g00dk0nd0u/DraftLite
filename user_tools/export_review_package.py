@@ -59,7 +59,7 @@ def iter_package_files() -> list[Path]:
 def build_manifest(files: list[Path]) -> str:
     timestamp = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     lines = [
-        "BlockPlan review package",
+        "DraftLite review package",
         f"Created: {timestamp}",
         "",
         "Included files:",
@@ -83,7 +83,7 @@ def build_manifest(files: list[Path]) -> str:
 def create_review_package(output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    zip_path = output_dir / f"blockplan_review_package_{timestamp}.zip"
+    zip_path = output_dir / f"draftlite_review_package_{timestamp}.zip"
 
     files = iter_package_files()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -112,10 +112,10 @@ def main() -> None:
     zip_path = create_review_package(args.output_dir)
     relative_zip_path = os.path.relpath(zip_path, REPO_ROOT)
 
-    print("Review package created.")
+    print("DraftLite review package created.")
     print(f"ZIP: {relative_zip_path}")
     print("")
-    print("Upload this ZIP file to ChatGPT for repository review.")
+    print("Upload this DraftLite ZIP file to ChatGPT for repository review.")
 
 
 if __name__ == "__main__":

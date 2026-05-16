@@ -13,12 +13,19 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 ## Current features
 
 - Line drawing
+- Continuous Line drawing
 - Selection
+- Window / Crossing selection
+- Shift additive selection
 - Move selected lines
 - Copy selected lines
+- AutoCAD-like Move / Copy
 - Delete
 - Pan/Zoom
+- Ortho default ON
 - Layers
+- Endpoint / Midpoint snap
+- Numeric input for Line / Move / Copy
 - JSON save/load
 - SVG export
 
@@ -73,12 +80,14 @@ Included in this first pass:
 
 ## Roadmap
 
-- Numeric input
-- Endpoint/Midpoint snap
-- Dimensions
 - Rectangle
-- Move/Copy
-- Fillet/Trim
+- Linear Dimension
+- Text
+- Trim
+- Fillet
+- Offset
+- DXF export
+- Print / PDF export
 
 ## Run
 

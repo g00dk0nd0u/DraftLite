@@ -1,0 +1,17 @@
+## DraftLite Development Rules
+
+- DraftLite is a static web app published from `docs/` for GitHub Pages.
+- Do not introduce `npm`, bundlers, or any build pipeline.
+- Use HTML, CSS, and JavaScript only.
+- `docs/index.html` must work when opened directly in a browser.
+- Favor an interaction model that feels natural to AutoCAD-experienced users.
+- Ortho is ON by default; holding `Shift` temporarily enables free-angle input.
+- `Line` continues until `Esc` or empty `Enter`.
+- `Move` uses `base point -> second point` and finishes after one confirmed move.
+- `Copy` keeps the same base point and supports continuous copy placement.
+- `Select` uses left-to-right Window selection and right-to-left Crossing selection.
+- Internal coordinates must remain `0.5 mm` integer units.
+- Do not turn DraftLite into a floating-point CAD model.
+- Do not break the existing JSON and SVG save formats.
+- Keep changes small, safe, and easy to verify.
+- After implementation, run `node --check docs/app.js`.
