@@ -1058,11 +1058,12 @@ function drawDynamicInput() {
     );
     drawDynamicInputLabel(
       text,
+      uiState.transformDraft.currentPoint,
       {
-        x: (uiState.transformDraft.startPoint.x + uiState.transformDraft.currentPoint.x) / 2,
-        y: (uiState.transformDraft.startPoint.y + uiState.transformDraft.currentPoint.y) / 2,
-      },
-      { emphasized: Boolean(uiState.transformDraft.numericInputBuffer) }
+        emphasized: Boolean(uiState.transformDraft.numericInputBuffer),
+        offsetX: 18,
+        offsetY: 18,
+      }
     );
     return;
   }
@@ -1089,6 +1090,7 @@ function drawDynamicInputLabel(text, worldPoint, options = {}) {
   }
 
   const screenPoint = worldToScreen(worldPoint);
+  const offsetX = options.offsetX ?? 0;
   const offsetY = options.offsetY ?? -18;
   const label = String(text);
 
@@ -1099,7 +1101,7 @@ function drawDynamicInputLabel(text, worldPoint, options = {}) {
   const paddingY = 5;
   const width = Math.ceil(metrics.width + paddingX * 2);
   const height = 24;
-  const x = Math.round(screenPoint.x - width / 2);
+  const x = Math.round(screenPoint.x - width / 2 + offsetX);
   const y = Math.round(screenPoint.y + offsetY - height / 2);
 
   ctx.fillStyle = options.emphasized ? "rgba(255, 252, 245, 0.98)" : "rgba(250, 247, 240, 0.94)";
