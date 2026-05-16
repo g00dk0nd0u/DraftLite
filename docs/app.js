@@ -247,6 +247,51 @@ function getSnapPoint(worldPoint) {
   return roundWorldPoint(worldPoint);
 }
 
+function applyOrthoConstraint(startPoint, worldPoint, orthoEnabled) {
+  if (!orthoEnabled || !startPoint) {
+    return worldPoint;
+  }
+
+  const dx = worldPoint.x - startPoint.x;
+  const dy = worldPoint.y - startPoint.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return {
+      x: worldPoint.x,
+      y: startPoint.y,
+    };
+  }
+
+  return {
+    x: startPoint.x,
+    y: worldPoint.y,
+  };
+}
+
+function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
+  let constrainedWorld = worldPoint;
+
+  if (uiState.lineDraft) {
+    constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, shiftKey);
+  } else if (uiState.transformDraft) {
+    constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, shiftKey);
+  }
+
+  return getSnapPoint(constrainedWorld);
+}
+
+function refreshPointerConstraint(shiftKey) {
+  if (!uiState.lineDraft && !uiState.transformDraft) {
+    return;
+  }
+
+  const snappedWorld = resolveConstrainedSnapPoint(uiState.pointerWorld, shiftKey);
+  uiState.hoverWorld = snappedWorld;
+  pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
+  draw();
+  renderStatusPanel();
+}
+
 function setStatus(message) {
   statusReadout.textContent = message;
 }
@@ -1054,7 +1099,7 @@ function formatWorldPoint(point) {
 function onPointerMove(event) {
   const screenPoint = getScreenPointFromEvent(event);
   const worldPoint = screenToWorld(screenPoint);
-  const snappedWorld = getSnapPoint(worldPoint);
+  const snappedWorld = resolveConstrainedSnapPoint(worldPoint, event.shiftKey);
   uiState.pointerWorld = worldPoint;
   uiState.hoverWorld = snappedWorld;
   pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
@@ -1097,7 +1142,7 @@ function onCanvasMouseDown(event) {
   }
 
   const screenPoint = getScreenPointFromEvent(event);
-  const worldPoint = getSnapPoint(screenToWorld(screenPoint));
+  const worldPoint = resolveConstrainedSnapPoint(screenToWorld(screenPoint), event.shiftKey);
 
   if (uiState.activeTool === "line") {
     handleLineToolClick(worldPoint);
@@ -1378,6 +1423,10 @@ function addLayer() {
 function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
 
+  if (event.key === "Shift") {
+    refreshPointerConstraint(true);
+  }
+
   if (event.key === "Escape") {
     if (uiState.transformDraft) {
       uiState.transformDraft = null;
@@ -1415,6 +1464,12 @@ function onKeyDown(event) {
   }
 }
 
+function onKeyUp(event) {
+  if (event.key === "Shift") {
+    refreshPointerConstraint(false);
+  }
+}
+
 function bindEvents() {
   canvas.addEventListener("mousedown", onCanvasMouseDown);
   canvas.addEventListener("mousemove", onPointerMove);
@@ -1428,6 +1483,7 @@ function bindEvents() {
     draw();
   });
   window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
 
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
