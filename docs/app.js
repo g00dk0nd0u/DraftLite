@@ -49,6 +49,7 @@ const uiState = {
   activeTool: "select",
   lineDraft: null,
   transformDraft: null,
+  gripEditDraft: null,
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
@@ -139,6 +140,7 @@ function redo() {
 function clearTransientState() {
   uiState.lineDraft = null;
   uiState.transformDraft = null;
+  uiState.gripEditDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
 }
@@ -280,13 +282,15 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
     constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, orthoEnabled);
   } else if (uiState.transformDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, orthoEnabled);
+  } else if (uiState.gripEditDraft) {
+    constrainedWorld = applyOrthoConstraint(uiState.gripEditDraft.fixedPoint, constrainedWorld, orthoEnabled);
   }
 
   return getSnapPoint(constrainedWorld);
 }
 
 function refreshPointerConstraint(shiftKey) {
-  if (!uiState.lineDraft && !uiState.transformDraft) {
+  if (!uiState.lineDraft && !uiState.transformDraft && !uiState.gripEditDraft) {
     return;
   }
 
@@ -294,6 +298,9 @@ function refreshPointerConstraint(shiftKey) {
   uiState.hoverWorld = snappedWorld;
   if (uiState.transformDraft) {
     uiState.transformDraft.currentPoint = snappedWorld;
+  }
+  if (uiState.gripEditDraft) {
+    uiState.gripEditDraft.currentPoint = snappedWorld;
   }
   pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
   draw();
@@ -340,16 +347,34 @@ function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoi
 
 function endLineDraft(message = "Line command ended.") {
   uiState.lineDraft = null;
-  draw();
-  renderStatusPanel();
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
   setStatus(message);
 }
 
 function endTransformDraft(message = `${capitalize(uiState.activeTool)} command ended.`) {
   uiState.transformDraft = null;
   state.selectedEntityIds = [];
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
+  setStatus(message);
+}
+
+function updateGripEditStatus(prefix) {
+  if (!uiState.gripEditDraft) {
+    return;
+  }
+
+  const inputSuffix = uiState.gripEditDraft.numericInputBuffer
+    ? ` Length: ${uiState.gripEditDraft.numericInputBuffer} mm`
+    : " Length: -";
+  setStatus(`${prefix}${inputSuffix}`);
+  renderStatusPanel();
+}
+
+function cancelGripEdit(message = "Grip edit cancelled.") {
+  uiState.gripEditDraft = null;
   draw();
-  renderPropertiesPanel();
   renderStatusPanel();
   setStatus(message);
 }
@@ -703,7 +728,9 @@ function renderStatusPanel() {
     : "Grid";
   const orthoLabel = uiState.isShiftPressed ? "Free angle" : "Ortho ON";
   const lengthInputLabel =
-    uiState.lineDraft && uiState.lineDraft.numericInputBuffer
+    uiState.gripEditDraft && uiState.gripEditDraft.numericInputBuffer
+      ? `${uiState.gripEditDraft.numericInputBuffer} mm`
+      : uiState.lineDraft && uiState.lineDraft.numericInputBuffer
       ? `${uiState.lineDraft.numericInputBuffer} mm`
       : "-";
   const distanceInputLabel =
@@ -714,6 +741,8 @@ function renderStatusPanel() {
     ? getSelectionRect(uiState.selectionWindow).isCrossing
       ? "Select: crossing window"
       : "Select: window"
+    : uiState.gripEditDraft
+      ? "Select: edit endpoint"
     : uiState.lineDraft
     ? "Line: specify next point"
     : uiState.transformDraft
@@ -796,6 +825,10 @@ function draw() {
 
   if (uiState.transformDraft) {
     drawTransformPreview(uiState.transformDraft);
+  }
+
+  if (uiState.gripEditDraft) {
+    drawGripEditPreview(uiState.gripEditDraft);
   }
 
   if (uiState.selectionWindow) {
@@ -981,6 +1014,20 @@ function drawTransformPreview(transformDraft) {
   });
 }
 
+function drawGripEditPreview(gripEditDraft) {
+  const layer = getLayerById(gripEditDraft.originalEntity.layerId);
+  if (!layer || !isLayerVisible(gripEditDraft.originalEntity.layerId)) {
+    return;
+  }
+
+  const previewLine = {
+    ...gripEditDraft.originalEntity,
+    p1: gripEditDraft.endpoint === "p1" ? gripEditDraft.currentPoint : gripEditDraft.fixedPoint,
+    p2: gripEditDraft.endpoint === "p2" ? gripEditDraft.currentPoint : gripEditDraft.fixedPoint,
+  };
+  drawPreviewLineEntity(previewLine);
+}
+
 function drawPreviewLineEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer || !isLayerVisible(entity.layerId)) {
@@ -1126,6 +1173,132 @@ function createTransformFromNumericInput() {
   };
   applyTransformDraft();
   return true;
+}
+
+function findEditableGripAtPoint(worldPoint) {
+  const candidates = state.selectedEntityIds
+    .map(getEntityById)
+    .filter((entity) => entity && entity.type === "line" && canSelectEntity(entity))
+    .flatMap((entity) => [
+      {
+        entity,
+        endpoint: "p1",
+        point: entity.p1,
+        distancePx: distanceScreenPx(worldPoint, entity.p1),
+      },
+      {
+        entity,
+        endpoint: "p2",
+        point: entity.p2,
+        distancePx: distanceScreenPx(worldPoint, entity.p2),
+      },
+    ])
+    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx);
+
+  return candidates[0] || null;
+}
+
+function startGripEdit(gripHit, worldPoint) {
+  uiState.gripEditDraft = {
+    entityId: gripHit.entity.id,
+    endpoint: gripHit.endpoint,
+    fixedPoint: deepClone(gripHit.endpoint === "p1" ? gripHit.entity.p2 : gripHit.entity.p1),
+    startPoint: deepClone(gripHit.point),
+    currentPoint: worldPoint,
+    originalEntity: deepClone(gripHit.entity),
+    numericInputBuffer: "",
+  };
+  updateGripEditStatus(
+    `Grip edit started from ${formatWorldPoint(worldPoint)} with ${gripHit.endpoint.toUpperCase()} active.`
+  );
+  draw();
+}
+
+function updateGripEdit(worldPoint) {
+  if (!uiState.gripEditDraft) {
+    return;
+  }
+  uiState.gripEditDraft.currentPoint = worldPoint;
+  draw();
+}
+
+function applyGripEdit() {
+  const gripEditDraft = uiState.gripEditDraft;
+  if (!gripEditDraft) {
+    return false;
+  }
+
+  const nextPoint = getSnapPoint(gripEditDraft.currentPoint);
+  if (nextPoint.x === gripEditDraft.startPoint.x && nextPoint.y === gripEditDraft.startPoint.y) {
+    cancelGripEdit("Grip edit cancelled.");
+    return false;
+  }
+  if (
+    nextPoint.x === gripEditDraft.fixedPoint.x &&
+    nextPoint.y === gripEditDraft.fixedPoint.y
+  ) {
+    setStatus("Line length must be greater than zero.");
+    draw();
+    renderStatusPanel();
+    return false;
+  }
+
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (entity.id !== gripEditDraft.entityId) {
+      return entity;
+    }
+    if (!canSelectEntity(entity)) {
+      return entity;
+    }
+    return {
+      ...entity,
+      p1: gripEditDraft.endpoint === "p1" ? nextPoint : gripEditDraft.fixedPoint,
+      p2: gripEditDraft.endpoint === "p2" ? nextPoint : gripEditDraft.fixedPoint,
+    };
+  });
+  uiState.gripEditDraft = null;
+  syncAfterStateChange();
+  setStatus("Grip edit applied.");
+  return true;
+}
+
+function createGripEditFromNumericInput() {
+  if (!uiState.gripEditDraft) {
+    return false;
+  }
+
+  const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
+  const lengthMm = Number.parseInt(rawLengthMm, 10);
+  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
+    setStatus("Enter a positive line length in mm.");
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.fixedPoint.x;
+  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.fixedPoint.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    setStatus("Move the pointer to indicate a grip edit direction before pressing Enter.");
+    return false;
+  }
+
+  const lengthUnits = mmToUnits(lengthMm);
+  if (lengthUnits <= 0) {
+    setStatus("Line length must be greater than zero.");
+    return false;
+  }
+
+  uiState.gripEditDraft.currentPoint = {
+    x: roundToGridUnit(
+      uiState.gripEditDraft.fixedPoint.x + (directionX / directionLength) * lengthUnits
+    ),
+    y: roundToGridUnit(
+      uiState.gripEditDraft.fixedPoint.y + (directionY / directionLength) * lengthUnits
+    ),
+  };
+  return applyGripEdit();
 }
 
 function getSelectedTransformableEntities() {
@@ -1447,6 +1620,12 @@ function onPointerMove(event) {
     return;
   }
 
+  if (uiState.gripEditDraft) {
+    updateGripEdit(snappedWorld);
+    renderStatusPanel();
+    return;
+  }
+
   if (uiState.selectionWindow) {
     uiState.selectionWindow.currentScreen = screenPoint;
     uiState.selectionWindow.currentWorld = worldPoint;
@@ -1497,6 +1676,11 @@ function onCanvasMouseDown(event) {
   }
 
   if (uiState.activeTool === "select") {
+    const gripHit = findEditableGripAtPoint(worldPoint);
+    if (gripHit) {
+      startGripEdit(gripHit, worldPoint);
+      return;
+    }
     uiState.selectionWindow = {
       append: event.shiftKey,
       startScreen: screenPoint,
@@ -1563,6 +1747,11 @@ function onWindowMouseUp(event) {
   }
 
   if (event.button !== 0) {
+    return;
+  }
+
+  if (uiState.gripEditDraft) {
+    applyGripEdit();
     return;
   }
 
@@ -1794,6 +1983,16 @@ function onKeyDown(event) {
   }
 
   if (event.key === "Escape") {
+    if (uiState.gripEditDraft) {
+      if (uiState.gripEditDraft.numericInputBuffer) {
+        uiState.gripEditDraft.numericInputBuffer = "";
+        updateGripEditStatus("Grip edit active.");
+        draw();
+        return;
+      }
+      cancelGripEdit();
+      return;
+    }
     if (uiState.transformDraft) {
       if (uiState.transformDraft.numericInputBuffer) {
         uiState.transformDraft.numericInputBuffer = "";
@@ -1816,6 +2015,39 @@ function onKeyDown(event) {
         return;
       }
       endLineDraft("Line command cancelled.");
+      return;
+    }
+  }
+
+  if (uiState.gripEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+      uiState.gripEditDraft.numericInputBuffer += event.key;
+      updateGripEditStatus("Grip edit active.");
+      draw();
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      if (uiState.gripEditDraft.numericInputBuffer) {
+        event.preventDefault();
+        uiState.gripEditDraft.numericInputBuffer = uiState.gripEditDraft.numericInputBuffer.slice(
+          0,
+          -1
+        );
+        updateGripEditStatus("Grip edit active.");
+        draw();
+        return;
+      }
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (uiState.gripEditDraft.numericInputBuffer) {
+        createGripEditFromNumericInput();
+        return;
+      }
+      applyGripEdit();
       return;
     }
   }
