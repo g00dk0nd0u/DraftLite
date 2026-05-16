@@ -10,6 +10,12 @@
 - `Move` uses `base point -> second point` and finishes after one confirmed move.
 - `Copy` keeps the same base point and supports continuous copy placement.
 - `Select` uses left-to-right Window selection and right-to-left Crossing selection.
+- While using `Select`, clicking an endpoint grip on a selected line starts endpoint grip edit.
+- Grip edit should follow an AutoCAD-like endpoint stretch interaction.
+- Numeric input preview for `Line` / `Move` / `Copy` / `Grip edit` must use a `250ms` delayed preview.
+- Confirming with `Enter` must match the currently displayed preview position.
+- `Move` / `Copy` Dynamic Input should be shown at the lower-right of the cursor.
+- `Line` / `Grip edit` Dynamic Input should be shown near the edited segment.
 - Internal coordinates must remain `0.5 mm` integer units.
 - Do not turn DraftLite into a floating-point CAD model.
 - Do not break the existing JSON and SVG save formats.

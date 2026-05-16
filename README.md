@@ -19,12 +19,17 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Move selected lines
 - Copy selected lines
 - AutoCAD-like Move / Copy
+- Grip edit for selected line endpoints
+- AutoCAD-like endpoint stretch behavior
 - Delete
 - Pan/Zoom
 - Ortho default ON
 - Layers
 - Endpoint / Midpoint snap
-- Numeric input for Line / Move / Copy
+- Dynamic Input-style distance display
+- Numeric input for Line / Move / Copy / Grip edit
+- 250ms delayed numeric preview for Line / Move / Copy / Grip edit
+- Move / Copy / Grip edit numeric input preview
 - JSON save/load
 - SVG export
 
@@ -67,6 +72,12 @@ Included in this first pass:
 - Ortho is ON by default, and holding `Shift` temporarily enables free-angle input
 - `Select` uses left-to-right `Window selection` and right-to-left `Crossing selection`
 - `Shift + click` and `Shift + selection window` add to the current selection
+- Clicking a selected line endpoint grip in `Select` starts endpoint grip edit
+- Grip edit follows an AutoCAD-like endpoint stretch interaction
+- Numeric input preview for `Line` / `Move` / `Copy` / `Grip edit` uses a `250ms` delayed preview
+- Confirming with `Enter` matches the currently displayed preview position
+- `Move` / `Copy` dynamic input is shown near the lower-right of the cursor
+- `Line` / `Grip edit` dynamic input is shown near the edited segment
 - Numeric input is entered in `mm`, while internal geometry remains `0.5 mm` integer units
 
 ## File layout
