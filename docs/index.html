@@ -7,27 +7,92 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">DraftLite</p>
-        <h1>素早く下書きを組み立てるための軽量な作業面。</h1>
-        <p class="lede">
-          この雛形は、あとから内容を差し替えやすい静的なベースとして用意しています。
-        </p>
-        <div class="actions">
-          <button id="primaryAction" type="button">メモを追加</button>
-          <button id="secondaryAction" type="button" class="ghost">内容を整える</button>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">DL</div>
+          <div class="brand-copy">
+            <strong>DraftLite</strong>
+            <span>Revit Drafting View Lite for quick architectural sketching</span>
+          </div>
         </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Draft Board</h2>
-          <span id="status" class="status">Ready</span>
+        <div class="toolbar" role="toolbar" aria-label="Drafting tools">
+          <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select">
+            Select
+          </button>
+          <button id="toolLineButton" class="tool-button" type="button" data-tool="line">
+            Line
+          </button>
+          <button id="moveButton" class="tool-button is-disabled" type="button" disabled title="Phase 2">
+            Move
+          </button>
+          <button id="copyButton" class="tool-button is-disabled" type="button" disabled title="Phase 2">
+            Copy
+          </button>
+          <button id="deleteButton" class="tool-button" type="button">Delete</button>
+          <button id="undoButton" class="tool-button" type="button">Undo</button>
+          <button id="redoButton" class="tool-button" type="button">Redo</button>
+          <button id="fitAllButton" class="tool-button" type="button">Fit All</button>
+          <button id="saveJsonButton" class="tool-button" type="button">Save JSON</button>
+          <button id="loadJsonButton" class="tool-button" type="button">Load JSON</button>
+          <button id="exportSvgButton" class="tool-button" type="button">Export SVG</button>
         </div>
-        <ul id="draftList" class="draft-list" aria-live="polite"></ul>
-      </section>
-    </main>
+      </header>
+
+      <main class="workspace">
+        <section class="canvas-shell" aria-label="Drafting canvas area">
+          <div class="canvas-header">
+            <div class="canvas-meta">
+              <span id="toolReadout">Tool: Select</span>
+              <span id="pointerReadout">X: 0 mm, Y: 0 mm</span>
+            </div>
+            <div class="canvas-meta">
+              <span id="zoomReadout">Zoom: 100%</span>
+              <span id="statusReadout">Ready.</span>
+            </div>
+          </div>
+          <div id="canvasViewport" class="canvas-viewport">
+            <canvas id="draftCanvas" aria-label="DraftLite canvas"></canvas>
+          </div>
+        </section>
+
+        <aside class="sidebar" aria-label="Layers and properties">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Layers</h2>
+                <p>Visible, editable drafting layers.</p>
+              </div>
+              <button id="addLayerButton" class="panel-button" type="button">Add</button>
+            </div>
+            <div id="layerList" class="layer-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Properties</h2>
+                <p>Selected entity summary.</p>
+              </div>
+            </div>
+            <div id="propertiesPanel" class="properties-panel"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Status</h2>
+                <p>Current document and snap settings.</p>
+              </div>
+            </div>
+            <dl id="statusPanel" class="status-panel"></dl>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <input id="loadJsonInput" type="file" accept=".json,application/json" hidden />
 
     <script src="app.js"></script>
   </body>

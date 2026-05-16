@@ -1,0 +1,71 @@
+# DraftLite
+
+A lightweight browser-based 2D drafting sketch tool for architectural details and residential plan studies.
+
+## Concept
+
+- Revit Drafting View Lite
+- 0.5mm integer grid
+- no floating point geometry
+- no build step
+- HTML/CSS/JavaScript only
+
+## Current features
+
+- Line drawing
+- Selection
+- Delete
+- Pan/Zoom
+- Layers
+- JSON save/load
+- SVG export
+
+## Current MVP scope
+
+The current implementation is a static browser app under `docs/` and runs directly by opening `docs/index.html`.
+
+Included in this first pass:
+
+- Canvas drafting workspace
+- Top toolbar and right sidebar
+- Integer-unit world coordinate model
+- Line tool with preview
+- Select and highlight
+- Delete
+- Undo / Redo
+- Mouse wheel zoom
+- Middle mouse drag pan
+- Middle double click fit all
+- Layer visible / lock / color / active controls
+- JSON save/load
+- localStorage autosave restore
+- SVG export for visible lines
+
+## Coordinate model
+
+- Internal geometry uses integers only
+- `1 unit = 0.5 mm`
+- Example: `3000 mm = 6000 units`
+- Display values are shown in `mm`
+- Saved document geometry remains integer `unit` data
+
+## File layout
+
+- `docs/index.html`
+- `docs/style.css`
+- `docs/app.js`
+- `reference/blockplan.zip`
+- `user_tools/export_review_package.py`
+
+## Roadmap
+
+- Numeric input
+- Endpoint/Midpoint snap
+- Dimensions
+- Rectangle
+- Move/Copy
+- Fillet/Trim
+
+## Run
+
+Open `docs/index.html` directly in a browser. No npm, no build step, and no external library are required.
