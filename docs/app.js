@@ -1233,6 +1233,7 @@ function applyTransformDraft() {
   if (transformDraft.mode === "move") {
     uiState.transformDraft = null;
     state.selectedEntityIds = [];
+    uiState.activeTool = "select";
     syncAfterStateChange();
     setStatus("Move applied.");
     return true;

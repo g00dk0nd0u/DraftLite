@@ -12,7 +12,6 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 
 ## Current features
 
-- Line drawing
 - Continuous Line drawing
 - Selection
 - Window / Crossing selection
