@@ -312,6 +312,17 @@ function updateLineDraftStatus(prefix) {
   setStatus(`${prefix}${inputSuffix}`);
 }
 
+function updateTransformDraftStatus(prefix) {
+  if (!uiState.transformDraft) {
+    return;
+  }
+
+  const inputSuffix = uiState.transformDraft.numericInputBuffer
+    ? ` Distance: ${uiState.transformDraft.numericInputBuffer} mm`
+    : " Distance: -";
+  setStatus(`${prefix}${inputSuffix}`);
+}
+
 function getLayerById(layerId) {
   return state.layers.find((layer) => layer.id === layerId) || null;
 }
@@ -652,6 +663,10 @@ function renderStatusPanel() {
     uiState.lineDraft && uiState.lineDraft.numericInputBuffer
       ? `${uiState.lineDraft.numericInputBuffer} mm`
       : "-";
+  const distanceInputLabel =
+    uiState.transformDraft && uiState.transformDraft.numericInputBuffer
+      ? `${uiState.transformDraft.numericInputBuffer} mm`
+      : "-";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
     ["Units", `1 unit = ${MM_PER_UNIT} mm`],
@@ -663,6 +678,7 @@ function renderStatusPanel() {
     ["Snap", snapLabel],
     ["Ortho", orthoLabel],
     ["Length input", lengthInputLabel],
+    ["Distance input", distanceInputLabel],
   ];
 
   statusPanel.innerHTML = rows
@@ -988,6 +1004,44 @@ function createLineFromNumericInput() {
   return true;
 }
 
+function createTransformFromNumericInput() {
+  if (!uiState.transformDraft) {
+    return false;
+  }
+
+  const rawDistanceMm = uiState.transformDraft.numericInputBuffer;
+  const distanceMm = Number.parseInt(rawDistanceMm, 10);
+  if (!rawDistanceMm || !Number.isFinite(distanceMm) || distanceMm <= 0) {
+    setStatus("Enter a positive move/copy distance in mm.");
+    return false;
+  }
+
+  const directionX = uiState.hoverWorld.x - uiState.transformDraft.startPoint.x;
+  const directionY = uiState.hoverWorld.y - uiState.transformDraft.startPoint.y;
+  const directionLength = Math.hypot(directionX, directionY);
+  if (directionLength === 0) {
+    setStatus("Move the pointer to indicate a move/copy direction before pressing Enter.");
+    return false;
+  }
+
+  const distanceUnits = mmToUnits(distanceMm);
+  if (distanceUnits <= 0) {
+    setStatus("Move/copy distance must be greater than zero.");
+    return false;
+  }
+
+  uiState.transformDraft.currentPoint = {
+    x: roundToGridUnit(
+      uiState.transformDraft.startPoint.x + (directionX / directionLength) * distanceUnits
+    ),
+    y: roundToGridUnit(
+      uiState.transformDraft.startPoint.y + (directionY / directionLength) * distanceUnits
+    ),
+  };
+  applyTransformDraft();
+  return true;
+}
+
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
@@ -1009,10 +1063,13 @@ function startTransformDraft(worldPoint) {
     mode: uiState.activeTool,
     startPoint: worldPoint,
     currentPoint: worldPoint,
+    numericInputBuffer: "",
     entityIds: selectedEntities.map((entity) => entity.id),
     entities: deepClone(selectedEntities),
   };
-  setStatus(`${capitalize(uiState.activeTool)} start set at ${formatWorldPoint(worldPoint)}.`);
+  updateTransformDraftStatus(
+    `${capitalize(uiState.activeTool)} start set at ${formatWorldPoint(worldPoint)}.`
+  );
   draw();
   return true;
 }
@@ -1493,6 +1550,16 @@ function onKeyDown(event) {
 
   if (event.key === "Escape") {
     if (uiState.transformDraft) {
+      if (uiState.transformDraft.numericInputBuffer) {
+        uiState.transformDraft.numericInputBuffer = "";
+        updateTransformDraftStatus(
+          `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
+            uiState.transformDraft.startPoint
+          )}.`
+        );
+        draw();
+        return;
+      }
       uiState.transformDraft = null;
       draw();
       setStatus(`${capitalize(uiState.activeTool)} cancelled.`);
@@ -1534,6 +1601,43 @@ function onKeyDown(event) {
     if (event.key === "Enter") {
       event.preventDefault();
       createLineFromNumericInput();
+      return;
+    }
+  }
+
+  if (uiState.transformDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+      uiState.transformDraft.numericInputBuffer += event.key;
+      updateTransformDraftStatus(
+        `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
+          uiState.transformDraft.startPoint
+        )}.`
+      );
+      draw();
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      if (uiState.transformDraft.numericInputBuffer) {
+        event.preventDefault();
+        uiState.transformDraft.numericInputBuffer = uiState.transformDraft.numericInputBuffer.slice(
+          0,
+          -1
+        );
+        updateTransformDraftStatus(
+          `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
+            uiState.transformDraft.startPoint
+          )}.`
+        );
+        draw();
+        return;
+      }
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createTransformFromNumericInput();
       return;
     }
   }
