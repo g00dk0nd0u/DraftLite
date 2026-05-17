@@ -25,6 +25,8 @@
 - Do not introduce arc entities yet.
 - Fillet modifies existing line endpoints to their infinite-line intersection.
 - Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.
+- Fillet must clearly show its two-step state: first line picked, then second side-to-keep pick.
+- Esc must cancel Fillet and clear the temporary selection.
 - Keep line-only entity model until Rectangle / Dimension strategy is decided.
 - Keep changes small, safe, and easy to verify.
 - After implementation, run `node --check docs/app.js`.

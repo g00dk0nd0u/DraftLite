@@ -143,6 +143,9 @@ function redo() {
 }
 
 function clearTransientState() {
+  if (uiState.filletDraft) {
+    state.selectedEntityIds = [];
+  }
   uiState.lineDraft = null;
   uiState.transformDraft = null;
   uiState.gripEditDraft = null;
@@ -411,6 +414,14 @@ function cancelGripEdit(message = "Grip edit cancelled.") {
   uiState.gripEditDraft = null;
   draw();
   renderStatusPanel();
+  setStatus(message);
+}
+
+function cancelFillet(message = "Fillet cancelled.") {
+  state.selectedEntityIds = [];
+  uiState.filletDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
   setStatus(message);
 }
 
@@ -779,7 +790,7 @@ function renderStatusPanel() {
     : uiState.gripEditDraft
       ? "Select: edit endpoint"
     : uiState.filletDraft
-      ? "Fillet: select second line"
+      ? "Fillet: pick side to keep on second line"
     : uiState.lineDraft
     ? "Line: specify next point"
     : uiState.transformDraft
@@ -791,7 +802,7 @@ function renderStatusPanel() {
           : uiState.activeTool === "copy"
             ? "Copy: specify base point"
             : uiState.activeTool === "fillet"
-              ? "Fillet: select first line"
+              ? "Fillet: pick first line"
             : "Select: pick entity";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
@@ -1816,7 +1827,7 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
     return false;
   }
   if (firstLine.id === secondLine.id) {
-    setStatus("Pick a different second line for Fillet.");
+    setStatus("Fillet: pick a different second line.");
     return false;
   }
 
@@ -1873,12 +1884,12 @@ function handleFilletToolClick(worldPoint) {
     };
     state.selectedEntityIds = [targetLine.id];
     syncAfterStateChange();
-    setStatus("Fillet first line selected. Pick the side to keep on the second line.");
+    setStatus("Fillet: first line selected. Click the side to keep on the second line.");
     return;
   }
 
   if (uiState.filletDraft.firstEntityId === targetLine.id) {
-    setStatus("Pick a different second line for Fillet.");
+    setStatus("Fillet: pick a different second line.");
     return;
   }
 
@@ -2493,11 +2504,7 @@ function onKeyDown(event) {
       return;
     }
     if (uiState.filletDraft || uiState.activeTool === "fillet") {
-      state.selectedEntityIds = [];
-      uiState.filletDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Fillet command cancelled.");
+      cancelFillet();
       return;
     }
   }
