@@ -13,12 +13,12 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 ## Current features
 
 - Continuous Line drawing
-- Rectangle tool (creates 4 line entities)
+- Rectangle tool (creates one rectangular region object)
 - Selection
 - Window / Crossing selection
 - Shift additive selection
-- Move selected lines
-- Copy selected lines
+- Move selected entities (line/rectangle)
+- Copy selected entities (line/rectangle)
 - Line-to-Line Align for parallel lines
 - Radius-0 Fillet / Join for two lines
 - Fillet keeps the clicked side of each line and moves the opposite endpoints to the intersection
@@ -32,11 +32,13 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Layers
 - Endpoint / Midpoint snap
 - Dynamic Input-style distance display
+- Explode selected rectangle objects into 4 lines
+- Properties panel supports rectangle Name / X / Y / Width / Height / Fill editing
 - Numeric input for Line / Move / Copy / Grip edit
 - 250ms delayed numeric preview for Line / Move / Copy / Grip edit
 - Move / Copy / Grip edit numeric input preview
 - JSON save/load
-- DXF export
+- DXF export (rectangles exported as LINE outline)
 
 ## Current MVP scope
 
@@ -57,7 +59,7 @@ Included in this first pass:
 - Layer visible / lock / color / active controls
 - JSON save/load
 - localStorage autosave restore
-- DXF export for visible lines
+- DXF export (rectangles exported as LINE outline) for visible lines
 
 ## Coordinate model
 
@@ -72,7 +74,7 @@ Included in this first pass:
 
 - Interaction feel is intentionally biased toward AutoCAD-experienced users
 - `Line` continues segment-by-segment until `Esc` or empty `Enter`
-- `Rectangle` uses first corner -> opposite corner and creates 4 line entities
+- `Rectangle` uses first corner -> opposite corner and creates one rectangle region object
 - `Move` uses `base point -> second point` and finishes after one confirmed move
 - `Copy` keeps the same base point and supports continuous copy placement until `Esc` or empty `Enter`
 - Ortho is ON by default, and holding `Shift` temporarily enables free-angle input
@@ -161,3 +163,9 @@ const result = JSON.parse(output.dataset.lastResult);
 result.client.x;
 result.client.y;
 ```
+
+
+## Testing
+
+- `node --check docs/app.js`
+- Static code review checks: rectangle creates one `rect`, normalize supports `line` + `rect`, transform/explode/DXF paths for rect, JSON save/load keeps rect, and AGENTS policy is updated for rectangle-first workflow.

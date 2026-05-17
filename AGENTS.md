@@ -32,8 +32,10 @@
 - Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.
 - Fillet must clearly show its two-step state: first line picked, then second side-to-keep pick.
 - Esc must cancel Fillet and clear the temporary selection.
-- Keep line-only entity model until Rectangle / Dimension strategy is decided.
-- Rectangle tool may exist, but the initial implementation must still create 4 `line` entities rather than introducing a new rectangle entity type.
+- Rectangle is now a first-class `type:"rect"` rectangular region object.
+- Keep compatibility with existing `line` entities and legacy line-only JSON documents.
+- Use Explode only when rectangle outlines need to be converted into 4 `line` entities.
+- DXF export should convert `rect` entities to virtual 4-segment `LINE` outlines at export time without mutating internal state.
 - Keep changes small, safe, and easy to verify.
 - Prefer using `scripts/serve.py` and Chrome GUI verification when changing interactive tools.
 - For geometry tools such as Align and Fillet, verify both visually and numerically using `window.DraftLiteDebug`.

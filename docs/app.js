@@ -38,6 +38,7 @@ const fitAllButton = document.getElementById("fitAllButton");
 const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
+const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
 
 const ctx = canvas.getContext("2d");
@@ -222,28 +223,49 @@ function getLineMidpoint(entity) {
   });
 }
 
+function getRectBoxFromPoints(startPoint, oppositePoint, options = {}) {
+  const snap = options.snap !== false;
+  const start = snap ? getSnapPoint(startPoint) : roundWorldPoint(startPoint);
+  const end = snap ? getSnapPoint(oppositePoint) : roundWorldPoint(oppositePoint);
+  const minX = Math.min(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+  if (width <= 0 || height <= 0) return null;
+  return { x: minX, y: minY, width, height };
+}
+
+function getRectSnapPoints(entity) {
+  const { x, y, width, height } = entity;
+  return [
+    { kind: "endpoint", point: { x, y } },
+    { kind: "endpoint", point: { x: x + width, y } },
+    { kind: "endpoint", point: { x: x + width, y: y + height } },
+    { kind: "endpoint", point: { x, y: y + height } },
+    { kind: "midpoint", point: { x: x + width / 2, y } },
+    { kind: "midpoint", point: { x: x + width, y: y + height / 2 } },
+    { kind: "midpoint", point: { x: x + width / 2, y: y + height } },
+    { kind: "midpoint", point: { x, y: y + height / 2 } },
+    { kind: "center", point: { x: x + width / 2, y: y + height / 2 } },
+  ].map((c) => ({ ...c, point: roundWorldPoint(c.point) }));
+}
+
 function collectSnapCandidates(worldPoint) {
   return state.entities
-    .filter((entity) => entity.type === "line" && isLayerVisible(entity.layerId))
+    .filter((entity) => isLayerVisible(entity.layerId))
     .flatMap((entity) => {
-      const midpoint = getLineMidpoint(entity);
-      return [
-        {
-          kind: "endpoint",
-          point: entity.p1,
-          distancePx: distanceScreenPx(worldPoint, entity.p1),
-        },
-        {
-          kind: "endpoint",
-          point: entity.p2,
-          distancePx: distanceScreenPx(worldPoint, entity.p2),
-        },
-        {
-          kind: "midpoint",
-          point: midpoint,
-          distancePx: distanceScreenPx(worldPoint, midpoint),
-        },
-      ];
+      if (entity.type === "line") {
+        const midpoint = getLineMidpoint(entity);
+        return [
+          { kind: "endpoint", point: entity.p1, distancePx: distanceScreenPx(worldPoint, entity.p1) },
+          { kind: "endpoint", point: entity.p2, distancePx: distanceScreenPx(worldPoint, entity.p2) },
+          { kind: "midpoint", point: midpoint, distancePx: distanceScreenPx(worldPoint, midpoint) },
+        ];
+      }
+      if (entity.type === "rect") {
+        return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      return [];
     });
 }
 
@@ -505,24 +527,48 @@ function normalizeLayer(layer, index) {
 }
 
 function normalizeEntity(entity) {
-  if (!entity || entity.type !== "line") {
+  if (!entity || !entity.type) {
     return null;
   }
-  const p1 = entity.p1 || {};
-  const p2 = entity.p2 || {};
-  return {
-    id: typeof entity.id === "string" ? entity.id : null,
-    type: "line",
-    layerId: typeof entity.layerId === "string" ? entity.layerId : null,
-    p1: {
-      x: roundToGridUnit(Number(p1.x) || 0),
-      y: roundToGridUnit(Number(p1.y) || 0),
-    },
-    p2: {
-      x: roundToGridUnit(Number(p2.x) || 0),
-      y: roundToGridUnit(Number(p2.y) || 0),
-    },
-  };
+  if (entity.type === "line") {
+    const p1 = entity.p1 || {};
+    const p2 = entity.p2 || {};
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "line",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      p1: {
+        x: roundToGridUnit(Number(p1.x) || 0),
+        y: roundToGridUnit(Number(p1.y) || 0),
+      },
+      p2: {
+        x: roundToGridUnit(Number(p2.x) || 0),
+        y: roundToGridUnit(Number(p2.y) || 0),
+      },
+    };
+  }
+  if (entity.type === "rect") {
+    const x = roundToGridUnit(Number(entity.x) || 0);
+    const y = roundToGridUnit(Number(entity.y) || 0);
+    const width = roundToGridUnit(Number(entity.width) || 0);
+    const height = roundToGridUnit(Number(entity.height) || 0);
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "rect",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      x,
+      y,
+      width,
+      height,
+      rotation: 0,
+      name: typeof entity.name === "string" ? entity.name : "Box",
+      fill: entity.fill !== false,
+    };
+  }
+  return null;
 }
 
 function normalizeDocument(raw) {
@@ -771,7 +817,7 @@ function renderPropertiesPanel() {
   if (!state.selectedEntityIds.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
-    empty.textContent = "No entity selected. Use Select to inspect line geometry.";
+    empty.textContent = "No entity selected.";
     propertiesPanel.appendChild(empty);
     return;
   }
@@ -788,15 +834,113 @@ function renderPropertiesPanel() {
     return;
   }
 
+  if (selectedEntities.length > 1) {
+    const multiple = document.createElement("p");
+    multiple.className = "panel-empty";
+    multiple.textContent = `Multiple entities selected. (${selectedEntities.length})`;
+    propertiesPanel.appendChild(multiple);
+    return;
+  }
+  const entity = selectedEntities[0];
+  if (entity.type === "rect") {
+    const form = document.createElement("div");
+    form.className = "prop-grid";
+    const fields = [
+      ["Name", "text", String(entity.name || "Box"), "name"],
+      ["X mm", "number", String(unitsToMm(entity.x)), "x"],
+      ["Y mm", "number", String(unitsToMm(entity.y)), "y"],
+      ["Width mm", "number", String(unitsToMm(entity.width)), "width"],
+      ["Height mm", "number", String(unitsToMm(entity.height)), "height"],
+      ["Rotation", "number", String(entity.rotation || 0), "rotation"],
+    ];
+    fields.forEach(([label, type, val, key]) => {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label;
+      const input = document.createElement("input");
+      input.type = type;
+      input.value = val;
+      if (key === "rotation") {
+        input.disabled = true;
+      }
+      input.addEventListener("change", () => {
+        if (key === "rotation") return;
+        if (key === "name") {
+          pushUndoState();
+          entity.name = input.value || "Box";
+          syncAfterStateChange();
+          return;
+        }
+        const numericValue = Number(input.value);
+        if (!Number.isFinite(numericValue)) {
+          input.value = val;
+          setStatus(`${label} must be a valid number.`);
+          return;
+        }
+        if (key === "width" || key === "height") {
+          const nextUnits = mmToUnits(numericValue);
+          if (nextUnits <= 0) {
+            input.value = String(unitsToMm(entity[key]));
+            setStatus(`${label} must be greater than zero.`);
+            return;
+          }
+          pushUndoState();
+          entity[key] = nextUnits;
+          syncAfterStateChange();
+          return;
+        }
+        pushUndoState();
+        entity[key] = mmToUnits(numericValue);
+        syncAfterStateChange();
+      });
+      wrapper.appendChild(input);
+      form.appendChild(wrapper);
+    });
+
+    const layerWrapper = document.createElement("label");
+    layerWrapper.textContent = "Layer";
+    const layerSelect = document.createElement("select");
+    state.layers.forEach((layer) => {
+      const option = document.createElement("option");
+      option.value = layer.id;
+      option.textContent = layer.name;
+      option.selected = layer.id === entity.layerId;
+      layerSelect.appendChild(option);
+    });
+    layerSelect.addEventListener("change", () => {
+      pushUndoState();
+      entity.layerId = layerSelect.value;
+      syncAfterStateChange();
+      setStatus("Rectangle layer updated.");
+    });
+    layerWrapper.appendChild(layerSelect);
+    form.appendChild(layerWrapper);
+
+    const fillLabel = document.createElement("label");
+    fillLabel.textContent = "Fill";
+    const fill = document.createElement("input");
+    fill.type = "checkbox";
+    fill.checked = entity.fill !== false;
+    fill.addEventListener("change", () => {
+      pushUndoState();
+      entity.fill = fill.checked;
+      syncAfterStateChange();
+    });
+    fillLabel.appendChild(fill);
+    form.appendChild(fillLabel);
+    propertiesPanel.appendChild(form);
+    return;
+  }
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify(
-    selectedEntities.map((entity) => ({
-      ...entity,
-      lengthMm:
-        entity.type === "line"
-          ? unitsToMm(Math.round(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y)))
-          : null,
-    })),
+    [
+      {
+        ...entity,
+        lengthMm:
+          entity.type === "line"
+            ? unitsToMm(Math.round(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y)))
+            : null,
+      },
+    ],
     null,
     2
   );
@@ -807,7 +951,9 @@ function renderStatusPanel() {
   const snapLabel = uiState.snapMarker
     ? uiState.snapMarker.kind === "midpoint"
       ? "Midpoint"
-      : "Endpoint"
+      : uiState.snapMarker.kind === "center"
+        ? "Center"
+        : "Endpoint"
     : "Grid";
   const orthoLabel = uiState.isShiftPressed ? "Free angle" : "Ortho ON";
   const lengthInputLabel =
@@ -911,6 +1057,8 @@ function draw() {
     }
     if (entity.type === "line") {
       drawLineEntity(entity);
+    } else if (entity.type === "rect") {
+      drawRectEntity(entity);
     }
   });
 
@@ -1059,8 +1207,8 @@ function drawDraftLine(start, end) {
 }
 
 function drawDraftRectangle(start, opposite) {
-  const corners = getRectangleCorners(start, opposite);
-  if (!corners) {
+  const box = getRectBoxFromPoints(start, opposite);
+  if (!box) {
     return;
   }
 
@@ -1069,17 +1217,39 @@ function drawDraftRectangle(start, opposite) {
   ctx.setLineDash([8, 6]);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  corners.forEach((corner, index) => {
-    const screenPoint = worldToScreen(corner);
-    if (index === 0) {
-      ctx.moveTo(screenPoint.x, screenPoint.y);
-    } else {
-      ctx.lineTo(screenPoint.x, screenPoint.y);
-    }
-  });
-  const firstScreen = worldToScreen(corners[0]);
-  ctx.lineTo(firstScreen.x, firstScreen.y);
+  const tl = worldToScreen({ x: box.x, y: box.y });
+  const br = worldToScreen({ x: box.x + box.width, y: box.y + box.height });
+  ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawRectEntity(entity) {
+  const layer = getLayerById(entity.layerId);
+  if (!layer) return;
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  const p1 = worldToScreen({ x: entity.x, y: entity.y });
+  const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
+  const w = p2.x - p1.x;
+  const h = p2.y - p1.y;
+  ctx.save();
+  if (entity.fill !== false) {
+    ctx.fillStyle = "rgba(98,73,45,0.10)";
+    ctx.fillRect(p1.x, p1.y, w, h);
+  }
+  if (isSelected) {
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.28)";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(p1.x, p1.y, w, h);
+  }
+  ctx.strokeStyle = layer.color;
+  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.strokeRect(p1.x, p1.y, w, h);
+  if (isSelected) {
+    ctx.fillStyle = "#fffaf2";
+    ctx.strokeStyle = "#c2693e";
+    getRectSnapPoints(entity).filter((g)=>g.kind!=="center").forEach((g)=>{ const s=worldToScreen(g.point); ctx.beginPath(); ctx.arc(s.x,s.y,4,0,Math.PI*2); ctx.fill(); ctx.stroke();});
+  }
   ctx.restore();
 }
 
@@ -1122,21 +1292,12 @@ function drawSelectionWindow(selectionWindow) {
 function drawTransformPreview(transformDraft) {
   const offset = getTransformOffset(transformDraft);
   transformDraft.entities.forEach((entity) => {
-    if (entity.type !== "line") {
-      return;
+    if (entity.type === "line") {
+      const previewLine = { ...entity, p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } };
+      drawPreviewLineEntity(previewLine);
+    } else if (entity.type === "rect") {
+      drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
     }
-    const previewLine = {
-      ...entity,
-      p1: {
-        x: entity.p1.x + offset.dx,
-        y: entity.p1.y + offset.dy,
-      },
-      p2: {
-        x: entity.p2.x + offset.dx,
-        y: entity.p2.y + offset.dy,
-      },
-    };
-    drawPreviewLineEntity(previewLine);
   });
 }
 
@@ -1331,7 +1492,7 @@ function getRectangleCorners(startPoint, oppositePoint, options = {}) {
   ];
 }
 
-function addRectangleEntities(startPoint, oppositePoint) {
+function addRectangleEntity(startPoint, oppositePoint) {
   const activeLayer = getLayerById(state.activeLayerId);
   if (!activeLayer) {
     setStatus("No active layer.");
@@ -1342,46 +1503,18 @@ function addRectangleEntities(startPoint, oppositePoint) {
     return false;
   }
 
-  const corners = getRectangleCorners(startPoint, oppositePoint);
-  if (!corners) {
+  const box = getRectBoxFromPoints(startPoint, oppositePoint);
+  if (!box) {
     setStatus("Rectangle width and height must be greater than zero.");
     return false;
   }
 
   pushUndoState();
-  state.entities.push(
-    {
-      id: createEntityId(),
-      type: "line",
-      layerId: state.activeLayerId,
-      p1: corners[0],
-      p2: corners[1],
-    },
-    {
-      id: createEntityId(),
-      type: "line",
-      layerId: state.activeLayerId,
-      p1: corners[1],
-      p2: corners[2],
-    },
-    {
-      id: createEntityId(),
-      type: "line",
-      layerId: state.activeLayerId,
-      p1: corners[2],
-      p2: corners[3],
-    },
-    {
-      id: createEntityId(),
-      type: "line",
-      layerId: state.activeLayerId,
-      p1: corners[3],
-      p2: corners[0],
-    }
-  );
-  state.selectedEntityIds = [];
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
+  state.entities.push(rect);
+  state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
-  setStatus("Rectangle created as 4 lines.");
+  setStatus("Rectangle object created.");
   return true;
 }
 
@@ -1396,26 +1529,22 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
     return false;
   }
 
-  const corners = getRectangleCorners(
+  const box = getRectBoxFromPoints(
     { x: mmToUnits(x1Mm), y: mmToUnits(y1Mm) },
     { x: mmToUnits(x2Mm), y: mmToUnits(y2Mm) },
     { snap: false }
   );
-  if (!corners) {
+  if (!box) {
     setStatus("Rectangle width and height must be greater than zero.");
     return false;
   }
 
   pushUndoState();
-  state.entities.push(
-    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[0], p2: corners[1] },
-    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[1], p2: corners[2] },
-    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[2], p2: corners[3] },
-    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[3], p2: corners[0] }
-  );
-  state.selectedEntityIds = [];
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
+  state.entities.push(rect);
+  state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
-  setStatus("Rectangle created as 4 lines.");
+  setStatus("Rectangle object created.");
   return true;
 }
 
@@ -1797,7 +1926,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && entity.type === "line" && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -1807,7 +1936,7 @@ function canStartTransformTool() {
 function startTransformDraft(worldPoint) {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
-    setStatus("Select at least one visible, unlocked line before using Move or Copy.");
+    setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
     return false;
   }
 
@@ -1872,32 +2001,14 @@ function applyTransformDraft() {
       if (!canSelectEntity(entity)) {
         return entity;
       }
-      return {
-        ...entity,
-        p1: {
-          x: entity.p1.x + offset.dx,
-          y: entity.p1.y + offset.dy,
-        },
-        p2: {
-          x: entity.p2.x + offset.dx,
-          y: entity.p2.y + offset.dy,
-        },
-      };
+      if (entity.type === "rect") {
+        return { ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy };
+      }
+      return { ...entity, p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } };
     });
   } else if (transformDraft.mode === "copy") {
     const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
-    const newEntities = sourceEntities.map((entity) => ({
-      ...deepClone(entity),
-      id: createEntityId(),
-      p1: {
-        x: entity.p1.x + offset.dx,
-        y: entity.p1.y + offset.dy,
-      },
-      p2: {
-        x: entity.p2.x + offset.dx,
-        y: entity.p2.y + offset.dy,
-      },
-    }));
+    const newEntities = sourceEntities.map((entity) => entity.type === "rect" ? ({ ...deepClone(entity), id: createEntityId(), x: entity.x + offset.dx, y: entity.y + offset.dy }) : ({ ...deepClone(entity), id: createEntityId(), p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } }));
     state.entities.push(...newEntities);
   }
 
@@ -1914,6 +2025,31 @@ function applyTransformDraft() {
   uiState.transformDraft.currentPoint = uiState.transformDraft.startPoint;
   syncAfterStateChange();
   updateTransformDraftStatus("Copy created. Specify next point or press Enter/Escape to finish.");
+  return true;
+}
+
+
+function rectToOutlineLines(rectEntity) {
+  const x1 = rectEntity.x; const y1 = rectEntity.y; const x2 = rectEntity.x + rectEntity.width; const y2 = rectEntity.y + rectEntity.height;
+  return [
+    { type:"line", layerId: rectEntity.layerId, p1:{x:x1,y:y1}, p2:{x:x2,y:y1} },
+    { type:"line", layerId: rectEntity.layerId, p1:{x:x2,y:y1}, p2:{x:x2,y:y2} },
+    { type:"line", layerId: rectEntity.layerId, p1:{x:x2,y:y2}, p2:{x:x1,y:y2} },
+    { type:"line", layerId: rectEntity.layerId, p1:{x:x1,y:y2}, p2:{x:x1,y:y1} },
+  ];
+}
+
+function explodeSelectedRects() {
+  const rects = state.selectedEntityIds.map(getEntityById).filter((e)=>e&&e.type==="rect"&&canSelectEntity(e));
+  if (!rects.length) { setStatus("Select at least one rectangle object to explode."); return false; }
+  pushUndoState();
+  const rectIds = new Set(rects.map((r)=>r.id));
+  const newLines = rects.flatMap((r)=>rectToOutlineLines(r).map((line)=>({ ...line, id:createEntityId() })));
+  state.entities = state.entities.filter((e)=>!rectIds.has(e.id));
+  state.entities.push(...newLines);
+  state.selectedEntityIds = newLines.map((l)=>l.id);
+  syncAfterStateChange();
+  setStatus("Rectangle objects exploded.");
   return true;
 }
 
@@ -2328,10 +2464,15 @@ function selectEntitiesByWindow(selectionWindow) {
   const selectedIds = state.entities
     .filter(canSelectEntity)
     .filter((entity) => {
-      if (entity.type !== "line") {
-        return false;
+      if (entity.type === "line") {
+        return rect.isCrossing ? doesLineCrossRect(entity, rect) : isLineFullyInsideRect(entity, rect);
       }
-      return rect.isCrossing ? doesLineCrossRect(entity, rect) : isLineFullyInsideRect(entity, rect);
+      if (entity.type === "rect") {
+        const p1 = worldToScreen({x:entity.x,y:entity.y}); const p2=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
+        const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
+        return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
+      }
+      return false;
     })
     .map((entity) => entity.id);
 
@@ -2347,11 +2488,18 @@ function selectEntitiesByWindow(selectionWindow) {
 }
 
 function hitTestEntity(entity, worldPoint) {
-  if (entity.type !== "line") {
-    return false;
+  if (entity.type === "line") {
+    const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
+    return distancePx <= state.settings.snapTolerancePx;
   }
-  const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
-  return distancePx <= state.settings.snapTolerancePx;
+  if (entity.type === "rect") {
+    const p=worldToScreen(worldPoint); const a=worldToScreen({x:entity.x,y:entity.y}); const b=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
+    const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x),top=Math.min(a.y,b.y),bottom=Math.max(a.y,b.y);
+    const inside = p.x>=left && p.x<=right && p.y>=top && p.y<=bottom;
+    const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
+    return inside || edge;
+  }
+  return false;
 }
 
 function distancePointToSegmentScreenPx(point, segmentStart, segmentEnd) {
@@ -2814,10 +2962,10 @@ function handleRectangleToolClick(worldPoint) {
     return;
   }
 
-  if (!addRectangleEntities(uiState.rectangleDraft.start, worldPoint)) {
+  if (!addRectangleEntity(uiState.rectangleDraft.start, worldPoint)) {
     return;
   }
-  endRectangleDraft("Rectangle created.");
+  endRectangleDraft("Rectangle object created.");
 }
 
 function startPan(event) {
@@ -2915,6 +3063,11 @@ function fitAll() {
       minY = Math.min(minY, entity.p1.y, entity.p2.y);
       maxX = Math.max(maxX, entity.p1.x, entity.p2.x);
       maxY = Math.max(maxY, entity.p1.y, entity.p2.y);
+    } else if (entity.type === "rect") {
+      minX = Math.min(minX, entity.x);
+      minY = Math.min(minY, entity.y);
+      maxX = Math.max(maxX, entity.x + entity.width);
+      maxY = Math.max(maxY, entity.y + entity.height);
     }
   });
 
@@ -2943,7 +3096,7 @@ function setActiveTool(tool) {
   draw();
   renderStatusPanel();
   if (missingTransformTarget) {
-    setStatus("Select at least one visible, unlocked line before using Move or Copy.");
+    setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
     return;
   }
   setStatus(`${capitalize(tool)} tool active.`);
@@ -2986,9 +3139,7 @@ function loadJsonFromFile(file) {
 }
 
 function exportDxf() {
-  const visibleLines = state.entities.filter(
-    (entity) => entity.type === "line" && isLayerVisible(entity.layerId)
-  );
+  const visibleLines = state.entities.filter((entity) => isLayerVisible(entity.layerId)).flatMap((entity)=> entity.type === "line" ? [entity] : entity.type === "rect" ? rectToOutlineLines(entity) : []);
 
   if (!visibleLines.length) {
     setStatus("No visible lines to export.");
@@ -3337,6 +3488,7 @@ function bindEvents() {
   saveJsonButton.addEventListener("click", saveJsonToFile);
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());
   exportDxfButton.addEventListener("click", exportDxf);
+  explodeButton.addEventListener("click", explodeSelectedRects);
   addLayerButton.addEventListener("click", addLayer);
 
   loadJsonInput.addEventListener("change", () => {
@@ -3392,6 +3544,10 @@ window.DraftLiteDebug = {
     return deepClone(state.entities.filter((entity) => entity.type === "line"));
   },
 
+  getRects() {
+    return deepClone(state.entities.filter((entity) => entity.type === "rect"));
+  },
+
   getStatus() {
     return statusReadout.textContent;
   },
@@ -3415,6 +3571,16 @@ window.DraftLiteDebug = {
 
   createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
     return createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm);
+  },
+
+  createRectMm(xMm, yMm, widthMm, heightMm, name = "Box") {
+    const result = createRectangleMm(xMm, yMm, xMm + widthMm, yMm + heightMm);
+    if (result) { const rect = state.entities[state.entities.length-1]; if (rect && rect.type === "rect") rect.name = name || "Box"; syncAfterStateChange(); }
+    return result;
+  },
+
+  explodeSelectedRects() {
+    return explodeSelectedRects();
   },
 
   measureLineDistanceToLine(lineId, referenceLineId) {
