@@ -99,6 +99,28 @@
     </div>
 
     <input id="loadJsonInput" type="file" accept=".json,application/json" hidden />
+    <textarea
+      id="draftliteDebugBridgeRequest"
+      data-testid="debug-bridge-request"
+      aria-hidden="true"
+      tabindex="-1"
+      autocomplete="off"
+      spellcheck="false"
+      style="position: fixed; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none;"
+    ></textarea>
+    <div
+      id="draftliteDebugBridgeOutput"
+      data-testid="debug-bridge-output"
+      data-request-id=""
+      data-request-command=""
+      data-request-args=""
+      data-last-command-id=""
+      data-last-command=""
+      data-last-ok=""
+      data-last-result=""
+      data-last-error=""
+      hidden
+    ></div>
 
     <script src="app.js"></script>
   </body>

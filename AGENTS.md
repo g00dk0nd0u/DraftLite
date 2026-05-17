@@ -40,4 +40,8 @@
 - Add or update debug fixtures when introducing geometry editing tools.
 - `data-testid` attributes should remain stable for Codex / Chrome / GUI verification.
 - Debug helpers must not change normal user behavior unless explicitly called.
+- If `window.DraftLiteDebug` is not visible from the Chrome execution context, use the DOM CustomEvent bridge.
+- Prefer `draftlite:debug-command` + `[data-testid="debug-bridge-output"]` for Chrome plugin verification.
+- Keep the bridge hidden and do not change normal user UI.
+- Update bridge commands when adding new debug helpers.
 - After implementation, run `node --check docs/app.js`.

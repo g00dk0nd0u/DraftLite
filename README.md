@@ -128,3 +128,35 @@ DraftLiteDebug.measureLineDistanceToLine("ent-2", "ent-1");
 ```
 
 - `DraftLiteDebug` is intended for development support only. It does not change normal behavior unless you explicitly call a helper such as `clearDocument()` or `loadFixture()`.
+- If `window.DraftLiteDebug` is not directly visible from the browser execution context, use the DOM CustomEvent bridge instead.
+- Bridge example:
+
+```js
+document.dispatchEvent(new CustomEvent("draftlite:debug-command", {
+  detail: {
+    id: "fixture-1",
+    command: "loadFixture",
+    args: ["align-horizontal"]
+  }
+}));
+
+const output = document.querySelector('[data-testid="debug-bridge-output"]');
+JSON.parse(output.dataset.lastResult);
+```
+
+- Click-point example:
+
+```js
+document.dispatchEvent(new CustomEvent("draftlite:debug-command", {
+  detail: {
+    id: "click-1",
+    command: "getCanvasClickPointForLine",
+    args: ["ent-1", 0.5]
+  }
+}));
+
+const output = document.querySelector('[data-testid="debug-bridge-output"]');
+const result = JSON.parse(output.dataset.lastResult);
+result.client.x;
+result.client.y;
+```

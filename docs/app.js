@@ -2325,6 +2325,147 @@ function getCanvasClickPointForLine(lineId, ratio = 0.5) {
   };
 }
 
+function runDebugBridgeCommand(command, args = []) {
+  const api = window.DraftLiteDebug;
+  if (!api || typeof api[command] !== "function") {
+    throw new Error(`Unknown debug command: ${command}`);
+  }
+  return api[command](...(Array.isArray(args) ? args : []));
+}
+
+function createDebugBridgePayload(detail) {
+  return {
+    id: detail.id || String(Date.now()),
+    command: detail.command || "",
+    ok: false,
+    result: null,
+    error: "",
+  };
+}
+
+function writeDebugBridgeOutput(payload) {
+  const output = document.getElementById("draftliteDebugBridgeOutput");
+  if (!output) {
+    return;
+  }
+
+  output.dataset.lastCommandId = String(payload.id || "");
+  output.dataset.lastCommand = String(payload.command || "");
+  output.dataset.lastOk = payload.ok ? "true" : "false";
+  output.dataset.lastResult =
+    payload.result === undefined ? "" : JSON.stringify(payload.result);
+  output.dataset.lastError = payload.error || "";
+}
+
+function tryDispatchDebugBridgeResult(payload) {
+  if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") {
+    return;
+  }
+
+  document.dispatchEvent(
+    new CustomEvent("draftlite:debug-result", {
+      detail: payload,
+    })
+  );
+}
+
+function executeDebugBridgeCommand(detail) {
+  const payload = createDebugBridgePayload(detail || {});
+
+  try {
+    payload.result = runDebugBridgeCommand(payload.command, detail.args || []);
+    payload.ok = true;
+  } catch (error) {
+    payload.error = error && error.message ? error.message : String(error);
+  }
+
+  writeDebugBridgeOutput(payload);
+  tryDispatchDebugBridgeResult(payload);
+  return payload;
+}
+
+function readDebugBridgeRequest(output) {
+  const rawArgs = output.dataset.requestArgs || "";
+  let args = [];
+
+  if (rawArgs) {
+    try {
+      const parsed = JSON.parse(rawArgs);
+      args = Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      args = [];
+    }
+  }
+
+  return {
+    id: output.dataset.requestId || String(Date.now()),
+    command: output.dataset.requestCommand || "",
+    args,
+  };
+}
+
+function bindDebugBridge() {
+  document.addEventListener("draftlite:debug-command", (event) => {
+    executeDebugBridgeCommand(event.detail || {});
+  });
+
+  const requestInput = document.getElementById("draftliteDebugBridgeRequest");
+  const output = document.getElementById("draftliteDebugBridgeOutput");
+  if (requestInput) {
+    let lastRequestText = "";
+    const handleRequestInput = () => {
+      const requestText = requestInput.value.trim();
+      if (!requestText || requestText === lastRequestText) {
+        return;
+      }
+      lastRequestText = requestText;
+
+      try {
+        const detail = JSON.parse(requestText);
+        executeDebugBridgeCommand(detail);
+      } catch (error) {
+        const payload = {
+          id: String(Date.now()),
+          command: "",
+          ok: false,
+          result: null,
+          error: error && error.message ? error.message : String(error),
+        };
+        writeDebugBridgeOutput(payload);
+        tryDispatchDebugBridgeResult(payload);
+      }
+    };
+
+    requestInput.addEventListener("input", handleRequestInput);
+    requestInput.addEventListener("change", handleRequestInput);
+  }
+
+  if (!output || typeof MutationObserver !== "function") {
+    return;
+  }
+
+  let lastRequestKey = "";
+  const observer = new MutationObserver(() => {
+    const requestId = output.dataset.requestId || "";
+    const requestCommand = output.dataset.requestCommand || "";
+    if (!requestId || !requestCommand) {
+      return;
+    }
+
+    const requestKey = `${requestId}:${requestCommand}:${output.dataset.requestArgs || ""}`;
+    if (requestKey === lastRequestKey) {
+      return;
+    }
+    lastRequestKey = requestKey;
+    executeDebugBridgeCommand(readDebugBridgeRequest(output));
+  });
+
+  observer.observe(output, {
+    attributes: true,
+    attributeFilter: ["data-request-id", "data-request-command", "data-request-args"],
+  });
+}
+
 function onPointerMove(event) {
   uiState.isShiftPressed = event.shiftKey;
   const screenPoint = getScreenPointFromEvent(event);
@@ -3064,3 +3205,5 @@ window.DraftLiteDebug = {
     return worldToScreen({ x: mmToUnits(xMm), y: mmToUnits(yMm) });
   },
 };
+
+bindDebugBridge();
