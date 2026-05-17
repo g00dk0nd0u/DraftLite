@@ -1810,10 +1810,10 @@ function areLinesParallel(lineA, lineB) {
 
   const cross = dxA * dyB - dyA * dxB;
   const normalizedCross = Math.abs(cross) / (lenA * lenB);
-  return normalizedCross <= 0.001;
+  return normalizedCross <= 0.00001;
 }
 
-function projectPointToInfiniteLine(point, line) {
+function projectPointToInfiniteLineRaw(point, line) {
   const dx = line.p2.x - line.p1.x;
   const dy = line.p2.y - line.p1.y;
   const lengthSq = dx * dx + dy * dy;
@@ -1822,10 +1822,15 @@ function projectPointToInfiniteLine(point, line) {
   }
 
   const t = ((point.x - line.p1.x) * dx + (point.y - line.p1.y) * dy) / lengthSq;
-  return roundWorldPoint({
+  return {
     x: line.p1.x + dx * t,
     y: line.p1.y + dy * t,
-  });
+  };
+}
+
+function projectPointToInfiniteLine(point, line) {
+  const projectedPoint = projectPointToInfiniteLineRaw(point, line);
+  return projectedPoint ? roundWorldPoint(projectedPoint) : null;
 }
 
 function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
@@ -1845,20 +1850,26 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
     return false;
   }
   if (!areLinesParallel(referenceLine, targetLine)) {
-    setStatus("Align supports parallel lines only for now.");
+    setStatus("Align supports exactly parallel lines only for now.");
     return false;
   }
 
-  const projectedPoint = projectPointToInfiniteLine(targetClickWorld, referenceLine);
-  if (!projectedPoint) {
+  const targetAnchorPoint = projectPointToInfiniteLineRaw(targetClickWorld, targetLine);
+  if (!targetAnchorPoint) {
+    setStatus("Align failed: target line is unavailable.");
+    return false;
+  }
+
+  const referenceAnchorPoint = projectPointToInfiniteLineRaw(targetAnchorPoint, referenceLine);
+  if (!referenceAnchorPoint) {
     setStatus("Align failed: reference line is unavailable.");
     return false;
   }
 
-  const offset = roundWorldPoint({
-    x: projectedPoint.x - targetClickWorld.x,
-    y: projectedPoint.y - targetClickWorld.y,
-  });
+  const offset = {
+    x: referenceAnchorPoint.x - targetAnchorPoint.x,
+    y: referenceAnchorPoint.y - targetAnchorPoint.y,
+  };
   if (offset.x === 0 && offset.y === 0) {
     setStatus("Align: target line is already aligned.");
     return false;
@@ -1885,7 +1896,7 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
   uiState.alignDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
-  setStatus("Align applied.");
+  setStatus("Align applied. Target line was moved onto the reference line.");
   return true;
 }
 
