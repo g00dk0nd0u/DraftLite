@@ -18,6 +18,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Shift additive selection
 - Move selected lines
 - Copy selected lines
+- Line-to-Line Align for parallel lines
 - Radius-0 Fillet / Join for two lines
 - Fillet keeps the clicked side of each line and moves the opposite endpoints to the intersection
 - Fillet highlights the first picked line while waiting for the second pick
@@ -97,6 +98,8 @@ Included in this first pass:
 - Linear Dimension
 - Text
 - Trim
+- Rotational Align
+- Multi-target Align
 - Arc Fillet
 - Offset
 - Print / PDF export

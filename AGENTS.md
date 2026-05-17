@@ -22,6 +22,11 @@
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
 - Initial Fillet implementation is radius=0 join only.
+- Initial Align implementation is line-to-line parallel alignment only.
+- Align must keep the first picked reference line fixed.
+- Align must move only the second picked target line.
+- Do not rotate target geometry in the first implementation.
+- Keep internal `0.5 mm` integer unit coordinates.
 - Do not introduce arc entities yet.
 - Fillet modifies existing line endpoints to their infinite-line intersection.
 - Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.

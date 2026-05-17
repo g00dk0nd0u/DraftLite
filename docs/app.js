@@ -26,6 +26,7 @@ const toolButtons = {
   line: document.getElementById("toolLineButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
+  align: document.getElementById("alignButton"),
   fillet: document.getElementById("filletButton"),
 };
 
@@ -51,6 +52,7 @@ const uiState = {
   lineDraft: null,
   transformDraft: null,
   gripEditDraft: null,
+  alignDraft: null,
   filletDraft: null,
   selectionWindow: null,
   snapMarker: null,
@@ -143,12 +145,13 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft) {
+  if (uiState.filletDraft || uiState.alignDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
   uiState.transformDraft = null;
   uiState.gripEditDraft = null;
+  uiState.alignDraft = null;
   uiState.filletDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
@@ -420,6 +423,14 @@ function cancelGripEdit(message = "Grip edit cancelled.") {
 function cancelFillet(message = "Fillet cancelled.") {
   state.selectedEntityIds = [];
   uiState.filletDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus(message);
+}
+
+function cancelAlign(message = "Align cancelled.") {
+  state.selectedEntityIds = [];
+  uiState.alignDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
   setStatus(message);
@@ -789,6 +800,8 @@ function renderStatusPanel() {
       : "Select: window"
     : uiState.gripEditDraft
       ? "Select: edit endpoint"
+    : uiState.alignDraft
+      ? "Align: pick target line"
     : uiState.filletDraft
       ? "Fillet: pick side to keep on second line"
     : uiState.lineDraft
@@ -801,6 +814,8 @@ function renderStatusPanel() {
           ? "Move: specify base point"
           : uiState.activeTool === "copy"
             ? "Copy: specify base point"
+            : uiState.activeTool === "align"
+              ? "Align: pick reference line"
             : uiState.activeTool === "fillet"
               ? "Fillet: pick first line"
             : "Select: pick entity";
@@ -1772,6 +1787,136 @@ function findFilletTargetAtPoint(worldPoint) {
   return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
 }
 
+function findAlignTargetAtPoint(worldPoint) {
+  const selectable = state.entities
+    .filter((entity) => entity.type === "line" && canSelectEntity(entity))
+    .slice()
+    .reverse();
+
+  return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
+}
+
+function areLinesParallel(lineA, lineB) {
+  const dxA = lineA.p2.x - lineA.p1.x;
+  const dyA = lineA.p2.y - lineA.p1.y;
+  const dxB = lineB.p2.x - lineB.p1.x;
+  const dyB = lineB.p2.y - lineB.p1.y;
+  const lenA = Math.hypot(dxA, dyA);
+  const lenB = Math.hypot(dxB, dyB);
+
+  if (lenA === 0 || lenB === 0) {
+    return false;
+  }
+
+  const cross = dxA * dyB - dyA * dxB;
+  const normalizedCross = Math.abs(cross) / (lenA * lenB);
+  return normalizedCross <= 0.001;
+}
+
+function projectPointToInfiniteLine(point, line) {
+  const dx = line.p2.x - line.p1.x;
+  const dy = line.p2.y - line.p1.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) {
+    return null;
+  }
+
+  const t = ((point.x - line.p1.x) * dx + (point.y - line.p1.y) * dy) / lengthSq;
+  return roundWorldPoint({
+    x: line.p1.x + dx * t,
+    y: line.p1.y + dy * t,
+  });
+}
+
+function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
+  const referenceLine = getEntityById(referenceEntityId);
+  const targetLine = getEntityById(targetEntityId);
+
+  if (!referenceLine || !targetLine || referenceLine.type !== "line" || targetLine.type !== "line") {
+    setStatus("Align requires two available lines.");
+    return false;
+  }
+  if (!canSelectEntity(referenceLine) || !canSelectEntity(targetLine)) {
+    setStatus("Align requires visible, unlocked lines.");
+    return false;
+  }
+  if (referenceLine.id === targetLine.id) {
+    setStatus("Align: pick a different target line.");
+    return false;
+  }
+  if (!areLinesParallel(referenceLine, targetLine)) {
+    setStatus("Align supports parallel lines only for now.");
+    return false;
+  }
+
+  const projectedPoint = projectPointToInfiniteLine(targetClickWorld, referenceLine);
+  if (!projectedPoint) {
+    setStatus("Align failed: reference line is unavailable.");
+    return false;
+  }
+
+  const offset = roundWorldPoint({
+    x: projectedPoint.x - targetClickWorld.x,
+    y: projectedPoint.y - targetClickWorld.y,
+  });
+  if (offset.x === 0 && offset.y === 0) {
+    setStatus("Align: target line is already aligned.");
+    return false;
+  }
+
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (entity.id !== targetLine.id) {
+      return entity;
+    }
+    return {
+      ...entity,
+      p1: roundWorldPoint({
+        x: entity.p1.x + offset.x,
+        y: entity.p1.y + offset.y,
+      }),
+      p2: roundWorldPoint({
+        x: entity.p2.x + offset.x,
+        y: entity.p2.y + offset.y,
+      }),
+    };
+  });
+  state.selectedEntityIds = [];
+  uiState.alignDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Align applied.");
+  return true;
+}
+
+function handleAlignToolClick(worldPoint) {
+  const targetLine = findAlignTargetAtPoint(worldPoint);
+  if (!targetLine) {
+    setStatus(
+      uiState.alignDraft ? "Pick a visible, unlocked target line." : "Pick a visible, unlocked reference line."
+    );
+    return;
+  }
+
+  if (!uiState.alignDraft) {
+    uiState.alignDraft = {
+      referenceEntityId: targetLine.id,
+      referenceClickWorld: deepClone(worldPoint),
+    };
+    state.selectedEntityIds = [targetLine.id];
+    syncAfterStateChange();
+    setStatus("Align: reference line selected. Pick target line.");
+    return;
+  }
+
+  if (uiState.alignDraft.referenceEntityId === targetLine.id) {
+    setStatus("Align: pick a different target line.");
+    return;
+  }
+
+  applyAlign(uiState.alignDraft.referenceEntityId, targetLine.id, worldPoint);
+}
+
 function getInfiniteLineIntersection(lineA, lineB) {
   const x1 = lineA.p1.x;
   const y1 = lineA.p1.y;
@@ -2131,6 +2276,11 @@ function onCanvasMouseDown(event) {
     }
     uiState.transformDraft.currentPoint = worldPoint;
     applyTransformDraft();
+    return;
+  }
+
+  if (uiState.activeTool === "align") {
+    handleAlignToolClick(roundWorldPoint(rawWorldPoint));
     return;
   }
 
@@ -2503,6 +2653,10 @@ function onKeyDown(event) {
       endLineDraft("Line command cancelled.");
       return;
     }
+    if (uiState.alignDraft || uiState.activeTool === "align") {
+      cancelAlign();
+      return;
+    }
     if (uiState.filletDraft || uiState.activeTool === "fillet") {
       cancelFillet();
       return;
@@ -2681,6 +2835,7 @@ function bindEvents() {
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
+  toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
