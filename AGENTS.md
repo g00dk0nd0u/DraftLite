@@ -21,5 +21,9 @@
 - JSON save/load must remain compatible.
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
+- Initial Fillet implementation is radius=0 join only.
+- Do not introduce arc entities yet.
+- Fillet modifies existing line endpoints to their infinite-line intersection.
+- Keep line-only entity model until Rectangle / Dimension strategy is decided.
 - Keep changes small, safe, and easy to verify.
 - After implementation, run `node --check docs/app.js`.

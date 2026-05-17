@@ -26,6 +26,7 @@ const toolButtons = {
   line: document.getElementById("toolLineButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
+  fillet: document.getElementById("filletButton"),
 };
 
 const deleteButton = document.getElementById("deleteButton");
@@ -50,6 +51,7 @@ const uiState = {
   lineDraft: null,
   transformDraft: null,
   gripEditDraft: null,
+  filletDraft: null,
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
@@ -144,6 +146,7 @@ function clearTransientState() {
   uiState.lineDraft = null;
   uiState.transformDraft = null;
   uiState.gripEditDraft = null;
+  uiState.filletDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
   clearLinePreviewTimer();
@@ -775,6 +778,8 @@ function renderStatusPanel() {
       : "Select: window"
     : uiState.gripEditDraft
       ? "Select: edit endpoint"
+    : uiState.filletDraft
+      ? "Fillet: select second line"
     : uiState.lineDraft
     ? "Line: specify next point"
     : uiState.transformDraft
@@ -785,6 +790,8 @@ function renderStatusPanel() {
           ? "Move: specify base point"
           : uiState.activeTool === "copy"
             ? "Copy: specify base point"
+            : uiState.activeTool === "fillet"
+              ? "Fillet: select first line"
             : "Select: pick entity";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
@@ -1745,6 +1752,131 @@ function deleteSelectedEntities() {
   setStatus(`${deletableIds.length} entit${deletableIds.length === 1 ? "y" : "ies"} deleted.`);
 }
 
+function findFilletTargetAtPoint(worldPoint) {
+  const selectable = state.entities
+    .filter((entity) => entity.type === "line" && canSelectEntity(entity))
+    .slice()
+    .reverse();
+
+  return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
+}
+
+function getInfiniteLineIntersection(lineA, lineB) {
+  const x1 = lineA.p1.x;
+  const y1 = lineA.p1.y;
+  const x2 = lineA.p2.x;
+  const y2 = lineA.p2.y;
+  const x3 = lineB.p1.x;
+  const y3 = lineB.p1.y;
+  const x4 = lineB.p2.x;
+  const y4 = lineB.p2.y;
+
+  const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denominator) < 0.000001) {
+    return null;
+  }
+
+  const determinantA = x1 * y2 - y1 * x2;
+  const determinantB = x3 * y4 - y3 * x4;
+  return roundWorldPoint({
+    x: (determinantA * (x3 - x4) - (x1 - x2) * determinantB) / denominator,
+    y: (determinantA * (y3 - y4) - (y1 - y2) * determinantB) / denominator,
+  });
+}
+
+function getNearestEndpointName(line, worldPoint) {
+  const distanceToP1 = Math.hypot(worldPoint.x - line.p1.x, worldPoint.y - line.p1.y);
+  const distanceToP2 = Math.hypot(worldPoint.x - line.p2.x, worldPoint.y - line.p2.y);
+  return distanceToP1 <= distanceToP2 ? "p1" : "p2";
+}
+
+function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClickWorld) {
+  const firstLine = getEntityById(firstEntityId);
+  const secondLine = getEntityById(secondEntityId);
+
+  if (!firstLine || !secondLine || firstLine.type !== "line" || secondLine.type !== "line") {
+    setStatus("Fillet requires two available lines.");
+    return false;
+  }
+  if (!canSelectEntity(firstLine) || !canSelectEntity(secondLine)) {
+    setStatus("Fillet requires visible, unlocked lines.");
+    return false;
+  }
+  if (firstLine.id === secondLine.id) {
+    setStatus("Pick a different second line for Fillet.");
+    return false;
+  }
+
+  const intersection = getInfiniteLineIntersection(firstLine, secondLine);
+  if (!intersection) {
+    setStatus("Fillet failed: lines are parallel or nearly parallel.");
+    return false;
+  }
+
+  const firstEndpoint = getNearestEndpointName(firstLine, firstClickWorld);
+  const secondEndpoint = getNearestEndpointName(secondLine, secondClickWorld);
+  const nextFirstLine = {
+    ...firstLine,
+    p1: firstEndpoint === "p1" ? intersection : firstLine.p1,
+    p2: firstEndpoint === "p2" ? intersection : firstLine.p2,
+  };
+  const nextSecondLine = {
+    ...secondLine,
+    p1: secondEndpoint === "p1" ? intersection : secondLine.p1,
+    p2: secondEndpoint === "p2" ? intersection : secondLine.p2,
+  };
+
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (entity.id === nextFirstLine.id) {
+      return nextFirstLine;
+    }
+    if (entity.id === nextSecondLine.id) {
+      return nextSecondLine;
+    }
+    return entity;
+  });
+  state.selectedEntityIds = [];
+  uiState.filletDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Fillet applied.");
+  return true;
+}
+
+function handleFilletToolClick(worldPoint) {
+  const targetLine = findFilletTargetAtPoint(worldPoint);
+  if (!targetLine) {
+    setStatus(
+      uiState.filletDraft ? "Pick a visible, unlocked second line." : "Pick a visible, unlocked first line."
+    );
+    return;
+  }
+
+  if (!uiState.filletDraft) {
+    uiState.filletDraft = {
+      firstEntityId: targetLine.id,
+      firstClickWorld: deepClone(worldPoint),
+    };
+    state.selectedEntityIds = [targetLine.id];
+    syncAfterStateChange();
+    setStatus("Fillet first line selected. Pick second line.");
+    return;
+  }
+
+  if (uiState.filletDraft.firstEntityId === targetLine.id) {
+    setStatus("Pick a different second line for Fillet.");
+    return;
+  }
+
+  applyFillet(
+    uiState.filletDraft.firstEntityId,
+    uiState.filletDraft.firstClickWorld,
+    targetLine.id,
+    worldPoint
+  );
+}
+
 function selectEntityAtPoint(worldPoint, append = false) {
   const selectable = state.entities
     .filter(canSelectEntity)
@@ -1960,7 +2092,8 @@ function onCanvasMouseDown(event) {
   }
 
   const screenPoint = getScreenPointFromEvent(event);
-  const worldPoint = resolveConstrainedSnapPoint(screenToWorld(screenPoint), event.shiftKey);
+  const rawWorldPoint = screenToWorld(screenPoint);
+  const worldPoint = resolveConstrainedSnapPoint(rawWorldPoint, event.shiftKey);
 
   if (uiState.activeTool === "line") {
     handleLineToolClick(worldPoint);
@@ -1974,6 +2107,11 @@ function onCanvasMouseDown(event) {
     }
     uiState.transformDraft.currentPoint = worldPoint;
     applyTransformDraft();
+    return;
+  }
+
+  if (uiState.activeTool === "fillet") {
+    handleFilletToolClick(roundWorldPoint(rawWorldPoint));
     return;
   }
 
@@ -2341,6 +2479,14 @@ function onKeyDown(event) {
       endLineDraft("Line command cancelled.");
       return;
     }
+    if (uiState.filletDraft || uiState.activeTool === "fillet") {
+      state.selectedEntityIds = [];
+      uiState.filletDraft = null;
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Fillet command cancelled.");
+      return;
+    }
   }
 
   if (uiState.gripEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
@@ -2515,6 +2661,7 @@ function bindEvents() {
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
+  toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);

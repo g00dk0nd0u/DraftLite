@@ -18,6 +18,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Shift additive selection
 - Move selected lines
 - Copy selected lines
+- Radius-0 Fillet / Join for two lines
 - AutoCAD-like Move / Copy
 - Grip edit for selected line endpoints
 - AutoCAD-like endpoint stretch behavior
@@ -94,7 +95,7 @@ Included in this first pass:
 - Linear Dimension
 - Text
 - Trim
-- Fillet
+- Arc Fillet
 - Offset
 - Print / PDF export
 
