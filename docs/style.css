@@ -366,6 +366,9 @@ body[data-panning="true"] #draftCanvas {
   font-size: 0.75rem;
   line-height: 1.55;
 }
+.prop-grid { display:grid; gap:8px; }
+.prop-grid label { display:grid; gap:4px; font-size:.8rem; color:var(--muted); }
+.prop-grid input[type="text"], .prop-grid input[type="number"] { padding:6px 8px; border:1px solid var(--line); border-radius:8px; }
 
 .status-panel {
   margin: 0;
