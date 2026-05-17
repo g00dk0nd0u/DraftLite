@@ -1784,10 +1784,23 @@ function getInfiniteLineIntersection(lineA, lineB) {
   });
 }
 
-function getNearestEndpointName(line, worldPoint) {
-  const distanceToP1 = Math.hypot(worldPoint.x - line.p1.x, worldPoint.y - line.p1.y);
-  const distanceToP2 = Math.hypot(worldPoint.x - line.p2.x, worldPoint.y - line.p2.y);
-  return distanceToP1 <= distanceToP2 ? "p1" : "p2";
+function getEndpointToMoveForFillet(line, clickWorld, intersection) {
+  const clickVec = {
+    x: clickWorld.x - intersection.x,
+    y: clickWorld.y - intersection.y,
+  };
+  const p1Vec = {
+    x: line.p1.x - intersection.x,
+    y: line.p1.y - intersection.y,
+  };
+  const p2Vec = {
+    x: line.p2.x - intersection.x,
+    y: line.p2.y - intersection.y,
+  };
+  const p1Dot = clickVec.x * p1Vec.x + clickVec.y * p1Vec.y;
+  const p2Dot = clickVec.x * p2Vec.x + clickVec.y * p2Vec.y;
+
+  return p1Dot >= p2Dot ? "p2" : "p1";
 }
 
 function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClickWorld) {
@@ -1813,8 +1826,8 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
     return false;
   }
 
-  const firstEndpoint = getNearestEndpointName(firstLine, firstClickWorld);
-  const secondEndpoint = getNearestEndpointName(secondLine, secondClickWorld);
+  const firstEndpoint = getEndpointToMoveForFillet(firstLine, firstClickWorld, intersection);
+  const secondEndpoint = getEndpointToMoveForFillet(secondLine, secondClickWorld, intersection);
   const nextFirstLine = {
     ...firstLine,
     p1: firstEndpoint === "p1" ? intersection : firstLine.p1,
@@ -1840,7 +1853,7 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
   uiState.filletDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
-  setStatus("Fillet applied.");
+  setStatus("Fillet applied. Clicked sides were kept.");
   return true;
 }
 
@@ -1860,7 +1873,7 @@ function handleFilletToolClick(worldPoint) {
     };
     state.selectedEntityIds = [targetLine.id];
     syncAfterStateChange();
-    setStatus("Fillet first line selected. Pick second line.");
+    setStatus("Fillet first line selected. Pick the side to keep on the second line.");
     return;
   }
 

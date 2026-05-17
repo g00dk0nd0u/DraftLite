@@ -19,6 +19,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Move selected lines
 - Copy selected lines
 - Radius-0 Fillet / Join for two lines
+- Fillet keeps the clicked side of each line and moves the opposite endpoints to the intersection
 - AutoCAD-like Move / Copy
 - Grip edit for selected line endpoints
 - AutoCAD-like endpoint stretch behavior

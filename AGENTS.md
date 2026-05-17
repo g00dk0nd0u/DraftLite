@@ -24,6 +24,7 @@
 - Initial Fillet implementation is radius=0 join only.
 - Do not introduce arc entities yet.
 - Fillet modifies existing line endpoints to their infinite-line intersection.
+- Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.
 - Keep line-only entity model until Rectangle / Dimension strategy is decided.
 - Keep changes small, safe, and easy to verify.
 - After implementation, run `node --check docs/app.js`.
