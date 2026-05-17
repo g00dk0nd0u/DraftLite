@@ -834,23 +834,117 @@ function renderPropertiesPanel() {
     return;
   }
 
-  if (selectedEntities.length > 1) { const p=document.createElement("p"); p.className="panel-empty"; p.textContent=`Multiple entities selected. (${selectedEntities.length})`; propertiesPanel.appendChild(p); return; }
+  if (selectedEntities.length > 1) {
+    const multiple = document.createElement("p");
+    multiple.className = "panel-empty";
+    multiple.textContent = `Multiple entities selected. (${selectedEntities.length})`;
+    propertiesPanel.appendChild(multiple);
+    return;
+  }
   const entity = selectedEntities[0];
   if (entity.type === "rect") {
-    const form = document.createElement("div"); form.className = "prop-grid";
+    const form = document.createElement("div");
+    form.className = "prop-grid";
     const fields = [
-      ["Name","text",entity.name || "Rectangular object","name"],
-      ["X mm","number",String(unitsToMm(entity.x)),"x"],
-      ["Y mm","number",String(unitsToMm(entity.y)),"y"],
-      ["Width mm","number",String(unitsToMm(entity.width)),"width"],
-      ["Height mm","number",String(unitsToMm(entity.height)),"height"],
-      ["Rotation","number",String(entity.rotation || 0),"rotation"],
+      ["Name", "text", String(entity.name || "Rectangular object"), "name"],
+      ["X mm", "number", String(unitsToMm(entity.x)), "x"],
+      ["Y mm", "number", String(unitsToMm(entity.y)), "y"],
+      ["Width mm", "number", String(unitsToMm(entity.width)), "width"],
+      ["Height mm", "number", String(unitsToMm(entity.height)), "height"],
+      ["Rotation", "number", String(entity.rotation || 0), "rotation"],
     ];
-    fields.forEach(([label,type,val,key])=>{ const l=document.createElement("label"); l.textContent=label; const i=document.createElement("input"); i.type=type; i.value=val; if (key==="rotation") i.disabled=true; i.addEventListener("change",()=>{ pushUndoState(); if (key==="name") entity.name=i.value||"Rectangular object"; else if (key==="x"||key==="y") entity[key]=mmToUnits(Number(i.value)||0); else if (key==="width"||key==="height") { const v=mmToUnits(Number(i.value)||0); if (v<=0) { undo(); return; } entity[key]=v; } syncAfterStateChange();}); l.appendChild(i); form.appendChild(l);});
-    const fillLabel=document.createElement("label"); fillLabel.textContent="Fill"; const fill=document.createElement("input"); fill.type="checkbox"; fill.checked=entity.fill!==false; fill.addEventListener("change",()=>{pushUndoState(); entity.fill=fill.checked; syncAfterStateChange();}); fillLabel.appendChild(fill); form.appendChild(fillLabel);
-    propertiesPanel.appendChild(form); return;
+    fields.forEach(([label, type, val, key]) => {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label;
+      const input = document.createElement("input");
+      input.type = type;
+      input.value = val;
+      if (key === "rotation") {
+        input.disabled = true;
+      }
+      input.addEventListener("change", () => {
+        if (key === "rotation") return;
+        if (key === "name") {
+          pushUndoState();
+          entity.name = input.value || "Rectangular object";
+          syncAfterStateChange();
+          return;
+        }
+        const numericValue = Number(input.value);
+        if (!Number.isFinite(numericValue)) {
+          input.value = val;
+          setStatus(`${label} must be a valid number.`);
+          return;
+        }
+        if (key === "width" || key === "height") {
+          const nextUnits = mmToUnits(numericValue);
+          if (nextUnits <= 0) {
+            input.value = String(unitsToMm(entity[key]));
+            setStatus(`${label} must be greater than zero.`);
+            return;
+          }
+          pushUndoState();
+          entity[key] = nextUnits;
+          syncAfterStateChange();
+          return;
+        }
+        pushUndoState();
+        entity[key] = mmToUnits(numericValue);
+        syncAfterStateChange();
+      });
+      wrapper.appendChild(input);
+      form.appendChild(wrapper);
+    });
+
+    const layerWrapper = document.createElement("label");
+    layerWrapper.textContent = "Layer";
+    const layerSelect = document.createElement("select");
+    state.layers.forEach((layer) => {
+      const option = document.createElement("option");
+      option.value = layer.id;
+      option.textContent = layer.name;
+      option.selected = layer.id === entity.layerId;
+      layerSelect.appendChild(option);
+    });
+    layerSelect.addEventListener("change", () => {
+      pushUndoState();
+      entity.layerId = layerSelect.value;
+      syncAfterStateChange();
+      setStatus("Rectangle layer updated.");
+    });
+    layerWrapper.appendChild(layerSelect);
+    form.appendChild(layerWrapper);
+
+    const fillLabel = document.createElement("label");
+    fillLabel.textContent = "Fill";
+    const fill = document.createElement("input");
+    fill.type = "checkbox";
+    fill.checked = entity.fill !== false;
+    fill.addEventListener("change", () => {
+      pushUndoState();
+      entity.fill = fill.checked;
+      syncAfterStateChange();
+    });
+    fillLabel.appendChild(fill);
+    form.appendChild(fillLabel);
+    propertiesPanel.appendChild(form);
+    return;
   }
-  const pre = document.createElement("pre"); pre.textContent = JSON.stringify([{...entity,lengthMm: entity.type === "line" ? unitsToMm(Math.round(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y))) : null}],null,2); propertiesPanel.appendChild(pre);
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(
+    [
+      {
+        ...entity,
+        lengthMm:
+          entity.type === "line"
+            ? unitsToMm(Math.round(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y)))
+            : null,
+      },
+    ],
+    null,
+    2
+  );
+  propertiesPanel.appendChild(pre);
 }
 
 function renderStatusPanel() {
@@ -1651,7 +1745,7 @@ function scheduleTransformNumericPreview() {
 function findEditableGripAtPoint(worldPoint) {
   const candidates = state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect") && canSelectEntity(entity))
+    .filter((entity) => entity && entity.type === "line" && canSelectEntity(entity))
     .flatMap((entity) => [
       {
         entity,
