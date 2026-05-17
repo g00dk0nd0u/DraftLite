@@ -24,6 +24,7 @@ const loadJsonInput = document.getElementById("loadJsonInput");
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
   line: document.getElementById("toolLineButton"),
+  rectangle: document.getElementById("rectangleButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   align: document.getElementById("alignButton"),
@@ -50,6 +51,7 @@ let history = {
 const uiState = {
   activeTool: "select",
   lineDraft: null,
+  rectangleDraft: null,
   transformDraft: null,
   gripEditDraft: null,
   alignDraft: null,
@@ -149,6 +151,7 @@ function clearTransientState() {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
+  uiState.rectangleDraft = null;
   uiState.transformDraft = null;
   uiState.gripEditDraft = null;
   uiState.alignDraft = null;
@@ -391,6 +394,22 @@ function endLineDraft(message = "Line command ended.") {
   setStatus(message);
 }
 
+function beginRectangleDraft(startPoint) {
+  uiState.rectangleDraft = {
+    start: startPoint,
+  };
+  draw();
+  renderStatusPanel();
+  setStatus(`Rectangle first corner set at ${formatWorldPoint(startPoint)}. Pick opposite corner.`);
+}
+
+function endRectangleDraft(message = "Rectangle command ended.") {
+  uiState.rectangleDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
+  setStatus(message);
+}
+
 function endTransformDraft(message = `${capitalize(uiState.activeTool)} command ended.`) {
   clearTransformPreviewTimer();
   uiState.transformDraft = null;
@@ -433,6 +452,13 @@ function cancelAlign(message = "Align cancelled.") {
   uiState.alignDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
+  setStatus(message);
+}
+
+function cancelRectangle(message = "Rectangle cancelled.") {
+  uiState.rectangleDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
   setStatus(message);
 }
 
@@ -805,11 +831,15 @@ function renderStatusPanel() {
     : uiState.filletDraft
       ? "Fillet: pick side to keep on second line"
     : uiState.lineDraft
-    ? "Line: specify next point"
+      ? "Line: specify next point"
+    : uiState.rectangleDraft
+      ? "Rectangle: specify opposite corner"
     : uiState.transformDraft
       ? `${capitalize(uiState.transformDraft.mode)}: specify second point`
       : uiState.activeTool === "line"
         ? "Line: specify first point"
+        : uiState.activeTool === "rectangle"
+          ? "Rectangle: specify first corner"
         : uiState.activeTool === "move"
           ? "Move: specify base point"
           : uiState.activeTool === "copy"
@@ -886,6 +916,10 @@ function draw() {
 
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
+  }
+
+  if (uiState.rectangleDraft) {
+    drawDraftRectangle(uiState.rectangleDraft.start, uiState.hoverWorld);
   }
 
   if (uiState.transformDraft) {
@@ -1020,6 +1054,31 @@ function drawDraftLine(start, end) {
   ctx.beginPath();
   ctx.moveTo(screenP1.x, screenP1.y);
   ctx.lineTo(screenP2.x, screenP2.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDraftRectangle(start, opposite) {
+  const corners = getRectangleCorners(start, opposite);
+  if (!corners) {
+    return;
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(98, 73, 45, 0.85)";
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  corners.forEach((corner, index) => {
+    const screenPoint = worldToScreen(corner);
+    if (index === 0) {
+      ctx.moveTo(screenPoint.x, screenPoint.y);
+    } else {
+      ctx.lineTo(screenPoint.x, screenPoint.y);
+    }
+  });
+  const firstScreen = worldToScreen(corners[0]);
+  ctx.lineTo(firstScreen.x, firstScreen.y);
   ctx.stroke();
   ctx.restore();
 }
@@ -1254,6 +1313,110 @@ function addLineEntity(p1, p2) {
   syncAfterStateChange();
   setStatus(`Line created: ${formatWorldPoint(snappedP1)} -> ${formatWorldPoint(snappedP2)}.`);
   return createdEntity;
+}
+
+function getRectangleCorners(startPoint, oppositePoint, options = {}) {
+  const snap = options.snap !== false;
+  const p1 = snap ? getSnapPoint(startPoint) : roundWorldPoint(startPoint);
+  const p3 = snap ? getSnapPoint(oppositePoint) : roundWorldPoint(oppositePoint);
+  if (p1.x === p3.x || p1.y === p3.y) {
+    return null;
+  }
+
+  return [
+    p1,
+    { x: p3.x, y: p1.y },
+    p3,
+    { x: p1.x, y: p3.y },
+  ];
+}
+
+function addRectangleEntities(startPoint, oppositePoint) {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer) {
+    setStatus("No active layer.");
+    return false;
+  }
+  if (!activeLayer.visible || activeLayer.locked) {
+    setStatus("Active layer must be visible and unlocked to draw.");
+    return false;
+  }
+
+  const corners = getRectangleCorners(startPoint, oppositePoint);
+  if (!corners) {
+    setStatus("Rectangle width and height must be greater than zero.");
+    return false;
+  }
+
+  pushUndoState();
+  state.entities.push(
+    {
+      id: createEntityId(),
+      type: "line",
+      layerId: state.activeLayerId,
+      p1: corners[0],
+      p2: corners[1],
+    },
+    {
+      id: createEntityId(),
+      type: "line",
+      layerId: state.activeLayerId,
+      p1: corners[1],
+      p2: corners[2],
+    },
+    {
+      id: createEntityId(),
+      type: "line",
+      layerId: state.activeLayerId,
+      p1: corners[2],
+      p2: corners[3],
+    },
+    {
+      id: createEntityId(),
+      type: "line",
+      layerId: state.activeLayerId,
+      p1: corners[3],
+      p2: corners[0],
+    }
+  );
+  state.selectedEntityIds = [];
+  syncAfterStateChange();
+  setStatus("Rectangle created as 4 lines.");
+  return true;
+}
+
+function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer) {
+    setStatus("No active layer.");
+    return false;
+  }
+  if (!activeLayer.visible || activeLayer.locked) {
+    setStatus("Active layer must be visible and unlocked to draw.");
+    return false;
+  }
+
+  const corners = getRectangleCorners(
+    { x: mmToUnits(x1Mm), y: mmToUnits(y1Mm) },
+    { x: mmToUnits(x2Mm), y: mmToUnits(y2Mm) },
+    { snap: false }
+  );
+  if (!corners) {
+    setStatus("Rectangle width and height must be greater than zero.");
+    return false;
+  }
+
+  pushUndoState();
+  state.entities.push(
+    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[0], p2: corners[1] },
+    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[1], p2: corners[2] },
+    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[2], p2: corners[3] },
+    { id: createEntityId(), type: "line", layerId: state.activeLayerId, p1: corners[3], p2: corners[0] }
+  );
+  state.selectedEntityIds = [];
+  syncAfterStateChange();
+  setStatus("Rectangle created as 4 lines.");
+  return true;
 }
 
 function createLineFromNumericInput() {
@@ -2253,6 +2416,43 @@ function loadDebugFixture(name) {
       createDebugFixtureLineMm(-1500, -600, 1500, -600),
       createDebugFixtureLineMm(-1200, 600, 1200, 600),
     ],
+    "rectangle-basic": () => {
+      const corners = getRectangleCorners(
+        { x: mmToUnits(-1500), y: mmToUnits(-1000) },
+        { x: mmToUnits(1500), y: mmToUnits(1000) },
+        { snap: false }
+      );
+      return [
+        {
+          id: createEntityId(),
+          type: "line",
+          layerId: state.activeLayerId,
+          p1: corners[0],
+          p2: corners[1],
+        },
+        {
+          id: createEntityId(),
+          type: "line",
+          layerId: state.activeLayerId,
+          p1: corners[1],
+          p2: corners[2],
+        },
+        {
+          id: createEntityId(),
+          type: "line",
+          layerId: state.activeLayerId,
+          p1: corners[2],
+          p2: corners[3],
+        },
+        {
+          id: createEntityId(),
+          type: "line",
+          layerId: state.activeLayerId,
+          p1: corners[3],
+          p2: corners[0],
+        },
+      ];
+    },
   };
 
   const fixtureFactory = fixtures[name];
@@ -2535,6 +2735,11 @@ function onCanvasMouseDown(event) {
     return;
   }
 
+  if (uiState.activeTool === "rectangle") {
+    handleRectangleToolClick(worldPoint);
+    return;
+  }
+
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
     if (!uiState.transformDraft) {
       startTransformDraft(worldPoint);
@@ -2596,6 +2801,23 @@ function handleLineToolClick(worldPoint) {
     createdEntity.p2,
     `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
   );
+}
+
+function handleRectangleToolClick(worldPoint) {
+  if (!uiState.rectangleDraft) {
+    const activeLayer = getLayerById(state.activeLayerId);
+    if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
+      setStatus("Choose a visible, unlocked active layer before drawing.");
+      return;
+    }
+    beginRectangleDraft(worldPoint);
+    return;
+  }
+
+  if (!addRectangleEntities(uiState.rectangleDraft.start, worldPoint)) {
+    return;
+  }
+  endRectangleDraft("Rectangle created.");
 }
 
 function startPan(event) {
@@ -2919,6 +3141,10 @@ function onKeyDown(event) {
       endLineDraft("Line command cancelled.");
       return;
     }
+    if (uiState.rectangleDraft || uiState.activeTool === "rectangle") {
+      cancelRectangle();
+      return;
+    }
     if (uiState.alignDraft || uiState.activeTool === "align") {
       cancelAlign();
       return;
@@ -3099,6 +3325,7 @@ function bindEvents() {
 
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
+  toolButtons.rectangle.addEventListener("click", () => setActiveTool("rectangle"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
@@ -3147,6 +3374,7 @@ window.DraftLiteDebug = {
       activeTool: uiState.activeTool,
       selectedEntityIds: [...state.selectedEntityIds],
       lineDraft: Boolean(uiState.lineDraft),
+      rectangleDraft: Boolean(uiState.rectangleDraft),
       transformDraft: Boolean(uiState.transformDraft),
       gripEditDraft: Boolean(uiState.gripEditDraft),
       alignDraft: uiState.alignDraft ? deepClone(uiState.alignDraft) : null,
@@ -3183,6 +3411,10 @@ window.DraftLiteDebug = {
 
   loadFixture(name) {
     return loadDebugFixture(name);
+  },
+
+  createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
+    return createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm);
   },
 
   measureLineDistanceToLine(lineId, referenceLineId) {

@@ -33,6 +33,7 @@
 - Fillet must clearly show its two-step state: first line picked, then second side-to-keep pick.
 - Esc must cancel Fillet and clear the temporary selection.
 - Keep line-only entity model until Rectangle / Dimension strategy is decided.
+- Rectangle tool may exist, but the initial implementation must still create 4 `line` entities rather than introducing a new rectangle entity type.
 - Keep changes small, safe, and easy to verify.
 - Prefer using `scripts/serve.py` and Chrome GUI verification when changing interactive tools.
 - For geometry tools such as Align and Fillet, verify both visually and numerically using `window.DraftLiteDebug`.

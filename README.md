@@ -13,6 +13,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 ## Current features
 
 - Continuous Line drawing
+- Rectangle tool (creates 4 line entities)
 - Selection
 - Window / Crossing selection
 - Shift additive selection
@@ -71,6 +72,7 @@ Included in this first pass:
 
 - Interaction feel is intentionally biased toward AutoCAD-experienced users
 - `Line` continues segment-by-segment until `Esc` or empty `Enter`
+- `Rectangle` uses first corner -> opposite corner and creates 4 line entities
 - `Move` uses `base point -> second point` and finishes after one confirmed move
 - `Copy` keeps the same base point and supports continuous copy placement until `Esc` or empty `Enter`
 - Ortho is ON by default, and holding `Shift` temporarily enables free-angle input
@@ -94,7 +96,6 @@ Included in this first pass:
 
 ## Roadmap
 
-- Rectangle
 - Linear Dimension
 - Text
 - Trim
