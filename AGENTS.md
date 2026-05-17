@@ -34,4 +34,10 @@
 - Esc must cancel Fillet and clear the temporary selection.
 - Keep line-only entity model until Rectangle / Dimension strategy is decided.
 - Keep changes small, safe, and easy to verify.
+- Prefer using `scripts/serve.py` and Chrome GUI verification when changing interactive tools.
+- For geometry tools such as Align and Fillet, verify both visually and numerically using `window.DraftLiteDebug`.
+- Do not rely only on `node --check` for interaction changes.
+- Add or update debug fixtures when introducing geometry editing tools.
+- `data-testid` attributes should remain stable for Codex / Chrome / GUI verification.
+- Debug helpers must not change normal user behavior unless explicitly called.
 - After implementation, run `node --check docs/app.js`.

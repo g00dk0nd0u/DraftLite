@@ -107,3 +107,24 @@ Included in this first pass:
 ## Run
 
 Open `docs/index.html` directly in a browser. No npm, no build step, and no external library are required.
+
+## Development / GUI verification
+
+- DraftLite can be opened directly from `docs/index.html`.
+- For Chrome-based GUI verification, use:
+
+```bash
+python scripts/serve.py
+```
+
+- Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
+- Development helper API is exposed as `window.DraftLiteDebug`.
+- Example:
+
+```js
+DraftLiteDebug.loadFixture("align-horizontal");
+DraftLiteDebug.getLines();
+DraftLiteDebug.measureLineDistanceToLine("ent-2", "ent-1");
+```
+
+- `DraftLiteDebug` is intended for development support only. It does not change normal behavior unless you explicitly call a helper such as `clearDocument()` or `loadFixture()`.

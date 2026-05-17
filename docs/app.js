@@ -2211,6 +2211,96 @@ function formatWorldPoint(point) {
   return `${unitsToMm(point.x)}mm, ${unitsToMm(point.y)}mm`;
 }
 
+function createDebugFixtureLineMm(x1Mm, y1Mm, x2Mm, y2Mm) {
+  return {
+    id: createEntityId(),
+    type: "line",
+    layerId: state.activeLayerId,
+    p1: {
+      x: mmToUnits(x1Mm),
+      y: mmToUnits(y1Mm),
+    },
+    p2: {
+      x: mmToUnits(x2Mm),
+      y: mmToUnits(y2Mm),
+    },
+  };
+}
+
+function loadDebugFixture(name) {
+  const fixtures = {
+    "align-horizontal": () => [
+      createDebugFixtureLineMm(-2000, 0, 2000, 0),
+      createDebugFixtureLineMm(-1000, -800, 1000, -800),
+    ],
+    "align-vertical": () => [
+      createDebugFixtureLineMm(0, -2000, 0, 2000),
+      createDebugFixtureLineMm(800, -1000, 800, 1000),
+    ],
+    "align-diagonal": () => [
+      createDebugFixtureLineMm(-1000, -1000, 1000, 1000),
+      createDebugFixtureLineMm(-1000, -1500, 1000, 500),
+    ],
+    "fillet-cross": () => [
+      createDebugFixtureLineMm(-1000, 0, 1000, 0),
+      createDebugFixtureLineMm(0, -1000, 0, 1000),
+    ],
+    "fillet-l-shape": () => [
+      createDebugFixtureLineMm(-1200, 0, -100, 0),
+      createDebugFixtureLineMm(0, 1200, 0, 100),
+    ],
+    "basic-lines": () => [
+      createDebugFixtureLineMm(-1500, -600, 1500, -600),
+      createDebugFixtureLineMm(-1200, 600, 1200, 600),
+    ],
+  };
+
+  const fixtureFactory = fixtures[name];
+  if (!fixtureFactory) {
+    setStatus(`Unknown debug fixture: ${name}.`);
+    return false;
+  }
+
+  pushUndoState();
+  state.entities = fixtureFactory();
+  state.selectedEntityIds = [];
+  clearTransientState();
+  syncAfterStateChange();
+  fitAll();
+  setStatus(`Fixture loaded: ${name}.`);
+  return true;
+}
+
+function measureLineDistanceToLine(lineId, referenceLineId) {
+  const line = getEntityById(lineId);
+  const referenceLine = getEntityById(referenceLineId);
+
+  if (!line || !referenceLine || line.type !== "line" || referenceLine.type !== "line") {
+    return null;
+  }
+
+  const projectedP1 = projectPointToInfiniteLineRaw(line.p1, referenceLine);
+  const projectedP2 = projectPointToInfiniteLineRaw(line.p2, referenceLine);
+  if (!projectedP1 || !projectedP2) {
+    return null;
+  }
+
+  const p1DistanceUnits = Math.hypot(line.p1.x - projectedP1.x, line.p1.y - projectedP1.y);
+  const p2DistanceUnits = Math.hypot(line.p2.x - projectedP2.x, line.p2.y - projectedP2.y);
+  const maxDistanceUnits = Math.max(p1DistanceUnits, p2DistanceUnits);
+
+  return {
+    lineId,
+    referenceLineId,
+    p1DistanceUnits,
+    p2DistanceUnits,
+    maxDistanceUnits,
+    p1DistanceMm: unitsToMm(p1DistanceUnits),
+    p2DistanceMm: unitsToMm(p2DistanceUnits),
+    maxDistanceMm: unitsToMm(maxDistanceUnits),
+  };
+}
+
 function onPointerMove(event) {
   uiState.isShiftPressed = event.shiftKey;
   const screenPoint = getScreenPointFromEvent(event);
@@ -2881,3 +2971,68 @@ function initializeView() {
 
 bindEvents();
 initializeView();
+
+window.DraftLiteDebug = {
+  getState() {
+    return snapshotState();
+  },
+
+  getUiState() {
+    return {
+      activeTool: uiState.activeTool,
+      selectedEntityIds: [...state.selectedEntityIds],
+      lineDraft: Boolean(uiState.lineDraft),
+      transformDraft: Boolean(uiState.transformDraft),
+      gripEditDraft: Boolean(uiState.gripEditDraft),
+      alignDraft: uiState.alignDraft ? deepClone(uiState.alignDraft) : null,
+      filletDraft: uiState.filletDraft ? deepClone(uiState.filletDraft) : null,
+      hoverWorld: deepClone(uiState.hoverWorld),
+      pointerWorld: deepClone(uiState.pointerWorld),
+    };
+  },
+
+  getEntities() {
+    return deepClone(state.entities);
+  },
+
+  getLines() {
+    return deepClone(state.entities.filter((entity) => entity.type === "line"));
+  },
+
+  getStatus() {
+    return statusReadout.textContent;
+  },
+
+  setTool(tool) {
+    setActiveTool(tool);
+  },
+
+  clearDocument() {
+    pushUndoState();
+    state.entities = [];
+    state.selectedEntityIds = [];
+    clearTransientState();
+    syncAfterStateChange();
+    setStatus("Document cleared by debug helper.");
+  },
+
+  loadFixture(name) {
+    return loadDebugFixture(name);
+  },
+
+  measureLineDistanceToLine(lineId, referenceLineId) {
+    return measureLineDistanceToLine(lineId, referenceLineId);
+  },
+
+  mmToWorldPoint(xMm, yMm) {
+    return { x: mmToUnits(xMm), y: mmToUnits(yMm) };
+  },
+
+  worldToScreen(point) {
+    return worldToScreen(point);
+  },
+
+  mmToScreen(xMm, yMm) {
+    return worldToScreen({ x: mmToUnits(xMm), y: mmToUnits(yMm) });
+  },
+};

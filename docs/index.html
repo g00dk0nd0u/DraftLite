@@ -18,31 +18,31 @@
         </div>
 
         <div class="toolbar" role="toolbar" aria-label="Drafting tools">
-          <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select">
+          <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select">
             Select
           </button>
-          <button id="toolLineButton" class="tool-button" type="button" data-tool="line">
+          <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line">
             Line
           </button>
-          <button id="moveButton" class="tool-button" type="button" data-tool="move">
+          <button id="moveButton" class="tool-button" type="button" data-tool="move" data-testid="tool-move">
             Move
           </button>
-          <button id="copyButton" class="tool-button" type="button" data-tool="copy">
+          <button id="copyButton" class="tool-button" type="button" data-tool="copy" data-testid="tool-copy">
             Copy
           </button>
-          <button id="alignButton" class="tool-button" type="button" data-tool="align">
+          <button id="alignButton" class="tool-button" type="button" data-tool="align" data-testid="tool-align">
             Align
           </button>
-          <button id="filletButton" class="tool-button" type="button" data-tool="fillet">
+          <button id="filletButton" class="tool-button" type="button" data-tool="fillet" data-testid="tool-fillet">
             Fillet
           </button>
-          <button id="deleteButton" class="tool-button" type="button">Delete</button>
-          <button id="undoButton" class="tool-button" type="button">Undo</button>
-          <button id="redoButton" class="tool-button" type="button">Redo</button>
-          <button id="fitAllButton" class="tool-button" type="button">Fit All</button>
-          <button id="saveJsonButton" class="tool-button" type="button">Save JSON</button>
-          <button id="loadJsonButton" class="tool-button" type="button">Load JSON</button>
-          <button id="exportDxfButton" class="tool-button" type="button">Export DXF</button>
+          <button id="deleteButton" class="tool-button" type="button" data-testid="tool-delete">Delete</button>
+          <button id="undoButton" class="tool-button" type="button" data-testid="tool-undo">Undo</button>
+          <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo">Redo</button>
+          <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all">Fit All</button>
+          <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json">Save JSON</button>
+          <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json">Load JSON</button>
+          <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf">Export DXF</button>
         </div>
       </header>
 
@@ -55,11 +55,11 @@
             </div>
             <div class="canvas-meta">
               <span id="zoomReadout">Zoom: 100%</span>
-              <span id="statusReadout">Ready.</span>
+              <span id="statusReadout" data-testid="status-readout">Ready.</span>
             </div>
           </div>
-          <div id="canvasViewport" class="canvas-viewport">
-            <canvas id="draftCanvas" aria-label="DraftLite canvas"></canvas>
+          <div id="canvasViewport" class="canvas-viewport" data-testid="canvas-viewport">
+            <canvas id="draftCanvas" aria-label="DraftLite canvas" data-testid="draft-canvas"></canvas>
           </div>
         </section>
 
@@ -92,7 +92,7 @@
                 <p>Current document and snap settings.</p>
               </div>
             </div>
-            <dl id="statusPanel" class="status-panel"></dl>
+            <dl id="statusPanel" class="status-panel" data-testid="status-panel"></dl>
           </section>
         </aside>
       </main>
