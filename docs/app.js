@@ -2301,6 +2301,30 @@ function measureLineDistanceToLine(lineId, referenceLineId) {
   };
 }
 
+function getCanvasClickPointForLine(lineId, ratio = 0.5) {
+  const line = getEntityById(lineId);
+  if (!line || line.type !== "line") {
+    return null;
+  }
+
+  const clampedRatio = clampNumber(ratio, 0, 1, 0.5);
+  const world = {
+    x: line.p1.x + (line.p2.x - line.p1.x) * clampedRatio,
+    y: line.p1.y + (line.p2.y - line.p1.y) * clampedRatio,
+  };
+  const screen = worldToScreen(world);
+  const canvasRect = canvas.getBoundingClientRect();
+
+  return {
+    world,
+    screen,
+    client: {
+      x: canvasRect.left + screen.x,
+      y: canvasRect.top + screen.y,
+    },
+  };
+}
+
 function onPointerMove(event) {
   uiState.isShiftPressed = event.shiftKey;
   const screenPoint = getScreenPointFromEvent(event);
@@ -3022,6 +3046,10 @@ window.DraftLiteDebug = {
 
   measureLineDistanceToLine(lineId, referenceLineId) {
     return measureLineDistanceToLine(lineId, referenceLineId);
+  },
+
+  getCanvasClickPointForLine(lineId, ratio = 0.5) {
+    return getCanvasClickPointForLine(lineId, ratio);
   },
 
   mmToWorldPoint(xMm, yMm) {
