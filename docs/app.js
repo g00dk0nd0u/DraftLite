@@ -672,19 +672,34 @@ function syncUndoRedoButtons() {
 function applyTheme(theme) {
   const nextTheme = theme === "dark" ? "dark" : "light";
   document.body.dataset.theme = nextTheme;
-  if (themeToggleButton) themeToggleButton.textContent = nextTheme === "dark" ? "Light" : "Dark";
+  if (themeToggleButton) {
+    themeToggleButton.textContent = nextTheme === "dark" ? "Light" : "Dark";
+  }
+}
+
+function getStoredTheme() {
+  try {
+    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    return storedTheme === "dark" || storedTheme === "light" ? storedTheme : "light";
+  } catch (error) {
+    console.warn("Theme restore failed.", error);
+    return "light";
+  }
 }
 
 function initializeTheme() {
-  applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || "light");
-  if (themeToggleButton) {
-    themeToggleButton.addEventListener("click", () => {
-      const next = document.body.dataset.theme === "dark" ? "light" : "dark";
-      applyTheme(next);
-      localStorage.setItem(THEME_STORAGE_KEY, next);
-      draw();
-    });
+  applyTheme(getStoredTheme());
+}
+
+function toggleTheme() {
+  const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  } catch (error) {
+    console.warn("Theme save failed.", error);
   }
+  draw();
 }
 
 function syncToolButtons() {
@@ -3448,6 +3463,9 @@ function bindEvents() {
   exportDxfButton.addEventListener("click", exportDxf);
   explodeButton.addEventListener("click", explodeSelectedRects);
   addLayerButton.addEventListener("click", addLayer);
+  if (themeToggleButton) {
+    themeToggleButton.addEventListener("click", toggleTheme);
+  }
 
   loadJsonInput.addEventListener("change", () => {
     const [file] = loadJsonInput.files || [];
@@ -3472,6 +3490,7 @@ function initializeView() {
 }
 
 bindEvents();
+initializeTheme();
 initializeView();
 
 window.DraftLiteDebug = {

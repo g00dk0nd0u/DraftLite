@@ -2,6 +2,8 @@
   color-scheme: light dark;
   --bg: #efe7db;
   --bg-strong: #e1d6c4;
+  --bg-top-glow: rgba(255, 255, 255, 0.65);
+  --bg-start: #f4ede3;
   --surface: rgba(255, 251, 245, 0.92);
   --surface-strong: #fcf8f1;
   --surface-muted: #f1e8da;
@@ -18,6 +20,11 @@
   --canvas-grid-major: rgba(123, 96, 64, 0.12);
   --canvas-grid-minor: rgba(123, 96, 64, 0.05);
   --canvas-axis: rgba(89, 66, 42, 0.2);
+  --topbar-bg: rgba(247, 242, 233, 0.92);
+  --brand-mark-bg: linear-gradient(180deg, #f8f2e7, #e8dcc9);
+  --button-bg: rgba(255, 251, 245, 0.92);
+  --button-hover-bg: #fffdf8;
+  --canvas-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
   --shadow: 0 18px 50px rgba(66, 46, 28, 0.09);
   --radius: 18px;
   --topbar-height: 60px;
@@ -27,6 +34,8 @@
 body[data-theme="dark"] {
   --bg: #272b30;
   --bg-strong: #23272c;
+  --bg-top-glow: rgba(96, 112, 133, 0.16);
+  --bg-start: #31363d;
   --surface: rgba(49, 54, 61, 0.94);
   --surface-strong: #3a3f46;
   --surface-muted: #31363d;
@@ -38,6 +47,12 @@ body[data-theme="dark"] {
   --accent-strong: #bbd0ea;
   --accent-soft: rgba(144, 169, 201, 0.2);
   --canvas-bg: #2c3138;
+  --canvas-axis: rgba(186, 197, 214, 0.24);
+  --topbar-bg: rgba(35, 39, 44, 0.94);
+  --brand-mark-bg: linear-gradient(180deg, #39414a, #2c3138);
+  --button-bg: rgba(58, 63, 70, 0.94);
+  --button-hover-bg: #454b54;
+  --canvas-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
 }
 
 * {
@@ -53,8 +68,8 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.65), transparent 25%),
-    linear-gradient(180deg, #f4ede3 0%, var(--bg) 100%);
+    radial-gradient(circle at top left, var(--bg-top-glow), transparent 25%),
+    linear-gradient(180deg, var(--bg-start) 0%, var(--bg) 100%);
 }
 
 body::before {
@@ -92,7 +107,7 @@ select {
   gap: 20px;
   min-height: var(--topbar-height);
   padding: 8px 14px;
-  background: rgba(247, 242, 233, 0.92);
+  background: var(--topbar-bg);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
 }
@@ -110,7 +125,7 @@ select {
   display: grid;
   place-items: center;
   border-radius: 12px;
-  background: linear-gradient(180deg, #f8f2e7, #e8dcc9);
+  background: var(--brand-mark-bg);
   border: 1px solid var(--line);
   color: var(--accent-strong);
   font-size: 0.86rem;
@@ -145,7 +160,7 @@ select {
 .panel-button {
   appearance: none;
   border: 1px solid var(--line);
-  background: rgba(255, 251, 245, 0.92);
+  background: var(--button-bg);
   color: var(--text);
   border-radius: 10px;
   min-height: 30px;
@@ -165,7 +180,7 @@ select {
 .tool-button:hover,
 .panel-button:hover {
   border-color: var(--line-strong);
-  background: #fffdf8;
+  background: var(--button-hover-bg);
 }
 
 .tool-button:active,
@@ -232,7 +247,7 @@ select {
   flex: 1;
   min-height: 420px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0)),
+    var(--canvas-overlay),
     var(--canvas-bg);
 }
 
@@ -391,7 +406,7 @@ body[data-panning="true"] #draftCanvas {
   border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 0.78rem;
-  background: #fff;
+  background: var(--surface-strong);
 }
 
 .prop-value input[type="checkbox"] {
