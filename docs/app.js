@@ -3,12 +3,12 @@
 const STORAGE_KEY = "draftlite.autosave.v1";
 const FILE_VERSION = 1;
 const MM_PER_UNIT = 0.5;
-const GRID_MINOR_UNIT = 200;
 const GRID_MAJOR_UNIT = 2000;
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 50;
 const DOUBLE_CLICK_MS = 320;
 const CLICK_SELECT_THRESHOLD_PX = 4;
+const THEME_STORAGE_KEY = "draftlite.theme";
 
 const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
@@ -40,6 +40,7 @@ const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
 const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
+const themeToggleButton = document.getElementById("themeToggleButton");
 
 const ctx = canvas.getContext("2d");
 
@@ -566,6 +567,7 @@ function normalizeEntity(entity) {
       rotation: 0,
       name: typeof entity.name === "string" ? entity.name : "Box",
       fill: entity.fill !== false,
+      fillColor: normalizeColor(entity.fillColor || ""),
     };
   }
   return null;
@@ -667,6 +669,24 @@ function syncUndoRedoButtons() {
   redoButton.disabled = history.redoStack.length === 0;
 }
 
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.body.dataset.theme = nextTheme;
+  if (themeToggleButton) themeToggleButton.textContent = nextTheme === "dark" ? "Light" : "Dark";
+}
+
+function initializeTheme() {
+  applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || "light");
+  if (themeToggleButton) {
+    themeToggleButton.addEventListener("click", () => {
+      const next = document.body.dataset.theme === "dark" ? "light" : "dark";
+      applyTheme(next);
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+      draw();
+    });
+  }
+}
+
 function syncToolButtons() {
   document.body.dataset.tool = uiState.activeTool;
   Object.entries(toolButtons).forEach(([tool, button]) => {
@@ -697,109 +717,28 @@ function ensureActiveLayer() {
 
 function renderLayersPanel() {
   layerList.innerHTML = "";
-
+  const header = document.createElement("div");
+  header.className = "layer-table-header";
+  ["Active", "Name", "Visible", "Lock", "Color"].forEach((t) => { const c = document.createElement("div"); c.textContent = t; header.appendChild(c); });
+  layerList.appendChild(header);
   state.layers.forEach((layer) => {
     const row = document.createElement("div");
     row.className = `layer-row${layer.id === state.activeLayerId ? " is-active" : ""}`;
-
-    const top = document.createElement("div");
-    top.className = "layer-row-top";
-
-    const nameWrap = document.createElement("div");
-    nameWrap.className = "layer-name";
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.value = layer.name;
-    nameInput.setAttribute("aria-label", `${layer.name} name`);
-    nameInput.addEventListener("change", () => {
-      const nextName = nameInput.value.trim() || layer.name;
-      if (nextName === layer.name) {
-        renderLayersPanel();
-        return;
-      }
-      pushUndoState();
-      layer.name = nextName;
-      syncAfterStateChange();
-      setStatus(`Renamed ${nextName}.`);
-    });
+    const activeRadio = document.createElement("input"); activeRadio.type = "radio"; activeRadio.name = "activeLayer"; activeRadio.checked = layer.id === state.activeLayerId;
+    activeRadio.addEventListener("change", () => { state.activeLayerId = layer.id; syncAfterStateChange(); setStatus(`${layer.name} is active.`); });
+    const nameWrap = document.createElement("div"); nameWrap.className = "layer-name";
+    const nameInput = document.createElement("input"); nameInput.type = "text"; nameInput.value = layer.name;
+    nameInput.addEventListener("change", () => { const nextName = nameInput.value.trim() || layer.name; if (nextName === layer.name) return; pushUndoState(); layer.name = nextName; syncAfterStateChange(); setStatus(`Renamed ${nextName}.`); });
     nameWrap.appendChild(nameInput);
-
-    const activeLabel = document.createElement("label");
-    activeLabel.className = "layer-active";
-    const activeRadio = document.createElement("input");
-    activeRadio.type = "radio";
-    activeRadio.name = "activeLayer";
-    activeRadio.checked = layer.id === state.activeLayerId;
-    activeRadio.addEventListener("change", () => {
-      state.activeLayerId = layer.id;
-      syncAfterStateChange();
-      setStatus(`${layer.name} is active.`);
-    });
-    activeLabel.appendChild(activeRadio);
-    activeLabel.append("Active");
-
-    top.append(nameWrap, activeLabel);
-
-    const controls = document.createElement("div");
-    controls.className = "layer-controls";
-
-    const visibleLabel = document.createElement("label");
-    visibleLabel.className = "layer-toggle";
-    const visibleInput = document.createElement("input");
-    visibleInput.type = "checkbox";
-    visibleInput.checked = layer.visible;
-    visibleInput.addEventListener("change", () => {
-      pushUndoState();
-      layer.visible = visibleInput.checked;
-      if (!layer.visible) {
-        state.selectedEntityIds = state.selectedEntityIds.filter((entityId) => {
-          const entity = getEntityById(entityId);
-          return entity && isLayerVisible(entity.layerId);
-        });
-      }
-      syncAfterStateChange();
-      setStatus(`${layer.name} ${layer.visible ? "shown" : "hidden"}.`);
-    });
-    visibleLabel.append(visibleInput, "Visible");
-
-    const lockLabel = document.createElement("label");
-    lockLabel.className = "layer-toggle";
-    const lockInput = document.createElement("input");
-    lockInput.type = "checkbox";
-    lockInput.checked = layer.locked;
-    lockInput.addEventListener("change", () => {
-      pushUndoState();
-      layer.locked = lockInput.checked;
-      if (layer.locked) {
-        state.selectedEntityIds = state.selectedEntityIds.filter((entityId) => {
-          const entity = getEntityById(entityId);
-          return entity && canSelectEntity(entity);
-        });
-      }
-      syncAfterStateChange();
-      setStatus(`${layer.name} ${layer.locked ? "locked" : "unlocked"}.`);
-    });
-    lockLabel.append(lockInput, "Lock");
-
-    const colorLabel = document.createElement("label");
-    colorLabel.className = "layer-color";
-    colorLabel.textContent = "Color";
-    const colorInput = document.createElement("input");
-    colorInput.type = "color";
-    colorInput.value = normalizeColor(layer.color);
-    colorInput.addEventListener("change", () => {
-      if (layer.color === colorInput.value) {
-        return;
-      }
-      pushUndoState();
-      layer.color = colorInput.value;
-      syncAfterStateChange();
-      setStatus(`${layer.name} color updated.`);
-    });
-    colorLabel.appendChild(colorInput);
-
-    controls.append(visibleLabel, lockLabel, colorLabel);
-    row.append(top, controls);
+    const visibleInput = document.createElement("input"); visibleInput.type = "checkbox"; visibleInput.checked = layer.visible;
+    visibleInput.addEventListener("change", () => { pushUndoState(); layer.visible = visibleInput.checked; syncAfterStateChange(); setStatus(`${layer.name} ${layer.visible ? "shown" : "hidden"}.`); });
+    const lockInput = document.createElement("input"); lockInput.type = "checkbox"; lockInput.checked = layer.locked;
+    lockInput.addEventListener("change", () => { pushUndoState(); layer.locked = lockInput.checked; syncAfterStateChange(); setStatus(`${layer.name} ${layer.locked ? "locked" : "unlocked"}.`); });
+    const colorWrap = document.createElement("div"); colorWrap.className = "layer-color";
+    const colorInput = document.createElement("input"); colorInput.type = "color"; colorInput.value = normalizeColor(layer.color);
+    colorInput.addEventListener("change", () => { pushUndoState(); layer.color = colorInput.value; syncAfterStateChange(); setStatus(`${layer.name} color updated.`); });
+    colorWrap.appendChild(colorInput);
+    row.append(activeRadio, nameWrap, visibleInput, lockInput, colorWrap);
     layerList.appendChild(row);
   });
 }
@@ -907,9 +846,7 @@ function renderPropertiesPanel() {
 
     const geometryGrid = appendSection("Geometry");
     const fields = [
-      ["X mm", "x"],
-      ["Y mm", "y"],
-      ["Width mm", "width"],
+            ["Width mm", "width"],
       ["Height mm", "height"],
       ["Rotation", "rotation"],
     ];
@@ -948,6 +885,10 @@ function renderPropertiesPanel() {
     });
 
     const appearanceGrid = appendSection("Appearance");
+    const fillColor = document.createElement("input");
+    fillColor.type = "color";
+    fillColor.value = normalizeColor(entity.fillColor || getLayerById(entity.layerId)?.color);
+    fillColor.addEventListener("change", () => { pushUndoState(); entity.fillColor = fillColor.value; syncAfterStateChange(); });
     const fill = document.createElement("input");
     fill.type = "checkbox";
     fill.checked = entity.fill !== false;
@@ -957,6 +898,7 @@ function renderPropertiesPanel() {
       syncAfterStateChange();
     });
     addPropertyRow(appearanceGrid, "Fill", fill);
+    addPropertyRow(appearanceGrid, "Fill Color", fillColor);
     return;
   }
 
@@ -966,45 +908,12 @@ function renderPropertiesPanel() {
     addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Line layer updated."));
 
     const geometryGrid = appendSection("Geometry");
-    const coords = [
-      ["Start X mm", "p1", "x"],
-      ["Start Y mm", "p1", "y"],
-      ["End X mm", "p2", "x"],
-      ["End Y mm", "p2", "y"],
-    ];
-    coords.forEach(([label, pointKey, axisKey]) => {
-      const input = document.createElement("input");
-      input.type = "number";
-      input.value = String(unitsToMm(entity[pointKey][axisKey]));
-      input.addEventListener("change", () => {
-        const numericValue = Number(input.value);
-        if (!Number.isFinite(numericValue)) {
-          input.value = String(unitsToMm(entity[pointKey][axisKey]));
-          setStatus(`${label} must be a valid number.`);
-          return;
-        }
-        const nextPoint = { ...entity[pointKey], [axisKey]: mmToUnits(numericValue) };
-        const nextP1 = pointKey === "p1" ? nextPoint : entity.p1;
-        const nextP2 = pointKey === "p2" ? nextPoint : entity.p2;
-        if (nextP1.x === nextP2.x && nextP1.y === nextP2.y) {
-          input.value = String(unitsToMm(entity[pointKey][axisKey]));
-          setStatus("Line length must be greater than zero.");
-          return;
-        }
-        pushUndoState();
-        entity[pointKey] = nextPoint;
-        syncAfterStateChange();
-      });
-      addPropertyRow(geometryGrid, label, input);
-    });
-
     const lengthUnits = Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y);
     const lengthMm = unitsToMm(lengthUnits);
     const angleDeg = Math.atan2(entity.p2.y - entity.p1.y, entity.p2.x - entity.p1.x) * (180 / Math.PI);
     addPropertyRow(geometryGrid, "Length mm", createReadOnlyText(String(lengthMm)));
     addPropertyRow(geometryGrid, "Angle deg", createReadOnlyText(String(Number(angleDeg.toFixed(3)))));
 
-    appendSection("Appearance");
     return;
   }
 }
@@ -1154,37 +1063,24 @@ function draw() {
 }
 
 function drawGrid(width, height) {
-  if (!state.settings.showGrid) {
-    return;
-  }
-
+  if (!state.settings.showGrid) return;
   const worldTopLeft = screenToWorld({ x: 0, y: 0 });
   const worldBottomRight = screenToWorld({ x: width, y: height });
-  const startXMinor = Math.floor(worldTopLeft.x / GRID_MINOR_UNIT) * GRID_MINOR_UNIT;
-  const endXMinor = Math.ceil(worldBottomRight.x / GRID_MINOR_UNIT) * GRID_MINOR_UNIT;
-  const startYMinor = Math.floor(worldTopLeft.y / GRID_MINOR_UNIT) * GRID_MINOR_UNIT;
-  const endYMinor = Math.ceil(worldBottomRight.y / GRID_MINOR_UNIT) * GRID_MINOR_UNIT;
-
+  const startX = Math.floor(worldTopLeft.x / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
+  const endX = Math.ceil(worldBottomRight.x / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
+  const startY = Math.floor(worldTopLeft.y / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
+  const endY = Math.ceil(worldBottomRight.y / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
+  const step = state.view.zoom * GRID_MAJOR_UNIT < 14 ? GRID_MAJOR_UNIT * 2 : GRID_MAJOR_UNIT;
+  const dotRadius = document.body.dataset.theme === "dark" ? 1.2 : 1.0;
   ctx.save();
-  for (let x = startXMinor; x <= endXMinor; x += GRID_MINOR_UNIT) {
-    const screen = worldToScreen({ x, y: 0 });
-    const isMajor = x % GRID_MAJOR_UNIT === 0;
-    ctx.strokeStyle = isMajor ? "rgba(123, 96, 64, 0.12)" : "rgba(123, 96, 64, 0.05)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(screen.x, 0);
-    ctx.lineTo(screen.x, height);
-    ctx.stroke();
-  }
-  for (let y = startYMinor; y <= endYMinor; y += GRID_MINOR_UNIT) {
-    const screen = worldToScreen({ x: 0, y });
-    const isMajor = y % GRID_MAJOR_UNIT === 0;
-    ctx.strokeStyle = isMajor ? "rgba(123, 96, 64, 0.12)" : "rgba(123, 96, 64, 0.05)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, screen.y);
-    ctx.lineTo(width, screen.y);
-    ctx.stroke();
+  ctx.fillStyle = document.body.dataset.theme === "dark" ? "rgba(186,197,214,0.28)" : "rgba(123, 96, 64, 0.20)";
+  for (let x = startX; x <= endX; x += step) {
+    for (let y = startY; y <= endY; y += step) {
+      const screen = worldToScreen({ x, y });
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
 }
@@ -1296,7 +1192,7 @@ function drawRectEntity(entity) {
   const h = p2.y - p1.y;
   ctx.save();
   if (entity.fill !== false) {
-    ctx.fillStyle = "rgba(98,73,45,0.10)";
+    ctx.fillStyle = normalizeColor(entity.fillColor || layer.color);
     ctx.fillRect(p1.x, p1.y, w, h);
   }
   if (isSelected) {
@@ -1572,7 +1468,7 @@ function addRectangleEntity(startPoint, oppositePoint) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color) };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -1602,7 +1498,7 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color) };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();

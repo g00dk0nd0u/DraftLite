@@ -13,41 +13,41 @@
           <div class="brand-mark">DL</div>
           <div class="brand-copy">
             <strong>DraftLite</strong>
-            <span>Revit Drafting View Lite for quick architectural sketching</span>
           </div>
         </div>
 
         <div class="toolbar" role="toolbar" aria-label="Drafting tools">
           <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select">
-            Select
+            <span class="tool-icon">↖</span><span>Select</span>
           </button>
           <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line">
-            Line
+            <span class="tool-icon">／</span><span>Line</span>
           </button>
           <button id="rectangleButton" class="tool-button" type="button" data-tool="rectangle" data-testid="tool-rectangle">
-            Rectangle
+            <span class="tool-icon">▭</span><span>Rectangle</span>
           </button>
           <button id="moveButton" class="tool-button" type="button" data-tool="move" data-testid="tool-move">
-            Move
+            <span class="tool-icon">✥</span><span>Move</span>
           </button>
           <button id="copyButton" class="tool-button" type="button" data-tool="copy" data-testid="tool-copy">
-            Copy
+            <span class="tool-icon">⧉</span><span>Copy</span>
           </button>
           <button id="alignButton" class="tool-button" type="button" data-tool="align" data-testid="tool-align">
-            Align
+            <span class="tool-icon">⇔</span><span>Align</span>
           </button>
           <button id="filletButton" class="tool-button" type="button" data-tool="fillet" data-testid="tool-fillet">
-            Fillet
+            <span class="tool-icon">⌞</span><span>Fillet</span>
           </button>
-          <button id="deleteButton" class="tool-button" type="button" data-testid="tool-delete">Delete</button>
-          <button id="explodeButton" class="tool-button" type="button" data-testid="tool-explode">Explode</button>
-          <button id="undoButton" class="tool-button" type="button" data-testid="tool-undo">Undo</button>
-          <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo">Redo</button>
-          <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all">Fit All</button>
-          <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json">Save JSON</button>
-          <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json">Load JSON</button>
-          <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf">Export DXF</button>
+          <button id="deleteButton" class="tool-button" type="button" data-testid="tool-delete"><span class="tool-icon">×</span><span>Delete</span></button>
+          <button id="explodeButton" class="tool-button" type="button" data-testid="tool-explode"><span class="tool-icon">⨯</span><span>Explode</span></button>
+          <button id="undoButton" class="tool-button" type="button" data-testid="tool-undo"><span class="tool-icon">↶</span><span>Undo</span></button>
+          <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo"><span class="tool-icon">↷</span><span>Redo</span></button>
+          <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all"><span class="tool-icon">⛶</span><span>Fit All</span></button>
+          <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json"><span class="tool-icon">⬇</span><span>Save JSON</span></button>
+          <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json"><span class="tool-icon">⬆</span><span>Load JSON</span></button>
+          <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf"><span class="tool-icon">DXF</span><span>Export DXF</span></button>
         </div>
+        <button id="themeToggleButton" class="tool-button theme-toggle" type="button" data-testid="theme-toggle">Dark</button>
       </header>
 
       <main class="workspace">
