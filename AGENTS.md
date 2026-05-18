@@ -25,6 +25,8 @@
 - JSON save/load must remain compatible.
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
+- DXF export should remain AutoCAD-compatible ASCII `AC1009` with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
+- DXF `TABLES` should include at least `LTYPE` and `LAYER`; rectangle entities should export as virtual LINE outlines without mutating internal state.
 - Initial Fillet implementation is radius=0 join only.
 - Initial Align implementation is line-to-line parallel alignment only.
 - Align must keep the first picked reference line fixed.

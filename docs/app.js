@@ -3453,16 +3453,24 @@ function loadJsonFromFile(file) {
 }
 
 function exportDxf() {
-  const visibleLines = state.entities.filter((entity) => isLayerVisible(entity.layerId)).flatMap((entity)=> entity.type === "line" ? [entity] : entity.type === "rect" ? rectToOutlineLines(entity) : []);
+  const summary = getDxfExportSummary();
 
-  if (!visibleLines.length) {
+  if (!summary.exportedLineCount) {
     setStatus("No visible lines to export.");
     return;
   }
 
-  const visibleLayers = state.layers.filter((layer) =>
-    visibleLines.some((line) => line.layerId === layer.id)
+  const dxfText = buildDxfText();
+  downloadBlob(
+    new Blob([dxfText], { type: "application/dxf" }),
+    `draftlite-${createTimestampLabel()}.dxf`
   );
+  setStatus(`DXF exported: ${summary.exportedLineCount} lines.`);
+}
+
+function buildDxfText() {
+  const exportLines = collectDxfExportLines();
+  const layerNames = collectDxfLayerNames(exportLines);
 
   const dxfLines = [];
   dxfLines.push("0", "SECTION", "2", "HEADER");
@@ -3474,10 +3482,10 @@ function exportDxf() {
   dxfLines.push("0", "TABLE", "2", "LTYPE", "70", "1");
   dxfLines.push("0", "LTYPE", "2", "CONTINUOUS", "70", "0", "3", "Solid line", "72", "65", "73", "0", "40", "0.0");
   dxfLines.push("0", "ENDTAB");
-  dxfLines.push("0", "TABLE", "2", "LAYER", "70", String(visibleLayers.length));
-  visibleLayers.forEach((layer) => {
+  dxfLines.push("0", "TABLE", "2", "LAYER", "70", String(layerNames.length));
+  layerNames.forEach((layerName) => {
     dxfLines.push("0", "LAYER");
-    dxfLines.push("2", sanitizeDxfText(layer.name));
+    dxfLines.push("2", layerName);
     dxfLines.push("70", "0");
     dxfLines.push("62", "7");
     dxfLines.push("6", "CONTINUOUS");
@@ -3485,34 +3493,97 @@ function exportDxf() {
   dxfLines.push("0", "ENDTAB");
   dxfLines.push("0", "ENDSEC");
 
+  dxfLines.push("0", "SECTION", "2", "BLOCKS");
+  dxfLines.push("0", "ENDSEC");
+
   dxfLines.push("0", "SECTION", "2", "ENTITIES");
-  visibleLines.forEach((line) => {
-    const layer = getLayerById(line.layerId);
+  exportLines.forEach((line) => {
     dxfLines.push("0", "LINE");
-    dxfLines.push("8", sanitizeDxfText(layer ? layer.name : "0"));
+    dxfLines.push("8", getDxfLayerNameForLine(line));
     dxfLines.push("10", formatDxfNumber(unitsToMm(line.p1.x)));
     dxfLines.push("20", formatDxfNumber(unitsToMm(line.p1.y)));
-    dxfLines.push("30", "0.0");
+    dxfLines.push("30", formatDxfNumber(0));
     dxfLines.push("11", formatDxfNumber(unitsToMm(line.p2.x)));
     dxfLines.push("21", formatDxfNumber(unitsToMm(line.p2.y)));
-    dxfLines.push("31", "0.0");
+    dxfLines.push("31", formatDxfNumber(0));
   });
   dxfLines.push("0", "ENDSEC", "0", "EOF");
 
-  const dxfText = `${dxfLines.join("\n")}\n`;
-  downloadBlob(
-    new Blob([dxfText], { type: "application/dxf" }),
-    `draftlite-${createTimestampLabel()}.dxf`
-  );
-  setStatus("DXF exported.");
+  return `${dxfLines.join("\r\n")}\r\n`;
 }
 
-function sanitizeDxfText(value) {
-  return String(value || "0").replaceAll("\r", " ").replaceAll("\n", " ");
+function getDxfExportSummary() {
+  const exportLines = collectDxfExportLines();
+  const bounds = getDxfLineBoundsMm(exportLines);
+
+  return {
+    exportedLineCount: exportLines.length,
+    visibleEntityCount: collectDxfExportEntities().length,
+    layerCount: collectDxfLayerNames(exportLines).length,
+    minX: bounds ? bounds.minX : null,
+    minY: bounds ? bounds.minY : null,
+    maxX: bounds ? bounds.maxX : null,
+    maxY: bounds ? bounds.maxY : null,
+  };
+}
+
+function collectDxfExportEntities() {
+  return state.entities.filter((entity) =>
+    entity &&
+    isLayerVisible(entity.layerId) &&
+    (entity.type === "line" || entity.type === "rect")
+  );
+}
+
+function collectDxfExportLines() {
+  return collectDxfExportEntities().flatMap((entity) =>
+    entity.type === "line" ? [entity] : rectToOutlineLines(entity)
+  );
+}
+
+function collectDxfLayerNames(lines) {
+  const names = new Set(["0"]);
+  lines.forEach((line) => {
+    names.add(getDxfLayerNameForLine(line));
+  });
+  return [...names];
+}
+
+function getDxfLayerNameForLine(line) {
+  const layer = getLayerById(line.layerId);
+  return sanitizeDxfLayerName(layer ? layer.name : "0");
+}
+
+function getDxfLineBoundsMm(lines) {
+  if (!lines.length) {
+    return null;
+  }
+
+  const xs = [];
+  const ys = [];
+  lines.forEach((line) => {
+    xs.push(unitsToMm(line.p1.x), unitsToMm(line.p2.x));
+    ys.push(unitsToMm(line.p1.y), unitsToMm(line.p2.y));
+  });
+
+  return {
+    minX: Number(formatDxfNumber(Math.min(...xs))),
+    minY: Number(formatDxfNumber(Math.min(...ys))),
+    maxX: Number(formatDxfNumber(Math.max(...xs))),
+    maxY: Number(formatDxfNumber(Math.max(...ys))),
+  };
+}
+
+function sanitizeDxfLayerName(value) {
+  const sanitized = String(value || "")
+    .replace(/[\x00-\x1F\x7F]/g, " ")
+    .replace(/[<>/\\":;?*|=]/g, " ")
+    .trim();
+  return sanitized || "0";
 }
 
 function formatDxfNumber(value) {
-  return Number(value).toFixed(1);
+  return Number(value).toFixed(3);
 }
 
 function downloadBlob(blob, filename) {
@@ -3906,6 +3977,16 @@ window.DraftLiteDebug = {
     return createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm);
   },
 
+  createLineMm(x1Mm, y1Mm, x2Mm, y2Mm) {
+    pushUndoState();
+    state.entities.push(createDebugFixtureLineMm(x1Mm, y1Mm, x2Mm, y2Mm));
+    state.selectedEntityIds = [];
+    clearTransientState();
+    syncAfterStateChange();
+    setStatus("Line created by debug helper.");
+    return true;
+  },
+
   createRectMm(xMm, yMm, widthMm, heightMm, name = "Box") {
     const result = createRectangleMm(xMm, yMm, xMm + widthMm, yMm + heightMm);
     if (result) { const rect = state.entities[state.entities.length-1]; if (rect && rect.type === "rect") rect.name = name || "Box"; syncAfterStateChange(); }
@@ -3914,6 +3995,14 @@ window.DraftLiteDebug = {
 
   explodeSelectedRects() {
     return explodeSelectedRects();
+  },
+
+  buildDxfText() {
+    return buildDxfText();
+  },
+
+  getDxfExportSummary() {
+    return getDxfExportSummary();
   },
 
   measureLineDistanceToLine(lineId, referenceLineId) {
