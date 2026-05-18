@@ -25,8 +25,10 @@
 - JSON save/load must remain compatible.
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
-- DXF export should remain AutoCAD-compatible ASCII `AC1009` with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
-- DXF `TABLES` should include at least `LTYPE` and `LAYER`; rectangle entities should export as virtual LINE outlines without mutating internal state.
+- DXF export should remain conservative R12/AC1009-style ASCII with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
+- DXF `HEADER` should stay minimal with `$ACADVER` only; do not emit `$INSUNITS`, `OBJECTS`, subclass markers, or group code `100`.
+- DXF `TABLES` should include at least `LTYPE` and `LAYER`; layer names should be normalized to ASCII letters, numbers, and underscores.
+- Rectangle entities should export as virtual LINE outlines without mutating internal state.
 - Initial Fillet implementation is radius=0 join only.
 - Initial Align implementation is line-to-line parallel alignment only.
 - Align must keep the first picked reference line fixed.

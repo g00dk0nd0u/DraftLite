@@ -3462,7 +3462,7 @@ function exportDxf() {
 
   const dxfText = buildDxfText();
   downloadBlob(
-    new Blob([dxfText], { type: "application/dxf" }),
+    new Blob([dxfText], { type: "text/plain;charset=us-ascii" }),
     `draftlite-${createTimestampLabel()}.dxf`
   );
   setStatus(`DXF exported: ${summary.exportedLineCount} lines.`);
@@ -3475,7 +3475,6 @@ function buildDxfText() {
   const dxfLines = [];
   dxfLines.push("0", "SECTION", "2", "HEADER");
   dxfLines.push("9", "$ACADVER", "1", "AC1009");
-  dxfLines.push("9", "$INSUNITS", "70", "4");
   dxfLines.push("0", "ENDSEC");
 
   dxfLines.push("0", "SECTION", "2", "TABLES");
@@ -3527,6 +3526,53 @@ function getDxfExportSummary() {
   };
 }
 
+function validateDxfText(dxfText = buildDxfText()) {
+  const text = String(dxfText);
+  const rawLines = text.endsWith("\r\n")
+    ? text.slice(0, -2).split("\r\n")
+    : text.split("\r\n");
+  const lineCount = countDxfEntityRecords(text, "LINE");
+  const sectionCount = countDxfEntityRecords(text, "SECTION");
+  const endsecCount = countDxfEntityRecords(text, "ENDSEC");
+  const groupCode100Count = countDxfGroupCode(text, "100");
+  const hasOnlyAscii = /^[\x00-\x7F]*$/.test(text);
+  const hasCrlf = text.includes("\r\n");
+  const hasBareLf = /(^|[^\r])\n/.test(text);
+  const hasBareCr = /\r(?!\n)/.test(text);
+  const hasEof = hasDxfEntityRecord(text, "EOF");
+  const hasEvenGroupCodeValueLines = rawLines.length % 2 === 0;
+  const hasValidGroupCodes = rawLines.every((line, index) =>
+    index % 2 !== 0 || /^-?\d+$/.test(line)
+  );
+  const hasInsunits = text.includes("$INSUNITS");
+
+  return {
+    ok:
+      sectionCount === endsecCount &&
+      hasEof &&
+      hasEvenGroupCodeValueLines &&
+      hasValidGroupCodes &&
+      hasOnlyAscii &&
+      hasCrlf &&
+      !hasBareLf &&
+      !hasBareCr &&
+      !hasInsunits &&
+      groupCode100Count === 0,
+    sectionCount,
+    endsecCount,
+    hasEof,
+    lineCount,
+    hasEvenGroupCodeValueLines,
+    hasValidGroupCodes,
+    hasOnlyAscii,
+    hasCrlf,
+    hasBareLf,
+    hasBareCr,
+    hasInsunits,
+    groupCode100Count,
+  };
+}
+
 function collectDxfExportEntities() {
   return state.entities.filter((entity) =>
     entity &&
@@ -3554,6 +3600,31 @@ function getDxfLayerNameForLine(line) {
   return sanitizeDxfLayerName(layer ? layer.name : "0");
 }
 
+function createMinimalDxfFixture() {
+  const layerId = "debug-dxf-fixture-layer";
+  const line = { ...createDebugFixtureLineMm(0, 0, 1000, 0), layerId };
+  const layer = { id: layerId, name: "Layer 1", color: "#2e3135", visible: true, locked: false };
+  const previousEntities = state.entities;
+  const previousLayers = state.layers;
+
+  try {
+    state.layers = [layer];
+    state.entities = [line];
+    const dxfText = buildDxfText();
+    const validation = validateDxfText(dxfText);
+    const summary = getDxfExportSummary();
+
+    return {
+      dxfText,
+      validation,
+      summary,
+    };
+  } finally {
+    state.entities = previousEntities;
+    state.layers = previousLayers;
+  }
+}
+
 function getDxfLineBoundsMm(lines) {
   if (!lines.length) {
     return null;
@@ -3576,14 +3647,27 @@ function getDxfLineBoundsMm(lines) {
 
 function sanitizeDxfLayerName(value) {
   const sanitized = String(value || "")
-    .replace(/[\x00-\x1F\x7F]/g, " ")
-    .replace(/[<>/\\":;?*|=]/g, " ")
-    .trim();
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return sanitized || "0";
 }
 
 function formatDxfNumber(value) {
   return Number(value).toFixed(3);
+}
+
+function hasDxfEntityRecord(dxfText, recordType) {
+  const lines = String(dxfText).split("\r\n");
+  return lines.some((line, index) => line === "0" && lines[index + 1] === recordType);
+}
+
+function countDxfEntityRecords(dxfText, recordType) {
+  const lines = String(dxfText).split("\r\n");
+  return lines.filter((line, index) => line === "0" && lines[index + 1] === recordType).length;
+}
+
+function countDxfGroupCode(dxfText, groupCode) {
+  return String(dxfText).split("\r\n").filter((line, index) => index % 2 === 0 && line === groupCode).length;
 }
 
 function downloadBlob(blob, filename) {
@@ -4001,8 +4085,16 @@ window.DraftLiteDebug = {
     return buildDxfText();
   },
 
+  validateDxfText(dxfText) {
+    return validateDxfText(dxfText);
+  },
+
   getDxfExportSummary() {
     return getDxfExportSummary();
+  },
+
+  createMinimalDxfFixture() {
+    return createMinimalDxfFixture();
   },
 
   measureLineDistanceToLine(lineId, referenceLineId) {

@@ -69,7 +69,7 @@ Included in this first pass:
 - Layer visible / lock / color / active controls
 - JSON save/load
 - localStorage autosave restore
-- AutoCAD-compatible ASCII DXF export for visible lines
+- Conservative R12/AC1009-style ASCII DXF export for visible lines
 - Rectangles are exported as virtual LINE outlines without mutating document state
 
 ## Coordinate model
@@ -147,6 +147,8 @@ DraftLiteDebug.getLines();
 DraftLiteDebug.measureLineDistanceToLine("ent-2", "ent-1");
 DraftLiteDebug.buildDxfText();
 DraftLiteDebug.getDxfExportSummary();
+DraftLiteDebug.validateDxfText();
+DraftLiteDebug.createMinimalDxfFixture();
 ```
 
 - `DraftLiteDebug` is intended for development support only. It does not change normal behavior unless you explicitly call a helper such as `clearDocument()` or `loadFixture()`.
@@ -191,6 +193,8 @@ result.client.y;
 - `Move` / `Copy` should translate rectangle `x` / `y`.
 - `Explode` should delete selected `rect` entities and create 4 `line` entities.
 - DXF export should emit rectangle outlines as virtual 4-segment `LINE` output without mutating document state.
-- DXF export is ASCII `AC1009` with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` records.
-- `DraftLiteDebug.buildDxfText()` and `DraftLiteDebug.getDxfExportSummary()` are available for export verification.
+- DXF export is conservative ASCII `AC1009` with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` records.
+- The `HEADER` is intentionally minimal and does not emit `$INSUNITS`; subclass markers such as group code `100` are not used.
+- DXF layer names are normalized to ASCII letters, numbers, and underscores, such as `Layer_1`.
+- `DraftLiteDebug.buildDxfText()`, `DraftLiteDebug.getDxfExportSummary()`, `DraftLiteDebug.validateDxfText()`, and `DraftLiteDebug.createMinimalDxfFixture()` are available for export verification.
 - JSON save/load should preserve rectangle entities.
