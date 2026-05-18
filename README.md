@@ -33,7 +33,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Endpoint / Midpoint snap
 - Dynamic Input-style distance display
 - Explode selected rectangle objects into 4 lines
-- Properties panel supports rectangle Name / X / Y / Width / Height / Fill editing
+- Properties panel supports practical form editing for line and rectangle entities
 - Numeric input for Line / Move / Copy / Grip edit
 - 250ms delayed numeric preview for Line / Move / Copy / Grip edit
 - Move / Copy / Grip edit numeric input preview
