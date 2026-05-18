@@ -10,10 +10,7 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark">DL</div>
-          <div class="brand-copy">
-            <strong>DraftLite</strong>
-          </div>
+          <strong class="brand-title">DraftLite</strong>
         </div>
 
         <div class="toolbar-shell">
@@ -50,12 +47,16 @@
               <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo"><span class="tool-icon">↷</span><span>Redo</span></button>
               <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all"><span class="tool-icon">⛶</span><span>Fit All</span></button>
             </div>
-            <div class="toolbar-group" role="group" aria-label="File tools">
-              <span class="toolbar-group-label">File</span>
-              <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json"><span class="tool-icon">⬇</span><span>Save JSON</span></button>
-              <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json"><span class="tool-icon">⬆</span><span>Load JSON</span></button>
-              <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf"><span class="tool-icon">DXF</span><span>Export DXF</span></button>
-            </div>
+            <details class="toolbar-group toolbar-group-file">
+              <summary class="tool-button toolbar-menu-button" aria-label="File tools">
+                <span class="tool-icon">▾</span><span>File</span>
+              </summary>
+              <div class="toolbar-menu" role="group" aria-label="File tools">
+                <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json"><span class="tool-icon">⬇</span><span>Save JSON</span></button>
+                <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json"><span class="tool-icon">⬆</span><span>Load JSON</span></button>
+                <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf"><span class="tool-icon">DXF</span><span>Export DXF</span></button>
+              </div>
+            </details>
           </div>
           <button id="themeToggleButton" class="tool-button theme-toggle" type="button" data-testid="theme-toggle">Dark</button>
         </div>
@@ -81,10 +82,7 @@
         <aside class="sidebar" aria-label="Layers and properties">
           <section class="panel">
             <div class="panel-header">
-              <div>
-                <h2>Layers</h2>
-                <p>Visible, editable drafting layers.</p>
-              </div>
+              <h2>Layers</h2>
               <button id="addLayerButton" class="panel-button" type="button">Add</button>
             </div>
             <div id="layerList" class="layer-list"></div>
@@ -92,20 +90,14 @@
 
           <section class="panel">
             <div class="panel-header">
-              <div>
-                <h2>Properties</h2>
-                <p>Selected entity summary.</p>
-              </div>
+              <h2>Properties</h2>
             </div>
             <div id="propertiesPanel" class="properties-panel"></div>
           </section>
 
           <section class="panel">
             <div class="panel-header">
-              <div>
-                <h2>Status</h2>
-                <p>Current document and snap settings.</p>
-              </div>
+              <h2>Status</h2>
             </div>
             <dl id="statusPanel" class="status-panel" data-testid="status-panel"></dl>
           </section>

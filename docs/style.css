@@ -21,7 +21,6 @@
   --canvas-grid-minor: rgba(123, 96, 64, 0.05);
   --canvas-axis: rgba(89, 66, 42, 0.2);
   --topbar-bg: rgba(247, 242, 233, 0.92);
-  --brand-mark-bg: linear-gradient(180deg, #f8f2e7, #e8dcc9);
   --button-bg: rgba(255, 251, 245, 0.92);
   --button-hover-bg: #fffdf8;
   --canvas-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
@@ -49,7 +48,6 @@ body[data-theme="dark"] {
   --canvas-bg: #2c3138;
   --canvas-axis: rgba(186, 197, 214, 0.24);
   --topbar-bg: rgba(35, 39, 44, 0.94);
-  --brand-mark-bg: linear-gradient(180deg, #39414a, #2c3138);
   --button-bg: rgba(58, 63, 70, 0.94);
   --button-hover-bg: #454b54;
   --canvas-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
@@ -106,7 +104,7 @@ select {
   justify-content: space-between;
   gap: 20px;
   min-height: var(--topbar-height);
-  padding: 8px 14px;
+  padding: 8px 10px 8px 8px;
   background: var(--topbar-bg);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
@@ -115,38 +113,15 @@ select {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--brand-mark-bg);
-  border: 1px solid var(--line);
-  color: var(--accent-strong);
-  font-size: 0.86rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.brand-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.brand-copy strong {
+.brand-title {
   font-size: 0.98rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-}
-
-.brand-copy span {
-  color: var(--muted);
-  font-size: 0.76rem;
+  line-height: 1;
 }
 
 .toolbar {
@@ -189,6 +164,44 @@ select {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.toolbar-group-file {
+  position: relative;
+  padding: 0;
+  overflow: visible;
+}
+
+.toolbar-menu-button {
+  list-style: none;
+  min-width: 0;
+}
+
+.toolbar-menu-button::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-group-file[open] .toolbar-menu-button .tool-icon {
+  transform: rotate(180deg);
+}
+
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.toolbar-menu .tool-button {
+  justify-content: flex-start;
 }
 
 .tool-button,
@@ -262,10 +275,10 @@ select {
 .canvas-header,
 .panel-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -321,13 +334,6 @@ body[data-panning="true"] #draftCanvas {
   margin: 0;
   font-size: 0.92rem;
   letter-spacing: 0.02em;
-}
-
-.panel-header p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.4;
 }
 
 .layer-list,
@@ -485,6 +491,11 @@ body[data-panning="true"] #draftCanvas {
     margin-left: 0;
   }
 
+  .toolbar-menu {
+    left: 0;
+    right: auto;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -515,6 +526,14 @@ body[data-panning="true"] #draftCanvas {
     width: 100%;
   }
 
+  .toolbar-group-file {
+    width: auto;
+  }
+
+  .toolbar-menu {
+    min-width: min(220px, calc(100vw - 24px));
+  }
+
   .canvas-header,
   .panel-header,
   .layer-list,
@@ -527,5 +546,6 @@ body[data-panning="true"] #draftCanvas {
   .canvas-header,
   .panel-header {
     flex-direction: column;
+    align-items: flex-start;
   }
 }
