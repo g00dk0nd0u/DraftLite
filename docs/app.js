@@ -814,6 +814,54 @@ function normalizeColor(color) {
 function renderPropertiesPanel() {
   propertiesPanel.innerHTML = "";
 
+  const appendSection = (title) => {
+    const section = document.createElement("section");
+    section.className = "prop-section";
+    const heading = document.createElement("h4");
+    heading.className = "prop-section-title";
+    heading.textContent = title;
+    const grid = document.createElement("div");
+    grid.className = "prop-grid";
+    section.append(heading, grid);
+    propertiesPanel.appendChild(section);
+    return grid;
+  };
+
+  const addPropertyRow = (grid, labelText, valueElement) => {
+    const label = document.createElement("label");
+    label.className = "prop-label";
+    label.textContent = labelText;
+    const value = document.createElement("div");
+    value.className = "prop-value";
+    value.appendChild(valueElement);
+    grid.append(label, value);
+  };
+
+  const createLayerSelect = (entity, statusLabel) => {
+    const layerSelect = document.createElement("select");
+    state.layers.forEach((layer) => {
+      const option = document.createElement("option");
+      option.value = layer.id;
+      option.textContent = layer.name;
+      option.selected = layer.id === entity.layerId;
+      layerSelect.appendChild(option);
+    });
+    layerSelect.addEventListener("change", () => {
+      pushUndoState();
+      entity.layerId = layerSelect.value;
+      syncAfterStateChange();
+      setStatus(statusLabel);
+    });
+    return layerSelect;
+  };
+
+  const createReadOnlyText = (value) => {
+    const text = document.createElement("span");
+    text.className = "prop-static";
+    text.textContent = value;
+    return text;
+  };
+
   if (!state.selectedEntityIds.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
@@ -841,38 +889,42 @@ function renderPropertiesPanel() {
     propertiesPanel.appendChild(multiple);
     return;
   }
+
   const entity = selectedEntities[0];
   if (entity.type === "rect") {
-    const form = document.createElement("div");
-    form.className = "prop-grid";
+    const generalGrid = appendSection("General");
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = String(entity.name || "Box");
+    nameInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.name = nameInput.value || "Box";
+      syncAfterStateChange();
+    });
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Rectangle"));
+    addPropertyRow(generalGrid, "Name", nameInput);
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Rectangle layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
     const fields = [
-      ["Name", "text", String(entity.name || "Box"), "name"],
-      ["X mm", "number", String(unitsToMm(entity.x)), "x"],
-      ["Y mm", "number", String(unitsToMm(entity.y)), "y"],
-      ["Width mm", "number", String(unitsToMm(entity.width)), "width"],
-      ["Height mm", "number", String(unitsToMm(entity.height)), "height"],
-      ["Rotation", "number", String(entity.rotation || 0), "rotation"],
+      ["X mm", "x"],
+      ["Y mm", "y"],
+      ["Width mm", "width"],
+      ["Height mm", "height"],
+      ["Rotation", "rotation"],
     ];
-    fields.forEach(([label, type, val, key]) => {
-      const wrapper = document.createElement("label");
-      wrapper.textContent = label;
+    fields.forEach(([label, key]) => {
       const input = document.createElement("input");
-      input.type = type;
-      input.value = val;
+      input.type = "number";
+      input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(entity[key]));
       if (key === "rotation") {
         input.disabled = true;
       }
       input.addEventListener("change", () => {
         if (key === "rotation") return;
-        if (key === "name") {
-          pushUndoState();
-          entity.name = input.value || "Box";
-          syncAfterStateChange();
-          return;
-        }
         const numericValue = Number(input.value);
         if (!Number.isFinite(numericValue)) {
-          input.value = val;
+          input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(entity[key]));
           setStatus(`${label} must be a valid number.`);
           return;
         }
@@ -892,31 +944,10 @@ function renderPropertiesPanel() {
         entity[key] = mmToUnits(numericValue);
         syncAfterStateChange();
       });
-      wrapper.appendChild(input);
-      form.appendChild(wrapper);
+      addPropertyRow(geometryGrid, label, input);
     });
 
-    const layerWrapper = document.createElement("label");
-    layerWrapper.textContent = "Layer";
-    const layerSelect = document.createElement("select");
-    state.layers.forEach((layer) => {
-      const option = document.createElement("option");
-      option.value = layer.id;
-      option.textContent = layer.name;
-      option.selected = layer.id === entity.layerId;
-      layerSelect.appendChild(option);
-    });
-    layerSelect.addEventListener("change", () => {
-      pushUndoState();
-      entity.layerId = layerSelect.value;
-      syncAfterStateChange();
-      setStatus("Rectangle layer updated.");
-    });
-    layerWrapper.appendChild(layerSelect);
-    form.appendChild(layerWrapper);
-
-    const fillLabel = document.createElement("label");
-    fillLabel.textContent = "Fill";
+    const appearanceGrid = appendSection("Appearance");
     const fill = document.createElement("input");
     fill.type = "checkbox";
     fill.checked = entity.fill !== false;
@@ -925,26 +956,57 @@ function renderPropertiesPanel() {
       entity.fill = fill.checked;
       syncAfterStateChange();
     });
-    fillLabel.appendChild(fill);
-    form.appendChild(fillLabel);
-    propertiesPanel.appendChild(form);
+    addPropertyRow(appearanceGrid, "Fill", fill);
     return;
   }
-  const pre = document.createElement("pre");
-  pre.textContent = JSON.stringify(
-    [
-      {
-        ...entity,
-        lengthMm:
-          entity.type === "line"
-            ? unitsToMm(Math.round(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y)))
-            : null,
-      },
-    ],
-    null,
-    2
-  );
-  propertiesPanel.appendChild(pre);
+
+  if (entity.type === "line") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Line"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Line layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
+    const coords = [
+      ["Start X mm", "p1", "x"],
+      ["Start Y mm", "p1", "y"],
+      ["End X mm", "p2", "x"],
+      ["End Y mm", "p2", "y"],
+    ];
+    coords.forEach(([label, pointKey, axisKey]) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = String(unitsToMm(entity[pointKey][axisKey]));
+      input.addEventListener("change", () => {
+        const numericValue = Number(input.value);
+        if (!Number.isFinite(numericValue)) {
+          input.value = String(unitsToMm(entity[pointKey][axisKey]));
+          setStatus(`${label} must be a valid number.`);
+          return;
+        }
+        const nextPoint = { ...entity[pointKey], [axisKey]: mmToUnits(numericValue) };
+        const nextP1 = pointKey === "p1" ? nextPoint : entity.p1;
+        const nextP2 = pointKey === "p2" ? nextPoint : entity.p2;
+        if (nextP1.x === nextP2.x && nextP1.y === nextP2.y) {
+          input.value = String(unitsToMm(entity[pointKey][axisKey]));
+          setStatus("Line length must be greater than zero.");
+          return;
+        }
+        pushUndoState();
+        entity[pointKey] = nextPoint;
+        syncAfterStateChange();
+      });
+      addPropertyRow(geometryGrid, label, input);
+    });
+
+    const lengthUnits = Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y);
+    const lengthMm = unitsToMm(lengthUnits);
+    const angleDeg = Math.atan2(entity.p2.y - entity.p1.y, entity.p2.x - entity.p1.x) * (180 / Math.PI);
+    addPropertyRow(geometryGrid, "Length mm", createReadOnlyText(String(lengthMm)));
+    addPropertyRow(geometryGrid, "Angle deg", createReadOnlyText(String(Number(angleDeg.toFixed(3)))));
+
+    appendSection("Appearance");
+    return;
+  }
 }
 
 function renderStatusPanel() {
