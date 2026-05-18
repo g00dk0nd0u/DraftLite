@@ -28,6 +28,7 @@ const toolButtons = {
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   align: document.getElementById("alignButton"),
+  extend: document.getElementById("extendButton"),
   fillet: document.getElementById("filletButton"),
 };
 
@@ -58,6 +59,7 @@ const uiState = {
   selectDragDraft: null,
   gripEditDraft: null,
   alignDraft: null,
+  extendDraft: null,
   filletDraft: null,
   selectionWindow: null,
   snapMarker: null,
@@ -150,7 +152,7 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft || uiState.alignDraft) {
+  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
@@ -159,6 +161,7 @@ function clearTransientState() {
   uiState.selectDragDraft = null;
   uiState.gripEditDraft = null;
   uiState.alignDraft = null;
+  uiState.extendDraft = null;
   uiState.filletDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
@@ -498,6 +501,14 @@ function cancelFillet(message = "Fillet cancelled.") {
 function cancelAlign(message = "Align cancelled.") {
   state.selectedEntityIds = [];
   uiState.alignDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus(message);
+}
+
+function cancelExtend(message = "Extend cancelled.") {
+  state.selectedEntityIds = [];
+  uiState.extendDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
   setStatus(message);
@@ -987,6 +998,8 @@ function renderStatusPanel() {
       ? "Select: edit endpoint"
     : uiState.alignDraft
       ? "Align: pick target line"
+    : uiState.extendDraft
+      ? "Extend: pick target line"
     : uiState.filletDraft
       ? "Fillet: pick side to keep on second line"
     : uiState.lineDraft
@@ -1005,9 +1018,11 @@ function renderStatusPanel() {
             ? "Copy: specify base point"
             : uiState.activeTool === "align"
               ? "Align: pick reference line"
-            : uiState.activeTool === "fillet"
-              ? "Fillet: pick first line"
-            : "Select: pick entity";
+              : uiState.activeTool === "extend"
+                ? "Extend: pick boundary line"
+              : uiState.activeTool === "fillet"
+                ? "Fillet: pick first line"
+                : "Select: pick entity";
   const activeLayer = getLayerById(state.activeLayerId);
   const rows = [
     ["Tool", capitalize(uiState.activeTool)],
@@ -2196,6 +2211,14 @@ function findAlignTargetAtPoint(worldPoint) {
   return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
 }
 
+function findSelectableEntityAtPoint(worldPoint) {
+  return state.entities
+    .filter(canSelectEntity)
+    .slice()
+    .reverse()
+    .find((entity) => hitTestEntity(entity, worldPoint)) || null;
+}
+
 function areLinesParallel(lineA, lineB) {
   const dxA = lineA.p2.x - lineA.p1.x;
   const dyA = lineA.p2.y - lineA.p1.y;
@@ -2300,6 +2323,69 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
   return true;
 }
 
+function getEndpointToMoveForExtend(line, boundaryLine, intersection) {
+  const p1Projection = projectPointToInfiniteLineRaw(line.p1, boundaryLine);
+  const p2Projection = projectPointToInfiniteLineRaw(line.p2, boundaryLine);
+  const p1DistanceToBoundary = p1Projection
+    ? Math.hypot(line.p1.x - p1Projection.x, line.p1.y - p1Projection.y)
+    : Infinity;
+  const p2DistanceToBoundary = p2Projection
+    ? Math.hypot(line.p2.x - p2Projection.x, line.p2.y - p2Projection.y)
+    : Infinity;
+  if (p1DistanceToBoundary !== p2DistanceToBoundary) {
+    return p1DistanceToBoundary <= p2DistanceToBoundary ? "p1" : "p2";
+  }
+
+  const p1DistanceToIntersection = Math.hypot(line.p1.x - intersection.x, line.p1.y - intersection.y);
+  const p2DistanceToIntersection = Math.hypot(line.p2.x - intersection.x, line.p2.y - intersection.y);
+  return p1DistanceToIntersection <= p2DistanceToIntersection ? "p1" : "p2";
+}
+
+function applyExtend(boundaryEntityId, targetEntityId) {
+  const boundaryLine = getEntityById(boundaryEntityId);
+  const targetLine = getEntityById(targetEntityId);
+
+  if (!boundaryLine || !targetLine || boundaryLine.type !== "line" || targetLine.type !== "line") {
+    setStatus("Extend requires two available lines.");
+    return false;
+  }
+  if (!canSelectEntity(boundaryLine) || !canSelectEntity(targetLine)) {
+    setStatus("Extend requires visible, unlocked lines.");
+    return false;
+  }
+  if (boundaryLine.id === targetLine.id) {
+    setStatus("Extend: pick a different target line.");
+    return false;
+  }
+
+  const intersection = getInfiniteLineIntersection(boundaryLine, targetLine);
+  if (!intersection) {
+    setStatus("Extend failed: lines are parallel or nearly parallel. Pick target line.");
+    return false;
+  }
+
+  const endpointToMove = getEndpointToMoveForExtend(targetLine, boundaryLine, intersection);
+  const nextTargetLine = {
+    ...targetLine,
+    p1: endpointToMove === "p1" ? intersection : targetLine.p1,
+    p2: endpointToMove === "p2" ? intersection : targetLine.p2,
+  };
+
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (entity.id !== nextTargetLine.id) {
+      return entity;
+    }
+    return nextTargetLine;
+  });
+  state.selectedEntityIds = [];
+  uiState.extendDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Extend applied.");
+  return true;
+}
+
 function handleAlignToolClick(worldPoint) {
   const targetLine = findAlignTargetAtPoint(worldPoint);
   if (!targetLine) {
@@ -2326,6 +2412,38 @@ function handleAlignToolClick(worldPoint) {
   }
 
   applyAlign(uiState.alignDraft.referenceEntityId, targetLine.id, worldPoint);
+}
+
+function handleExtendToolClick(worldPoint) {
+  const targetEntity = findSelectableEntityAtPoint(worldPoint);
+  if (!targetEntity) {
+    setStatus(
+      uiState.extendDraft ? "Extend: pick target line" : "Extend: pick boundary line"
+    );
+    return;
+  }
+
+  if (targetEntity.type !== "line") {
+    setStatus("Extend: line only. Pick a line.");
+    return;
+  }
+
+  if (!uiState.extendDraft) {
+    uiState.extendDraft = {
+      boundaryEntityId: targetEntity.id,
+    };
+    state.selectedEntityIds = [targetEntity.id];
+    syncAfterStateChange();
+    setStatus("Extend: pick target line");
+    return;
+  }
+
+  if (uiState.extendDraft.boundaryEntityId === targetEntity.id) {
+    setStatus("Extend: pick a different target line.");
+    return;
+  }
+
+  applyExtend(uiState.extendDraft.boundaryEntityId, targetEntity.id);
 }
 
 function getInfiniteLineIntersection(lineA, lineB) {
@@ -2652,6 +2770,14 @@ function loadDebugFixture(name) {
     "align-diagonal": () => [
       createDebugFixtureLineMm(-1000, -1000, 1000, 1000),
       createDebugFixtureLineMm(-1000, -1500, 1000, 500),
+    ],
+    "extend-basic": () => [
+      createDebugFixtureLineMm(0, -1200, 0, 1200),
+      createDebugFixtureLineMm(-1400, 200, -400, 200),
+    ],
+    "extend-parallel": () => [
+      createDebugFixtureLineMm(-1500, 0, 1500, 0),
+      createDebugFixtureLineMm(-1000, 600, 1000, 600),
     ],
     "fillet-cross": () => [
       createDebugFixtureLineMm(-1000, 0, 1000, 0),
@@ -3067,6 +3193,11 @@ function onCanvasMouseDown(event) {
     return;
   }
 
+  if (uiState.activeTool === "extend") {
+    handleExtendToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
+
   if (uiState.activeTool === "fillet") {
     handleFilletToolClick(roundWorldPoint(rawWorldPoint));
     return;
@@ -3278,6 +3409,10 @@ function setActiveTool(tool) {
     setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
     return;
   }
+  if (tool === "extend") {
+    setStatus("Extend: pick boundary line");
+    return;
+  }
   setStatus(`${capitalize(tool)} tool active.`);
 }
 
@@ -3483,6 +3618,10 @@ function onKeyDown(event) {
       cancelAlign();
       return;
     }
+    if (uiState.extendDraft || uiState.activeTool === "extend") {
+      cancelExtend();
+      return;
+    }
     if (uiState.filletDraft || uiState.activeTool === "fillet") {
       cancelFillet();
       return;
@@ -3663,6 +3802,7 @@ function bindEvents() {
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
+  toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
@@ -3718,6 +3858,7 @@ window.DraftLiteDebug = {
       selectDragDraft: Boolean(uiState.selectDragDraft),
       gripEditDraft: Boolean(uiState.gripEditDraft),
       alignDraft: uiState.alignDraft ? deepClone(uiState.alignDraft) : null,
+      extendDraft: uiState.extendDraft ? deepClone(uiState.extendDraft) : null,
       filletDraft: uiState.filletDraft ? deepClone(uiState.filletDraft) : null,
       hoverWorld: deepClone(uiState.hoverWorld),
       pointerWorld: deepClone(uiState.pointerWorld),
