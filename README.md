@@ -193,6 +193,7 @@ result.client.y;
 - `Move` / `Copy` should translate rectangle `x` / `y`.
 - `Explode` should delete selected `rect` entities and create 4 `line` entities.
 - DXF export should emit rectangle outlines as virtual 4-segment `LINE` output without mutating document state.
+- DXF export flips Y coordinates at write time only so AutoCAD matches the canvas orientation; internal state, canvas rendering, and JSON save/load remain unchanged.
 - DXF export is conservative ASCII `AC1009` with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` records.
 - The `HEADER` is intentionally minimal and does not emit `$INSUNITS`; subclass markers such as group code `100` are not used.
 - DXF layer names are normalized to ASCII letters, numbers, and underscores, such as `Layer_1`.

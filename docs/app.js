@@ -3499,11 +3499,11 @@ function buildDxfText() {
   exportLines.forEach((line) => {
     dxfLines.push("0", "LINE");
     dxfLines.push("8", getDxfLayerNameForLine(line));
-    dxfLines.push("10", formatDxfNumber(unitsToMm(line.p1.x)));
-    dxfLines.push("20", formatDxfNumber(unitsToMm(line.p1.y)));
+    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(line.p1.x)));
+    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(line.p1.y)));
     dxfLines.push("30", formatDxfNumber(0));
-    dxfLines.push("11", formatDxfNumber(unitsToMm(line.p2.x)));
-    dxfLines.push("21", formatDxfNumber(unitsToMm(line.p2.y)));
+    dxfLines.push("11", formatDxfNumber(dxfXUnitsToMm(line.p2.x)));
+    dxfLines.push("21", formatDxfNumber(dxfYUnitsToMm(line.p2.y)));
     dxfLines.push("31", formatDxfNumber(0));
   });
   dxfLines.push("0", "ENDSEC", "0", "EOF");
@@ -3633,8 +3633,8 @@ function getDxfLineBoundsMm(lines) {
   const xs = [];
   const ys = [];
   lines.forEach((line) => {
-    xs.push(unitsToMm(line.p1.x), unitsToMm(line.p2.x));
-    ys.push(unitsToMm(line.p1.y), unitsToMm(line.p2.y));
+    xs.push(dxfXUnitsToMm(line.p1.x), dxfXUnitsToMm(line.p2.x));
+    ys.push(dxfYUnitsToMm(line.p1.y), dxfYUnitsToMm(line.p2.y));
   });
 
   return {
@@ -3643,6 +3643,14 @@ function getDxfLineBoundsMm(lines) {
     maxX: Number(formatDxfNumber(Math.max(...xs))),
     maxY: Number(formatDxfNumber(Math.max(...ys))),
   };
+}
+
+function dxfXUnitsToMm(x) {
+  return unitsToMm(x);
+}
+
+function dxfYUnitsToMm(y) {
+  return -unitsToMm(y);
 }
 
 function sanitizeDxfLayerName(value) {

@@ -25,6 +25,7 @@
 - JSON save/load must remain compatible.
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
+- DXF export must flip Y coordinates only at export time so AutoCAD orientation matches the canvas; do not change internal state, canvas rendering, or JSON save/load for this.
 - DXF export should remain conservative R12/AC1009-style ASCII with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
 - DXF `HEADER` should stay minimal with `$ACADVER` only; do not emit `$INSUNITS`, `OBJECTS`, subclass markers, or group code `100`.
 - DXF `TABLES` should include at least `LTYPE` and `LAYER`; layer names should be normalized to ASCII letters, numbers, and underscores.
