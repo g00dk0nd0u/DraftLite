@@ -8,10 +8,13 @@
 - Ortho is ON by default; holding `Shift` temporarily enables free-angle input.
 - `Line` continues until `Esc` or empty `Enter`.
 - `Move` uses `base point -> second point` and finishes after one confirmed move.
+- In `Move`, holding `Option` on macOS or `Ctrl` on Windows while picking the base point should switch that Move command into copy mode.
 - `Copy` keeps the same base point and supports continuous copy placement.
 - `Select` uses left-to-right Window selection and right-to-left Crossing selection.
 - While using `Select`, clicking an endpoint grip on a selected line starts endpoint grip edit.
+- While using `Select`, clicking and dragging a selected entity body starts free drag move for the current selection.
 - Grip edit should follow an AutoCAD-like endpoint stretch interaction.
+- Select drag move must not use OSNAP, grid snap, or ortho during the drag preview; commit back to integer units only.
 - Numeric input preview for `Line` / `Move` / `Copy` / `Grip edit` must use a `250ms` delayed preview.
 - Confirming with `Enter` must match the currently displayed preview position.
 - `Move` / `Copy` Dynamic Input should be shown at the lower-right of the cursor.

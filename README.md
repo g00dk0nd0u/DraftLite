@@ -17,6 +17,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Selection
 - Window / Crossing selection
 - Shift additive selection
+- Drag move while staying in Select
 - Move selected entities (line/rectangle)
 - Copy selected entities (line/rectangle)
 - Line-to-Line Align for parallel lines
@@ -88,7 +89,10 @@ Included in this first pass:
 - `Select` uses left-to-right `Window selection` and right-to-left `Crossing selection`
 - `Shift + click` and `Shift + selection window` add to the current selection
 - Clicking a selected line endpoint grip in `Select` starts endpoint grip edit
+- Clicking and dragging a selected entity body in `Select` starts free drag move for the whole current selection
 - Grip edit follows an AutoCAD-like endpoint stretch interaction
+- `Select` drag move ignores OSNAP / grid snap / ortho and rounds the committed result back to integer units
+- In `Move`, holding `Option` on macOS or `Ctrl` on Windows while picking the base point starts copy mode from the Move command
 - Numeric input preview for `Line` / `Move` / `Copy` / `Grip edit` uses a `250ms` delayed preview
 - Confirming with `Enter` matches the currently displayed preview position
 - `Move` / `Copy` dynamic input is shown near the lower-right of the cursor

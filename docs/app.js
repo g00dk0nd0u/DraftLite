@@ -55,6 +55,7 @@ const uiState = {
   lineDraft: null,
   rectangleDraft: null,
   transformDraft: null,
+  selectDragDraft: null,
   gripEditDraft: null,
   alignDraft: null,
   filletDraft: null,
@@ -155,6 +156,7 @@ function clearTransientState() {
   uiState.lineDraft = null;
   uiState.rectangleDraft = null;
   uiState.transformDraft = null;
+  uiState.selectDragDraft = null;
   uiState.gripEditDraft = null;
   uiState.alignDraft = null;
   uiState.filletDraft = null;
@@ -330,6 +332,10 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
   return getSnapPoint(constrainedWorld);
 }
 
+function resolveFreeDragPoint(worldPoint) {
+  return roundWorldPoint(worldPoint);
+}
+
 function refreshPointerConstraint(shiftKey) {
   if (!uiState.lineDraft && !uiState.transformDraft && !uiState.gripEditDraft) {
     return;
@@ -373,6 +379,18 @@ function updateTransformDraftStatus(prefix) {
     ? ` Distance: ${uiState.transformDraft.numericInputBuffer} mm`
     : " Distance: -";
   setStatus(`${prefix}${inputSuffix}`);
+  renderStatusPanel();
+}
+
+function updateSelectDragStatus(prefix) {
+  if (!uiState.selectDragDraft) {
+    return;
+  }
+
+  const offset = getTransformOffset(uiState.selectDragDraft);
+  setStatus(
+    `${prefix} Offset: ${unitsToMm(offset.dx)} mm, ${unitsToMm(offset.dy)} mm`
+  );
   renderStatusPanel();
 }
 
@@ -439,6 +457,13 @@ function endTransformDraft(message = `${capitalize(uiState.activeTool)} command 
   state.selectedEntityIds = [];
   uiState.activeTool = "select";
   syncAfterStateChange(false);
+  setStatus(message);
+}
+
+function cancelSelectDrag(message = "Drag move cancelled.") {
+  uiState.selectDragDraft = null;
+  draw();
+  renderStatusPanel();
   setStatus(message);
 }
 
@@ -956,6 +981,8 @@ function renderStatusPanel() {
     ? getSelectionRect(uiState.selectionWindow).isCrossing
       ? "Select: crossing window"
       : "Select: window"
+    : uiState.selectDragDraft
+      ? "Select: drag move"
     : uiState.gripEditDraft
       ? "Select: edit endpoint"
     : uiState.alignDraft
@@ -1058,6 +1085,10 @@ function draw() {
 
   if (uiState.transformDraft) {
     drawTransformPreview(uiState.transformDraft);
+  }
+
+  if (uiState.selectDragDraft) {
+    drawTransformPreview(uiState.selectDragDraft);
   }
 
   if (uiState.gripEditDraft) {
@@ -1906,7 +1937,7 @@ function canStartTransformTool() {
   return getSelectedTransformableEntities().length > 0;
 }
 
-function startTransformDraft(worldPoint) {
+function startTransformDraft(worldPoint, mode = uiState.activeTool) {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
     setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
@@ -1914,7 +1945,7 @@ function startTransformDraft(worldPoint) {
   }
 
   uiState.transformDraft = {
-    mode: uiState.activeTool,
+    mode,
     startPoint: worldPoint,
     currentPoint: worldPoint,
     numericInputBuffer: "",
@@ -1922,7 +1953,7 @@ function startTransformDraft(worldPoint) {
     entities: deepClone(selectedEntities),
   };
   updateTransformDraftStatus(
-    `${capitalize(uiState.activeTool)} start set at ${formatWorldPoint(worldPoint)}.`
+    `${capitalize(mode)} start set at ${formatWorldPoint(worldPoint)}.`
   );
   draw();
   renderStatusPanel();
@@ -1948,6 +1979,46 @@ function updateTransformDraft(worldPoint) {
   draw();
 }
 
+function applyOffsetToEntity(entity, offset) {
+  if (entity.type === "rect") {
+    return {
+      ...entity,
+      x: entity.x + offset.dx,
+      y: entity.y + offset.dy,
+    };
+  }
+  return {
+    ...entity,
+    p1: {
+      x: entity.p1.x + offset.dx,
+      y: entity.p1.y + offset.dy,
+    },
+    p2: {
+      x: entity.p2.x + offset.dx,
+      y: entity.p2.y + offset.dy,
+    },
+  };
+}
+
+function commitMoveEntityOffset(entityIds, offset) {
+  state.entities = state.entities.map((entity) => {
+    if (!entityIds.includes(entity.id)) {
+      return entity;
+    }
+    if (!canSelectEntity(entity)) {
+      return entity;
+    }
+    return applyOffsetToEntity(entity, offset);
+  });
+}
+
+function createCopiedEntities(sourceEntities, offset) {
+  return sourceEntities.map((entity) => ({
+    ...applyOffsetToEntity(deepClone(entity), offset),
+    id: createEntityId(),
+  }));
+}
+
 function applyTransformDraft() {
   const transformDraft = uiState.transformDraft;
   if (!transformDraft) {
@@ -1967,21 +2038,10 @@ function applyTransformDraft() {
   pushUndoState();
 
   if (transformDraft.mode === "move") {
-    state.entities = state.entities.map((entity) => {
-      if (!transformDraft.entityIds.includes(entity.id)) {
-        return entity;
-      }
-      if (!canSelectEntity(entity)) {
-        return entity;
-      }
-      if (entity.type === "rect") {
-        return { ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy };
-      }
-      return { ...entity, p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } };
-    });
+    commitMoveEntityOffset(transformDraft.entityIds, offset);
   } else if (transformDraft.mode === "copy") {
     const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
-    const newEntities = sourceEntities.map((entity) => entity.type === "rect" ? ({ ...deepClone(entity), id: createEntityId(), x: entity.x + offset.dx, y: entity.y + offset.dy }) : ({ ...deepClone(entity), id: createEntityId(), p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } }));
+    const newEntities = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
   }
 
@@ -1998,6 +2058,54 @@ function applyTransformDraft() {
   uiState.transformDraft.currentPoint = uiState.transformDraft.startPoint;
   syncAfterStateChange();
   updateTransformDraftStatus("Copy created. Specify next point or press Enter/Escape to finish.");
+  return true;
+}
+
+function startSelectDrag(worldPoint) {
+  const selectedEntities = getSelectedTransformableEntities();
+  if (!selectedEntities.length) {
+    return false;
+  }
+
+  uiState.selectDragDraft = {
+    mode: "move",
+    startPoint: resolveFreeDragPoint(worldPoint),
+    currentPoint: resolveFreeDragPoint(worldPoint),
+    entityIds: selectedEntities.map((entity) => entity.id),
+    entities: deepClone(selectedEntities),
+  };
+  updateSelectDragStatus(`Drag move started at ${formatWorldPoint(uiState.selectDragDraft.startPoint)}.`);
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function updateSelectDrag(worldPoint) {
+  if (!uiState.selectDragDraft) {
+    return;
+  }
+  uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint);
+  updateSelectDragStatus("Drag move active.");
+  draw();
+}
+
+function applySelectDrag() {
+  const selectDragDraft = uiState.selectDragDraft;
+  if (!selectDragDraft) {
+    return false;
+  }
+
+  const offset = getTransformOffset(selectDragDraft);
+  if (offset.dx === 0 && offset.dy === 0) {
+    cancelSelectDrag("Drag move cancelled.");
+    return false;
+  }
+
+  pushUndoState();
+  commitMoveEntityOffset(selectDragDraft.entityIds, offset);
+  uiState.selectDragDraft = null;
+  syncAfterStateChange();
+  setStatus("Drag move applied.");
   return true;
 }
 
@@ -2574,6 +2682,33 @@ function loadDebugFixture(name) {
         },
       ];
     },
+    "rectangle-entity-basic": () => [
+      {
+        id: createEntityId(),
+        type: "rect",
+        layerId: state.activeLayerId,
+        x: mmToUnits(-1500),
+        y: mmToUnits(-1000),
+        width: mmToUnits(3000),
+        height: mmToUnits(2000),
+        fillColor: "",
+        name: "Fixture Rect",
+      },
+    ],
+    "drag-mixed": () => [
+      createDebugFixtureLineMm(-1500, 0, 1500, 0),
+      {
+        id: createEntityId(),
+        type: "rect",
+        layerId: state.activeLayerId,
+        x: mmToUnits(-800),
+        y: mmToUnits(-1200),
+        width: mmToUnits(1600),
+        height: mmToUnits(700),
+        fillColor: "",
+        name: "Drag Rect",
+      },
+    ],
   };
 
   const fixtureFactory = fixtures[name];
@@ -2633,6 +2768,33 @@ function getCanvasClickPointForLine(lineId, ratio = 0.5) {
     x: line.p1.x + (line.p2.x - line.p1.x) * clampedRatio,
     y: line.p1.y + (line.p2.y - line.p1.y) * clampedRatio,
   };
+  const screen = worldToScreen(world);
+  const canvasRect = canvas.getBoundingClientRect();
+
+  return {
+    world,
+    screen,
+    client: {
+      x: canvasRect.left + screen.x,
+      y: canvasRect.top + screen.y,
+    },
+  };
+}
+
+function getCanvasClickPointForRect(rectId, anchor = "center") {
+  const rect = getEntityById(rectId);
+  if (!rect || rect.type !== "rect") {
+    return null;
+  }
+
+  const anchors = {
+    center: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+    topLeft: { x: rect.x, y: rect.y },
+    topRight: { x: rect.x + rect.width, y: rect.y },
+    bottomRight: { x: rect.x + rect.width, y: rect.y + rect.height },
+    bottomLeft: { x: rect.x, y: rect.y + rect.height },
+  };
+  const world = roundWorldPoint(anchors[anchor] || anchors.center);
   const screen = worldToScreen(world);
   const canvasRect = canvas.getBoundingClientRect();
 
@@ -2804,6 +2966,12 @@ function onPointerMove(event) {
     return;
   }
 
+  if (uiState.selectDragDraft) {
+    updateSelectDrag(worldPoint);
+    renderStatusPanel();
+    return;
+  }
+
   if (uiState.transformDraft) {
     updateTransformDraft(snappedWorld);
     renderStatusPanel();
@@ -2863,7 +3031,10 @@ function onCanvasMouseDown(event) {
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
     if (!uiState.transformDraft) {
-      startTransformDraft(worldPoint);
+      const mode = uiState.activeTool === "move" && (event.altKey || event.ctrlKey)
+        ? "copy"
+        : uiState.activeTool;
+      startTransformDraft(worldPoint, mode);
       return;
     }
     uiState.transformDraft.currentPoint = worldPoint;
@@ -2890,6 +3061,16 @@ function onCanvasMouseDown(event) {
     const gripHit = findEditableGripAtPoint(worldPoint);
     if (gripHit) {
       startGripEdit(gripHit, worldPoint);
+      return;
+    }
+    const selectedHit = state.selectedEntityIds
+      .map(getEntityById)
+      .filter((entity) => entity && canSelectEntity(entity))
+      .slice()
+      .reverse()
+      .find((entity) => hitTestEntity(entity, roundWorldPoint(rawWorldPoint)));
+    if (selectedHit) {
+      startSelectDrag(rawWorldPoint);
       return;
     }
     uiState.selectionWindow = {
@@ -2993,6 +3174,11 @@ function onWindowMouseUp(event) {
     }
 
     selectEntitiesByWindow(selectionWindow);
+    return;
+  }
+
+  if (uiState.selectDragDraft) {
+    applySelectDrag();
     return;
   }
 
@@ -3225,6 +3411,10 @@ function onKeyDown(event) {
   }
 
   if (event.key === "Escape") {
+    if (uiState.selectDragDraft) {
+      cancelSelectDrag();
+      return;
+    }
     if (uiState.gripEditDraft) {
       if (uiState.gripEditDraft.numericInputBuffer) {
         clearGripPreviewTimer();
@@ -3250,7 +3440,7 @@ function onKeyDown(event) {
         draw();
         return;
       }
-      endTransformDraft(`${capitalize(uiState.activeTool)} cancelled.`);
+      endTransformDraft(`${capitalize(uiState.transformDraft.mode)} cancelled.`);
       return;
     }
     if (uiState.lineDraft) {
@@ -3505,6 +3695,7 @@ window.DraftLiteDebug = {
       lineDraft: Boolean(uiState.lineDraft),
       rectangleDraft: Boolean(uiState.rectangleDraft),
       transformDraft: Boolean(uiState.transformDraft),
+      selectDragDraft: Boolean(uiState.selectDragDraft),
       gripEditDraft: Boolean(uiState.gripEditDraft),
       alignDraft: uiState.alignDraft ? deepClone(uiState.alignDraft) : null,
       filletDraft: uiState.filletDraft ? deepClone(uiState.filletDraft) : null,
@@ -3527,6 +3718,10 @@ window.DraftLiteDebug = {
 
   getStatus() {
     return statusReadout.textContent;
+  },
+
+  undo() {
+    undo();
   },
 
   setTool(tool) {
@@ -3566,6 +3761,10 @@ window.DraftLiteDebug = {
 
   getCanvasClickPointForLine(lineId, ratio = 0.5) {
     return getCanvasClickPointForLine(lineId, ratio);
+  },
+
+  getCanvasClickPointForRect(rectId, anchor = "center") {
+    return getCanvasClickPointForRect(rectId, anchor);
   },
 
   mmToWorldPoint(xMm, yMm) {
