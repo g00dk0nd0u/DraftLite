@@ -29,6 +29,9 @@
 - Initial Align implementation is line-to-line parallel alignment only.
 - Align must keep the first picked reference line fixed.
 - Align must move only the second picked target line.
+- Initial Extend implementation is boundary-line then target-line, line-only.
+- Extend must keep the boundary line fixed.
+- Extend must move only the boundary-side endpoint of the second picked target line to the infinite-line intersection.
 - Do not rotate target geometry in the first implementation.
 - Keep internal `0.5 mm` integer unit coordinates.
 - Do not introduce arc entities yet.
