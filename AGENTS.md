@@ -13,6 +13,7 @@
 - `Select` uses left-to-right Window selection and right-to-left Crossing selection.
 - While using `Select`, clicking an endpoint grip on a selected line starts endpoint grip edit.
 - While using `Select`, clicking and dragging a selected entity body starts free drag move for the current selection.
+- Holding `Option` on macOS or `Ctrl` on Windows at Select-drag start should switch that drag into one-shot copy mode while keeping the source entities.
 - Grip edit should follow an AutoCAD-like endpoint stretch interaction.
 - Select drag move must not use OSNAP, grid snap, or ortho during the drag preview; commit back to integer units only.
 - Numeric input preview for `Line` / `Move` / `Copy` / `Grip edit` must use a `250ms` delayed preview.

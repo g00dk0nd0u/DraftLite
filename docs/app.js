@@ -982,7 +982,7 @@ function renderStatusPanel() {
       ? "Select: crossing window"
       : "Select: window"
     : uiState.selectDragDraft
-      ? "Select: drag move"
+      ? `Select: drag ${uiState.selectDragDraft.mode}`
     : uiState.gripEditDraft
       ? "Select: edit endpoint"
     : uiState.alignDraft
@@ -2061,20 +2061,22 @@ function applyTransformDraft() {
   return true;
 }
 
-function startSelectDrag(worldPoint) {
+function startSelectDragWithMode(worldPoint, mode = "move") {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
     return false;
   }
 
   uiState.selectDragDraft = {
-    mode: "move",
+    mode,
     startPoint: resolveFreeDragPoint(worldPoint),
     currentPoint: resolveFreeDragPoint(worldPoint),
     entityIds: selectedEntities.map((entity) => entity.id),
     entities: deepClone(selectedEntities),
   };
-  updateSelectDragStatus(`Drag move started at ${formatWorldPoint(uiState.selectDragDraft.startPoint)}.`);
+  updateSelectDragStatus(
+    `Drag ${mode} started at ${formatWorldPoint(uiState.selectDragDraft.startPoint)}.`
+  );
   draw();
   renderStatusPanel();
   return true;
@@ -2085,7 +2087,7 @@ function updateSelectDrag(worldPoint) {
     return;
   }
   uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint);
-  updateSelectDragStatus("Drag move active.");
+  updateSelectDragStatus(`Drag ${uiState.selectDragDraft.mode} active.`);
   draw();
 }
 
@@ -2097,15 +2099,33 @@ function applySelectDrag() {
 
   const offset = getTransformOffset(selectDragDraft);
   if (offset.dx === 0 && offset.dy === 0) {
-    cancelSelectDrag("Drag move cancelled.");
+    cancelSelectDrag(`Drag ${selectDragDraft.mode} cancelled.`);
     return false;
   }
 
   pushUndoState();
-  commitMoveEntityOffset(selectDragDraft.entityIds, offset);
+  if (selectDragDraft.mode === "copy") {
+    const sourceEntities = selectDragDraft.entities.filter((entity) => canSelectEntity(entity));
+    const newEntities = sourceEntities.map((entity) => entity.type === "rect"
+      ? ({
+          ...deepClone(entity),
+          id: createEntityId(),
+          x: entity.x + offset.dx,
+          y: entity.y + offset.dy,
+        })
+      : ({
+          ...deepClone(entity),
+          id: createEntityId(),
+          p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy },
+          p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy },
+        }));
+    state.entities.push(...newEntities);
+  } else {
+    commitMoveEntityOffset(selectDragDraft.entityIds, offset);
+  }
   uiState.selectDragDraft = null;
   syncAfterStateChange();
-  setStatus("Drag move applied.");
+  setStatus(selectDragDraft.mode === "copy" ? "Drag copy applied." : "Drag move applied.");
   return true;
 }
 
@@ -3070,7 +3090,7 @@ function onCanvasMouseDown(event) {
       .reverse()
       .find((entity) => hitTestEntity(entity, roundWorldPoint(rawWorldPoint)));
     if (selectedHit) {
-      startSelectDrag(rawWorldPoint);
+      startSelectDragWithMode(rawWorldPoint, event.altKey || event.ctrlKey ? "copy" : "move");
       return;
     }
     uiState.selectionWindow = {
@@ -3412,7 +3432,7 @@ function onKeyDown(event) {
 
   if (event.key === "Escape") {
     if (uiState.selectDragDraft) {
-      cancelSelectDrag();
+      cancelSelectDrag(`Drag ${uiState.selectDragDraft.mode} cancelled.`);
       return;
     }
     if (uiState.gripEditDraft) {
