@@ -40,6 +40,13 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - JSON save/load
 - DXF export (rectangles exported as LINE outline)
 
+- 1m dot grid display
+- Compact toolbar with text icons
+- Table-style layer panel
+- Light/Dark theme toggle (persisted)
+- Simplified properties panel
+- Rectangle supports Fill Color
+
 ## Current MVP scope
 
 The current implementation is a static browser app under `docs/` and runs directly by opening `docs/index.html`.
@@ -68,7 +75,7 @@ Included in this first pass:
 - Example: `3000 mm = 6000 units`
 - Display values are shown in `mm`
 - Saved document geometry remains integer `unit` data
-- Internal precision remains `0.5 mm`, while the display grid uses `100 mm` minor and `1000 mm` major intervals
+- Internal precision remains `0.5 mm`, while the display grid uses `1 m` dot intervals
 
 ## Interaction principles
 
