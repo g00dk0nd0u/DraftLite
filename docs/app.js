@@ -564,7 +564,7 @@ function normalizeEntity(entity) {
       width,
       height,
       rotation: 0,
-      name: typeof entity.name === "string" ? entity.name : "Rectangular object",
+      name: typeof entity.name === "string" ? entity.name : "Box",
       fill: entity.fill !== false,
     };
   }
@@ -817,7 +817,7 @@ function renderPropertiesPanel() {
   if (!state.selectedEntityIds.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
-    empty.textContent = "No entity selected. Use Select to inspect line geometry.";
+    empty.textContent = "No entity selected.";
     propertiesPanel.appendChild(empty);
     return;
   }
@@ -846,7 +846,7 @@ function renderPropertiesPanel() {
     const form = document.createElement("div");
     form.className = "prop-grid";
     const fields = [
-      ["Name", "text", String(entity.name || "Rectangular object"), "name"],
+      ["Name", "text", String(entity.name || "Box"), "name"],
       ["X mm", "number", String(unitsToMm(entity.x)), "x"],
       ["Y mm", "number", String(unitsToMm(entity.y)), "y"],
       ["Width mm", "number", String(unitsToMm(entity.width)), "width"],
@@ -866,7 +866,7 @@ function renderPropertiesPanel() {
         if (key === "rotation") return;
         if (key === "name") {
           pushUndoState();
-          entity.name = input.value || "Rectangular object";
+          entity.name = input.value || "Box";
           syncAfterStateChange();
           return;
         }
@@ -1510,7 +1510,7 @@ function addRectangleEntity(startPoint, oppositePoint) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Rectangular object", fill: true };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -1540,7 +1540,7 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Rectangular object", fill: true };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -3573,9 +3573,9 @@ window.DraftLiteDebug = {
     return createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm);
   },
 
-  createRectMm(xMm, yMm, widthMm, heightMm, name = "Rectangular object") {
+  createRectMm(xMm, yMm, widthMm, heightMm, name = "Box") {
     const result = createRectangleMm(xMm, yMm, xMm + widthMm, yMm + heightMm);
-    if (result) { const rect = state.entities[state.entities.length-1]; if (rect && rect.type === "rect") rect.name = name || "Rectangular object"; syncAfterStateChange(); }
+    if (result) { const rect = state.entities[state.entities.length-1]; if (rect && rect.type === "rect") rect.name = name || "Box"; syncAfterStateChange(); }
     return result;
   },
 

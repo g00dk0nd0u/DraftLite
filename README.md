@@ -163,3 +163,13 @@ const result = JSON.parse(output.dataset.lastResult);
 result.client.x;
 result.client.y;
 ```
+
+## Testing checklist (Rectangle entity)
+
+- Rectangle creation should add one `type:"rect"` entity (not 4 `line` entities).
+- `normalizeEntity` should accept both `line` and `rect`.
+- Selection / properties flows should not assume rectangle entities have `p1` / `p2`.
+- `Move` / `Copy` should translate rectangle `x` / `y`.
+- `Explode` should delete selected `rect` entities and create 4 `line` entities.
+- DXF export should emit rectangle outlines as virtual 4-segment `LINE` output without mutating document state.
+- JSON save/load should preserve rectangle entities.
