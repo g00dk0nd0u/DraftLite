@@ -9,65 +9,69 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand">
-          <strong class="brand-title">DraftLite</strong>
+        <div class="ribbon-tabs-row">
+          <div class="brand">
+            <strong class="brand-title">DraftLite</strong>
+          </div>
+          <nav class="ribbon-tabs" aria-label="Ribbon tabs">
+            <button class="ribbon-tab is-active" type="button" data-ribbon-tab="home">Home</button>
+            <button class="ribbon-tab" type="button" data-ribbon-tab="annotate">Annotate</button>
+            <button class="ribbon-tab" type="button" data-ribbon-tab="view">View</button>
+            <button class="ribbon-tab" type="button" data-ribbon-tab="manage">Manage</button>
+          </nav>
         </div>
 
-        <div class="toolbar-shell">
-          <div class="toolbar" role="toolbar" aria-label="Drafting tools">
-            <div class="toolbar-group" role="group" aria-label="Draw tools">
-              <span class="toolbar-group-label">Draw</span>
-              <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select">
-                <span class="tool-icon">↖</span><span>Select</span>
-              </button>
-              <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line">
-                <span class="tool-icon">／</span><span>Line</span>
-              </button>
-              <button id="rectangleButton" class="tool-button" type="button" data-tool="rectangle" data-testid="tool-rectangle">
-                <span class="tool-icon">▭</span><span>Rectangle</span>
-              </button>
-              <button id="textButton" class="tool-button" type="button" data-tool="text" data-testid="tool-text">
-                <span class="tool-icon">T</span><span>Text</span>
-              </button>
-              <button id="dimensionButton" class="tool-button" type="button" data-tool="dimension" data-testid="tool-dimension">
-                <span class="tool-icon">⇔</span><span>Aligned Dim</span>
-              </button>
-            </div>
-            <div class="toolbar-group" role="group" aria-label="Modify tools">
-              <span class="toolbar-group-label">Modify</span>
-              <button id="moveButton" class="tool-button" type="button" data-tool="move" data-testid="tool-move">
-                <span class="tool-icon">✥</span><span>Move</span>
-              </button>
-              <button id="copyButton" class="tool-button" type="button" data-tool="copy" data-testid="tool-copy">
-                <span class="tool-icon">⧉</span><span>Copy</span>
-              </button>
-              <button id="alignButton" class="tool-button" type="button" data-tool="align" data-testid="tool-align">
-                <span class="tool-icon">⇔</span><span>Align</span>
-              </button>
-              <button id="extendButton" class="tool-button" type="button" data-tool="extend" data-testid="tool-extend">
-                <span class="tool-icon">⇱</span><span>Extend</span>
-              </button>
-              <button id="filletButton" class="tool-button" type="button" data-tool="fillet" data-testid="tool-fillet">
-                <span class="tool-icon">⌞</span><span>Fillet</span>
-              </button>
-              <button id="deleteButton" class="tool-button" type="button" data-testid="tool-delete"><span class="tool-icon">×</span><span>Delete</span></button>
-              <button id="explodeButton" class="tool-button" type="button" data-testid="tool-explode"><span class="tool-icon">⨯</span><span>Explode</span></button>
-              <button id="undoButton" class="tool-button" type="button" data-testid="tool-undo"><span class="tool-icon">↶</span><span>Undo</span></button>
-              <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo"><span class="tool-icon">↷</span><span>Redo</span></button>
-              <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all"><span class="tool-icon">⛶</span><span>Fit All</span></button>
-            </div>
-            <details class="toolbar-group toolbar-group-file">
-              <summary class="tool-button toolbar-menu-button" aria-label="File tools">
-                <span class="tool-icon">▾</span><span>File</span>
-              </summary>
-              <div class="toolbar-menu" role="group" aria-label="File tools">
+        <div class="ribbon-shell">
+          <div class="ribbon-content">
+            <section class="ribbon-page is-active" data-ribbon-page="home" role="toolbar" aria-label="Home ribbon">
+              <div class="toolbar-group" role="group" aria-label="Select panel">
+                <span class="toolbar-group-label">Select</span>
+                <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select"><span class="tool-icon">↖</span><span>Select</span></button>
+              </div>
+              <div class="toolbar-group" role="group" aria-label="Draw panel">
+                <span class="toolbar-group-label">Draw</span>
+                <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line"><span class="tool-icon">／</span><span>Line</span></button>
+                <button id="rectangleButton" class="tool-button" type="button" data-tool="rectangle" data-testid="tool-rectangle"><span class="tool-icon">▭</span><span>Rectangle</span></button>
+              </div>
+              <div class="toolbar-group" role="group" aria-label="Modify panel">
+                <span class="toolbar-group-label">Modify</span>
+                <button id="moveButton" class="tool-button" type="button" data-tool="move" data-testid="tool-move"><span class="tool-icon">✥</span><span>Move</span></button>
+                <button id="copyButton" class="tool-button" type="button" data-tool="copy" data-testid="tool-copy"><span class="tool-icon">⧉</span><span>Copy</span></button>
+                <button id="alignButton" class="tool-button" type="button" data-tool="align" data-testid="tool-align"><span class="tool-icon">⇔</span><span>Align</span></button>
+                <button id="extendButton" class="tool-button" type="button" data-tool="extend" data-testid="tool-extend"><span class="tool-icon">⇱</span><span>Extend</span></button>
+                <button id="filletButton" class="tool-button" type="button" data-tool="fillet" data-testid="tool-fillet"><span class="tool-icon">⌞</span><span>Fillet</span></button>
+                <button id="deleteButton" class="tool-button" type="button" data-testid="tool-delete"><span class="tool-icon">×</span><span>Delete</span></button>
+                <button id="explodeButton" class="tool-button" type="button" data-testid="tool-explode"><span class="tool-icon">⨯</span><span>Explode</span></button>
+              </div>
+            </section>
+            <section class="ribbon-page" data-ribbon-page="annotate" role="toolbar" aria-label="Annotate ribbon" hidden>
+              <div class="toolbar-group" role="group" aria-label="Annotation panel">
+                <span class="toolbar-group-label">Annotation</span>
+                <button id="textButton" class="tool-button" type="button" data-tool="text" data-testid="tool-text"><span class="tool-icon">T</span><span>Text</span></button>
+                <button id="dimensionButton" class="tool-button" type="button" data-tool="dimension" data-testid="tool-dimension"><span class="tool-icon">⇔</span><span>Aligned Dim</span></button>
+              </div>
+            </section>
+            <section class="ribbon-page" data-ribbon-page="view" role="toolbar" aria-label="View ribbon" hidden>
+              <div class="toolbar-group" role="group" aria-label="View panel">
+                <span class="toolbar-group-label">View</span>
+                <button id="fitAllButton" class="tool-button" type="button" data-testid="tool-fit-all"><span class="tool-icon">⛶</span><span>Fit All</span></button>
+                <button id="themeToggleButton" class="tool-button" type="button" data-testid="theme-toggle">Dark</button>
+              </div>
+            </section>
+            <section class="ribbon-page" data-ribbon-page="manage" role="toolbar" aria-label="Manage ribbon" hidden>
+              <div class="toolbar-group" role="group" aria-label="File panel">
+                <span class="toolbar-group-label">File</span>
                 <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json"><span class="tool-icon">⬇</span><span>Save JSON</span></button>
                 <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json"><span class="tool-icon">⬆</span><span>Load JSON</span></button>
                 <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf"><span class="tool-icon">DXF</span><span>Export DXF</span></button>
               </div>
-            </details>
+              <div class="toolbar-group" role="group" aria-label="History panel">
+                <span class="toolbar-group-label">History</span>
+                <button id="undoButton" class="tool-button" type="button" data-testid="tool-undo"><span class="tool-icon">↶</span><span>Undo</span></button>
+                <button id="redoButton" class="tool-button" type="button" data-testid="tool-redo"><span class="tool-icon">↷</span><span>Redo</span></button>
+              </div>
+            </section>
           </div>
-          <button id="themeToggleButton" class="tool-button theme-toggle" type="button" data-testid="theme-toggle">Dark</button>
         </div>
       </header>
 

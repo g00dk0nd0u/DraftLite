@@ -46,6 +46,8 @@ const exportDxfButton = document.getElementById("exportDxfButton");
 const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
 const themeToggleButton = document.getElementById("themeToggleButton");
+const ribbonTabs = Array.from(document.querySelectorAll(".ribbon-tab"));
+const ribbonPages = Array.from(document.querySelectorAll(".ribbon-page"));
 
 const ctx = canvas.getContext("2d");
 
@@ -4699,6 +4701,18 @@ function onKeyUp(event) {
   }
 }
 
+function setActiveRibbonTab(tabName) {
+  ribbonTabs.forEach((tab) => {
+    const isActive = tab.dataset.ribbonTab === tabName;
+    tab.classList.toggle("is-active", isActive);
+  });
+  ribbonPages.forEach((page) => {
+    const isActive = page.dataset.ribbonPage === tabName;
+    page.classList.toggle("is-active", isActive);
+    page.hidden = !isActive;
+  });
+}
+
 function bindEvents() {
   canvas.addEventListener("mousedown", onCanvasMouseDown);
   canvas.addEventListener("mousemove", onPointerMove);
@@ -4736,6 +4750,9 @@ function bindEvents() {
   if (themeToggleButton) {
     themeToggleButton.addEventListener("click", toggleTheme);
   }
+  ribbonTabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActiveRibbonTab(tab.dataset.ribbonTab));
+  });
 
   loadJsonInput.addEventListener("change", () => {
     const [file] = loadJsonInput.files || [];
@@ -4760,6 +4777,7 @@ function initializeView() {
 }
 
 bindEvents();
+setActiveRibbonTab("home");
 initializeTheme();
 initializeView();
 
