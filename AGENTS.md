@@ -65,3 +65,5 @@
 - Keep the bridge hidden and do not change normal user UI.
 - Update bridge commands when adding new debug helpers.
 - After implementation, run `node --check docs/app.js`.
+
+- Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
