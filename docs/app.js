@@ -4777,7 +4777,7 @@ function initializeView() {
 }
 
 bindEvents();
-setActiveRibbonTab("home");
+setActiveRibbonTab("architecture");
 initializeTheme();
 initializeView();
 
