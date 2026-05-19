@@ -14,7 +14,8 @@
             <strong class="brand-title">DraftLite</strong>
           </div>
           <nav class="ribbon-tabs" aria-label="Ribbon tabs">
-            <button class="ribbon-tab is-active" type="button" data-ribbon-tab="home">Home</button>
+            <button class="ribbon-tab is-active" type="button" data-ribbon-tab="architecture">Architecture</button>
+            <button class="ribbon-tab" type="button" data-ribbon-tab="modify">Modify</button>
             <button class="ribbon-tab" type="button" data-ribbon-tab="annotate">Annotate</button>
             <button class="ribbon-tab" type="button" data-ribbon-tab="view">View</button>
             <button class="ribbon-tab" type="button" data-ribbon-tab="manage">Manage</button>
@@ -23,15 +24,17 @@
 
         <div class="ribbon-shell">
           <div class="ribbon-content">
-            <section class="ribbon-page is-active" data-ribbon-page="home" role="toolbar" aria-label="Home ribbon">
-              <div class="toolbar-group" role="group" aria-label="Select panel">
-                <span class="toolbar-group-label">Select</span>
-                <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select"><span class="tool-icon">↖</span><span>Select</span></button>
-              </div>
+            <section class="ribbon-page is-active" data-ribbon-page="architecture" role="toolbar" aria-label="Architecture ribbon">
               <div class="toolbar-group" role="group" aria-label="Draw panel">
                 <span class="toolbar-group-label">Draw</span>
                 <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line"><span class="tool-icon">／</span><span>Line</span></button>
                 <button id="rectangleButton" class="tool-button" type="button" data-tool="rectangle" data-testid="tool-rectangle"><span class="tool-icon">▭</span><span>Rectangle</span></button>
+              </div>
+            </section>
+            <section class="ribbon-page" data-ribbon-page="modify" role="toolbar" aria-label="Modify ribbon" hidden>
+              <div class="toolbar-group" role="group" aria-label="Selection panel">
+                <span class="toolbar-group-label">Selection</span>
+                <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select"><span class="tool-icon">↖</span><span>Select</span></button>
               </div>
               <div class="toolbar-group" role="group" aria-label="Modify panel">
                 <span class="toolbar-group-label">Modify</span>
