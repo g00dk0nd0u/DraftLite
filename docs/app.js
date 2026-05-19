@@ -28,6 +28,7 @@ const toolButtons = {
   select: document.getElementById("toolSelectButton"),
   line: document.getElementById("toolLineButton"),
   rectangle: document.getElementById("rectangleButton"),
+  text: document.getElementById("textButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   align: document.getElementById("alignButton"),
@@ -643,6 +644,24 @@ function normalizeEntity(entity, options = {}) {
       fillColor: normalizeColor(entity.fillColor || ""),
     };
   }
+  if (entity.type === "text") {
+    const textValue = typeof entity.text === "string" ? entity.text : "";
+    if (!textValue.trim()) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "text",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      x: normalizeUnitValue(entity.x, legacyUnits),
+      y: normalizeUnitValue(entity.y, legacyUnits),
+      text: textValue,
+      height: Math.max(1, normalizeUnitValue(entity.height ?? 250, legacyUnits)),
+      rotation: Number(entity.rotation) || 0,
+      align: ["left", "center", "right"].includes(entity.align) ? entity.align : "left",
+      color: entity.color ? normalizeColor(entity.color) : "",
+    };
+  }
   return null;
 }
 
@@ -928,6 +947,69 @@ function renderPropertiesPanel() {
   }
 
   const entity = selectedEntities[0];
+  if (entity.type === "text") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Text"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Text layer updated."));
+    const textInput = document.createElement("input");
+    textInput.type = "text";
+    textInput.value = entity.text || "";
+    textInput.addEventListener("change", () => {
+      const nextText = textInput.value.trim();
+      if (!nextText) {
+        textInput.value = entity.text || "";
+        setStatus("Text cannot be empty.");
+        return;
+      }
+      pushUndoState();
+      entity.text = nextText;
+      syncAfterStateChange();
+    });
+    addPropertyRow(generalGrid, "Text", textInput);
+
+    const geometryGrid = appendSection("Geometry");
+    const heightInput = document.createElement("input");
+    heightInput.type = "number";
+    heightInput.value = String(unitsToMm(entity.height));
+    heightInput.addEventListener("change", () => {
+      const heightMm = Number(heightInput.value);
+      if (!Number.isFinite(heightMm) || heightMm <= 0) {
+        heightInput.value = String(unitsToMm(entity.height));
+        setStatus("Height mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.height = mmToUnits(heightMm);
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Height mm", heightInput);
+
+    const appearanceGrid = appendSection("Appearance");
+    const alignSelect = document.createElement("select");
+    ["left", "center", "right"].forEach((align) => {
+      const option = document.createElement("option");
+      option.value = align;
+      option.textContent = align;
+      option.selected = entity.align === align;
+      alignSelect.appendChild(option);
+    });
+    alignSelect.addEventListener("change", () => {
+      pushUndoState();
+      entity.align = alignSelect.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Align", alignSelect);
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
+    colorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.color = colorInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Color", colorInput);
+    return;
+  }
   if (entity.type === "rect") {
     const generalGrid = appendSection("General");
     const nameInput = document.createElement("input");
@@ -1134,6 +1216,8 @@ function draw() {
       drawLineEntity(entity);
     } else if (entity.type === "rect") {
       drawRectEntity(entity);
+    } else if (entity.type === "text") {
+      drawTextEntity(entity);
     }
   });
 
@@ -1315,6 +1399,31 @@ function drawRectEntity(entity) {
     ctx.fillStyle = "#fffaf2";
     ctx.strokeStyle = "#c2693e";
     getRectSnapPoints(entity).filter((g)=>g.kind!=="center").forEach((g)=>{ const s=worldToScreen(g.point); ctx.beginPath(); ctx.arc(s.x,s.y,4,0,Math.PI*2); ctx.fill(); ctx.stroke();});
+  }
+  ctx.restore();
+}
+
+function drawTextEntity(entity) {
+  const layer = getLayerById(entity.layerId);
+  if (!layer) return;
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  const base = worldToScreen({ x: entity.x, y: entity.y });
+  const color = normalizeColor(entity.color || layer.color);
+  const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
+  ctx.save();
+  ctx.font = `${fontPx}px sans-serif`;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = entity.align || "left";
+  ctx.fillStyle = color;
+  ctx.fillText(entity.text, base.x, base.y);
+  if (isSelected) {
+    const w = ctx.measureText(entity.text).width;
+    const h = fontPx;
+    const left = entity.align === "center" ? base.x - w / 2 : (entity.align === "right" ? base.x - w : base.x);
+    const top = base.y - h;
+    ctx.strokeStyle = "#c2693e";
+    ctx.lineWidth = 1.3;
+    ctx.strokeRect(left - 4, top - 4, w + 8, h + 8);
   }
   ctx.restore();
 }
@@ -1992,7 +2101,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "text") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -2043,6 +2152,13 @@ function updateTransformDraft(worldPoint) {
 
 function applyOffsetToEntity(entity, offset) {
   if (entity.type === "rect") {
+    return {
+      ...entity,
+      x: roundToUnit(entity.x + offset.dx),
+      y: roundToUnit(entity.y + offset.dy),
+    };
+  }
+  if (entity.type === "text") {
     return {
       ...entity,
       x: roundToUnit(entity.x + offset.dx),
@@ -2729,6 +2845,12 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
+      if (entity.type === "text") {
+        const box = getTextBoundsScreen(entity);
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
       return false;
     })
     .map((entity) => entity.id);
@@ -2756,7 +2878,23 @@ function hitTestEntity(entity, worldPoint) {
     const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
     return inside || edge;
   }
+  if (entity.type === "text") {
+    const p = worldToScreen(worldPoint);
+    const box = getTextBoundsScreen(entity);
+    return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
+  }
   return false;
+}
+
+function getTextBoundsScreen(entity) {
+  const base = worldToScreen({ x: entity.x, y: entity.y });
+  const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
+  ctx.save();
+  ctx.font = `${fontPx}px sans-serif`;
+  const w = ctx.measureText(entity.text || "").width;
+  ctx.restore();
+  const left = entity.align === "center" ? base.x - w / 2 : (entity.align === "right" ? base.x - w : base.x);
+  return { left, right: left + w, top: base.y - fontPx, bottom: base.y };
 }
 
 function distancePointToSegmentScreenPx(point, segmentStart, segmentEnd) {
@@ -2792,6 +2930,21 @@ function createDebugFixtureLineMm(x1Mm, y1Mm, x2Mm, y2Mm) {
       x: mmToUnits(x2Mm),
       y: mmToUnits(y2Mm),
     },
+  };
+}
+
+function createDebugFixtureTextMm(xMm, yMm, text = "Text", heightMm = 25) {
+  return {
+    id: createEntityId(),
+    type: "text",
+    layerId: state.activeLayerId,
+    x: mmToUnits(xMm),
+    y: mmToUnits(yMm),
+    text: String(text).trim() || "Text",
+    height: Math.max(1, mmToUnits(heightMm)),
+    rotation: 0,
+    align: "left",
+    color: "",
   };
 }
 
@@ -3319,6 +3472,10 @@ function onCanvasMouseDown(event) {
     handleRectangleToolClick(worldPoint);
     return;
   }
+  if (uiState.activeTool === "text") {
+    handleTextToolClick(worldPoint);
+    return;
+  }
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
     if (!uiState.transformDraft) {
@@ -3416,6 +3573,30 @@ function handleRectangleToolClick(worldPoint) {
     return;
   }
   endRectangleDraft("Rectangle object created.");
+}
+
+function handleTextToolClick(worldPoint) {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
+    setStatus("Choose a visible, unlocked active layer before drawing.");
+    return;
+  }
+  const value = window.prompt("Text content");
+  if (value === null) {
+    setStatus("Text placement cancelled.");
+    return;
+  }
+  const text = value.trim();
+  if (!text) {
+    setStatus("Empty text was not created.");
+    return;
+  }
+  pushUndoState();
+  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: 250, rotation: 0, align: "left", color: "" };
+  state.entities.push(entity);
+  state.selectedEntityIds = [entity.id];
+  syncAfterStateChange();
+  setStatus("Text created.");
 }
 
 function startPan(event) {
@@ -3600,8 +3781,8 @@ function loadJsonFromFile(file) {
 function exportDxf() {
   const summary = getDxfExportSummary();
 
-  if (!summary.exportedLineCount) {
-    setStatus("No visible lines to export.");
+  if (summary.exportedLineCount + summary.exportedTextCount === 0) {
+    setStatus("No visible entities to export.");
     return;
   }
 
@@ -3610,12 +3791,14 @@ function exportDxf() {
     new Blob([dxfText], { type: "text/plain;charset=us-ascii" }),
     `draftlite-${createTimestampLabel()}.dxf`
   );
-  setStatus(`DXF exported: ${summary.exportedLineCount} lines.`);
+  setStatus(`DXF exported: ${summary.exportedLineCount} lines, ${summary.exportedTextCount} text.`);
 }
 
 function buildDxfText() {
+  const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
-  const layerNames = collectDxfLayerNames(exportLines);
+  const exportTexts = collectDxfExportTextEntities();
+  const layerNames = collectDxfLayerNames(exportEntities);
 
   const dxfLines = [];
   dxfLines.push("0", "SECTION", "2", "HEADER");
@@ -3651,21 +3834,33 @@ function buildDxfText() {
     dxfLines.push("21", formatDxfNumber(dxfYUnitsToMm(line.p2.y)));
     dxfLines.push("31", formatDxfNumber(0));
   });
+  exportTexts.forEach((entity) => {
+    dxfLines.push("0", "TEXT");
+    dxfLines.push("8", getDxfLayerNameForEntity(entity));
+    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.x)));
+    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.y)));
+    dxfLines.push("30", formatDxfNumber(0));
+    dxfLines.push("40", formatDxfNumber(unitsToMm(entity.height)));
+    dxfLines.push("1", sanitizeDxfText(entity.text || ""));
+  });
   dxfLines.push("0", "ENDSEC", "0", "EOF");
 
   return `${dxfLines.join("\r\n")}\r\n`;
 }
 
 function getDxfExportSummary() {
+  const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
-  const bounds = getDxfLineBoundsMm(exportLines);
+  const exportTexts = collectDxfExportTextEntities();
+  const bounds = getDxfBoundsMm(exportLines, exportTexts);
 
   return {
     fileVersion: CURRENT_FILE_VERSION,
     unitMm: UNIT_MM,
     exportedLineCount: exportLines.length,
-    visibleEntityCount: collectDxfExportEntities().length,
-    layerCount: collectDxfLayerNames(exportLines).length,
+    exportedTextCount: exportTexts.length,
+    visibleEntityCount: exportEntities.length,
+    layerCount: collectDxfLayerNames(exportEntities).length,
     boundsMm: bounds,
     minX: bounds ? bounds.minX : null,
     minY: bounds ? bounds.minY : null,
@@ -3680,6 +3875,7 @@ function validateDxfText(dxfText = buildDxfText()) {
     ? text.slice(0, -2).split("\r\n")
     : text.split("\r\n");
   const lineCount = countDxfEntityRecords(text, "LINE");
+  const textCount = countDxfEntityRecords(text, "TEXT");
   const sectionCount = countDxfEntityRecords(text, "SECTION");
   const endsecCount = countDxfEntityRecords(text, "ENDSEC");
   const groupCode100Count = countDxfGroupCode(text, "100");
@@ -3710,6 +3906,7 @@ function validateDxfText(dxfText = buildDxfText()) {
     endsecCount,
     hasEof,
     lineCount,
+    textCount,
     hasEvenGroupCodeValueLines,
     hasValidGroupCodes,
     hasOnlyAscii,
@@ -3725,26 +3922,35 @@ function collectDxfExportEntities() {
   return state.entities.filter((entity) =>
     entity &&
     isLayerVisible(entity.layerId) &&
-    (entity.type === "line" || entity.type === "rect")
+    (entity.type === "line" || entity.type === "rect" || entity.type === "text")
   );
 }
 
 function collectDxfExportLines() {
   return collectDxfExportEntities().flatMap((entity) =>
-    entity.type === "line" ? [entity] : rectToOutlineLines(entity)
+    entity.type === "line" ? [entity] : (entity.type === "rect" ? rectToOutlineLines(entity) : [])
   );
 }
 
-function collectDxfLayerNames(lines) {
+function collectDxfExportTextEntities() {
+  return collectDxfExportEntities().filter((entity) => entity.type === "text");
+}
+
+function collectDxfLayerNames(entities) {
   const names = new Set(["0"]);
-  lines.forEach((line) => {
-    names.add(getDxfLayerNameForLine(line));
+  entities.forEach((entity) => {
+    names.add(getDxfLayerNameForEntity(entity));
   });
   return [...names];
 }
 
 function getDxfLayerNameForLine(line) {
   const layer = getLayerById(line.layerId);
+  return sanitizeDxfLayerName(layer ? layer.name : "0");
+}
+
+function getDxfLayerNameForEntity(entity) {
+  const layer = getLayerById(entity.layerId);
   return sanitizeDxfLayerName(layer ? layer.name : "0");
 }
 
@@ -3773,8 +3979,8 @@ function createMinimalDxfFixture() {
   }
 }
 
-function getDxfLineBoundsMm(lines) {
-  if (!lines.length) {
+function getDxfBoundsMm(lines, textEntities = []) {
+  if (!lines.length && !textEntities.length) {
     return null;
   }
 
@@ -3783,6 +3989,10 @@ function getDxfLineBoundsMm(lines) {
   lines.forEach((line) => {
     xs.push(dxfXUnitsToMm(line.p1.x), dxfXUnitsToMm(line.p2.x));
     ys.push(dxfYUnitsToMm(line.p1.y), dxfYUnitsToMm(line.p2.y));
+  });
+  textEntities.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.x));
+    ys.push(dxfYUnitsToMm(entity.y));
   });
 
   return {
@@ -3806,6 +4016,14 @@ function sanitizeDxfLayerName(value) {
     .replace(/[^A-Za-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return sanitized || "0";
+}
+
+function sanitizeDxfText(value) {
+  return String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[\x00-\x1F\x7F]/g, "")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .trim();
 }
 
 function formatDxfNumber(value) {
@@ -4110,6 +4328,7 @@ function bindEvents() {
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
   toolButtons.rectangle.addEventListener("click", () => setActiveTool("rectangle"));
+  toolButtons.text.addEventListener("click", () => setActiveTool("text"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
@@ -4202,6 +4421,28 @@ window.DraftLiteDebug = {
 
   getRects() {
     return deepClone(state.entities.filter((entity) => entity.type === "rect"));
+  },
+
+  createTextFixture() {
+    pushUndoState();
+    const english = createDebugFixtureTextMm(100, 100, "NOTE", 25);
+    const japanese = createDebugFixtureTextMm(180, 120, "注記", 25);
+    state.entities.push(english, japanese);
+    state.selectedEntityIds = [english.id, japanese.id];
+    clearTransientState();
+    syncAfterStateChange();
+    return deepClone({ english, japanese });
+  },
+
+  getAnnotationSummary() {
+    const texts = state.entities.filter((entity) => entity.type === "text");
+    return {
+      textCount: texts.length,
+      byLayer: texts.reduce((acc, entity) => {
+        acc[entity.layerId] = (acc[entity.layerId] || 0) + 1;
+        return acc;
+      }, {}),
+    };
   },
 
   getStatus() {
