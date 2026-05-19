@@ -6,7 +6,8 @@ const UNIT_MM = 0.1;
 const LEGACY_UNIT_MM = 0.5;
 const GRID_MAJOR_MM = 1000;
 const GRID_MAJOR_UNIT = mmToUnits(GRID_MAJOR_MM);
-const MIN_ZOOM = 0.02;
+const DEFAULT_ZOOM = 0.024;
+const MIN_ZOOM = 0.004;
 const MAX_ZOOM = 50;
 const DOUBLE_CLICK_MS = 320;
 const CLICK_SELECT_THRESHOLD_PX = 4;
@@ -97,7 +98,7 @@ function createInitialState() {
     activeLayerId: "layer-1",
     selectedEntityIds: [],
     view: {
-      zoom: 0.024,
+      zoom: DEFAULT_ZOOM,
       panX: 0,
       panY: 0,
     },
@@ -3497,7 +3498,7 @@ function fitAll() {
   resizeCanvas();
 
   if (!visibleEntities.length) {
-    state.view.zoom = 0.12;
+    state.view.zoom = DEFAULT_ZOOM;
     state.view.panX = uiState.canvasRect.width / 2;
     state.view.panY = uiState.canvasRect.height / 2;
     draw();
@@ -3530,7 +3531,7 @@ function fitAll() {
   const boxHeight = Math.max(1, maxY - minY);
   const scaleX = (uiState.canvasRect.width - marginPx * 2) / boxWidth;
   const scaleY = (uiState.canvasRect.height - marginPx * 2) / boxHeight;
-  state.view.zoom = clampNumber(Math.min(scaleX, scaleY), MIN_ZOOM, MAX_ZOOM, 0.12);
+  state.view.zoom = clampNumber(Math.min(scaleX, scaleY), MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
   state.view.panX = uiState.canvasRect.width / 2 - centerX * state.view.zoom;
