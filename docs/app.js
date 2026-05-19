@@ -248,6 +248,15 @@ function roundWorldPoint(point) {
   };
 }
 
+function roundRectBox(rect) {
+  return {
+    x: roundToGridUnit(rect.x),
+    y: roundToGridUnit(rect.y),
+    width: Math.max(1, roundToGridUnit(rect.width)),
+    height: Math.max(1, roundToGridUnit(rect.height)),
+  };
+}
+
 function worldToScreen(point) {
   return {
     x: point.x * state.view.zoom + state.view.panX,
@@ -1234,8 +1243,12 @@ function draw() {
   }
   if (uiState.rectEdgeEditDraft) {
     const previewRect = getResizedRectFromDraft(uiState.rectEdgeEditDraft, uiState.rectEdgeEditDraft.currentPoint);
-    drawRectEntity({ ...getEntityById(uiState.rectEdgeEditDraft.entityId), ...previewRect });
-    const previewEdge = getRectEdges(previewRect).find((edgeDef) => edgeDef.edge === uiState.rectEdgeEditDraft.edge);
+    const previewEntity = {
+      ...getEntityById(uiState.rectEdgeEditDraft.entityId),
+      ...previewRect,
+    };
+    drawRectEntity(previewEntity);
+    const previewEdge = getRectEdges(previewEntity).find((edgeDef) => edgeDef.edge === uiState.rectEdgeEditDraft.edge);
     if (previewEdge) {
       const s = worldToScreen(previewEdge.p1);
       const e = worldToScreen(previewEdge.p2);
@@ -3117,7 +3130,7 @@ function getResizedRectFromDraft(draft, worldPoint) {
     const nextRight = Math.max(original.x + minSize, anchorPoint.x);
     nextRect.width = Math.max(minSize, nextRight - original.x);
   }
-  return roundWorldPoint(nextRect);
+  return roundRectBox(nextRect);
 }
 
 function getTextBoundsScreen(entity) {
