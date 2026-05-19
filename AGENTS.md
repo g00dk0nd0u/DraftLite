@@ -68,4 +68,4 @@
 
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
 
-- Dimension entity (`type:"dimension"`) is supported for linear annotation with unit-integer coordinates and mm display conversion only at render/export.
+- Dimension entity (`type:"dimension"`) is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.

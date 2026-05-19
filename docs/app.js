@@ -377,26 +377,6 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
   let constrainedWorld = worldPoint;
   const orthoEnabled = !shiftKey;
 
-  if (uiState.dimensionDraft) {
-    if (uiState.dimensionDraft.step === 1) {
-      drawDraftLine(uiState.dimensionDraft.p1, uiState.hoverWorld);
-    } else {
-      drawDimensionEntity({
-        id: "draft-dimension",
-        type: "dimension",
-        layerId: state.activeLayerId,
-        p1: roundWorldPoint(uiState.dimensionDraft.p1),
-        p2: roundWorldPoint(uiState.dimensionDraft.p2),
-        offsetPoint: roundWorldPoint(uiState.hoverWorld),
-        textOverride: "",
-        textHeight: 250,
-        tickSize: 250,
-        color: "",
-        precision: 0,
-      });
-    }
-  }
-
   if (uiState.lineDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, orthoEnabled);
   } else if (uiState.transformDraft) {
@@ -1205,7 +1185,7 @@ function renderStatusPanel() {
     : uiState.filletDraft
       ? "Fillet: pick side to keep on second line"
     : uiState.dimensionDraft
-      ? (uiState.dimensionDraft.step === 1 ? "Dimension: pick second point" : "Dimension: pick dimension line position")
+      ? (uiState.dimensionDraft.step === 1 ? "Aligned Dimension: pick second point" : "Aligned Dimension: place dimension line")
     : uiState.lineDraft
       ? "Line: specify next point"
     : uiState.rectangleDraft
@@ -1215,7 +1195,7 @@ function renderStatusPanel() {
       : uiState.activeTool === "line"
         ? "Line: specify first point"
         : uiState.activeTool === "dimension"
-          ? "Dimension: pick first point"
+          ? "Aligned Dimension: pick first point"
         : uiState.activeTool === "rectangle"
           ? "Rectangle: specify first corner"
         : uiState.activeTool === "move"
@@ -1306,6 +1286,10 @@ function draw() {
 
   if (uiState.rectangleDraft) {
     drawDraftRectangle(uiState.rectangleDraft.start, uiState.hoverWorld);
+  }
+
+  if (uiState.dimensionDraft) {
+    drawDimensionDraftPreview(uiState.dimensionDraft);
   }
 
   if (uiState.transformDraft) {
@@ -1582,6 +1566,32 @@ function drawDimensionEntity(entity) {
   ctx.font=`${geometry.fontPx}px sans-serif`; ctx.textAlign='center'; ctx.fillText(geometry.text, geometry.textPosition.x, geometry.textPosition.y);
   if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(geometry.textBox.left, geometry.textBox.top, geometry.textBox.right - geometry.textBox.left, geometry.textBox.bottom - geometry.textBox.top);}
   ctx.restore();
+}
+
+function drawDimensionDraftPreview(dimensionDraft) {
+  const p1 = roundWorldPoint(dimensionDraft.p1);
+  const p2 = dimensionDraft.step === 1
+    ? roundWorldPoint(uiState.hoverWorld)
+    : roundWorldPoint(dimensionDraft.p2);
+  const offsetPoint = dimensionDraft.step === 1
+    ? p2
+    : roundWorldPoint(uiState.hoverWorld);
+  if (p1.x === p2.x && p1.y === p2.y) {
+    return;
+  }
+  drawDimensionEntity({
+    id: "draft-dimension",
+    type: "dimension",
+    layerId: state.activeLayerId,
+    p1,
+    p2,
+    offsetPoint,
+    textOverride: "",
+    textHeight: 250,
+    tickSize: 250,
+    color: "",
+    precision: 0,
+  });
 }
 
 function drawSnapMarker(snapMarker) {
@@ -3821,11 +3831,22 @@ function handleTextToolClick(worldPoint) {
 function handleDimensionToolClick(worldPoint) {
   const activeLayer = getLayerById(state.activeLayerId);
   if (!activeLayer || !activeLayer.visible || activeLayer.locked) { setStatus("Choose a visible, unlocked active layer before drawing."); return; }
-  if (!uiState.dimensionDraft) { uiState.dimensionDraft = { step: 1, p1: worldPoint }; setStatus("Dimension: pick second point"); draw(); return; }
-  if (uiState.dimensionDraft.step === 1) { uiState.dimensionDraft.p2 = worldPoint; uiState.dimensionDraft.step = 2; setStatus("Dimension: pick dimension line position"); draw(); return; }
+  if (!uiState.dimensionDraft) {
+    uiState.dimensionDraft = { step: 1, p1: roundWorldPoint(worldPoint) };
+    setStatus("Aligned Dimension: pick second point");
+    draw();
+    return;
+  }
+  if (uiState.dimensionDraft.step === 1) {
+    uiState.dimensionDraft.p2 = roundWorldPoint(worldPoint);
+    uiState.dimensionDraft.step = 2;
+    setStatus("Aligned Dimension: place dimension line");
+    draw();
+    return;
+  }
   pushUndoState();
   const entity = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:roundWorldPoint(uiState.dimensionDraft.p1), p2:roundWorldPoint(uiState.dimensionDraft.p2), offsetPoint:roundWorldPoint(worldPoint), textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
-  state.entities.push(entity); state.selectedEntityIds=[entity.id]; uiState.dimensionDraft=null; syncAfterStateChange(); setStatus("Dimension created.");
+  state.entities.push(entity); state.selectedEntityIds=[entity.id]; uiState.dimensionDraft=null; syncAfterStateChange(); setStatus("Aligned Dimension created.");
 }
 
 function startPan(event) {
@@ -3969,7 +3990,7 @@ function setActiveTool(tool) {
     return;
   }
   if (tool === "dimension") {
-    setStatus("Dimension: pick first point");
+    setStatus("Aligned Dimension: pick first point");
     return;
   }
   if (tool === "extend") {
@@ -4412,7 +4433,7 @@ function onKeyDown(event) {
     if (uiState.dimensionDraft || uiState.activeTool === "dimension") {
       uiState.dimensionDraft = null;
       if (uiState.activeTool === "dimension") {
-        setStatus("Dimension: pick first point");
+        setStatus("Aligned Dimension: pick first point");
       }
       draw();
       renderStatusPanel();
