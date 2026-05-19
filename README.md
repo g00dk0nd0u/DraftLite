@@ -201,3 +201,5 @@ result.client.y;
 - DXF layer names are normalized to ASCII letters, numbers, and underscores, such as `Layer_1`.
 - `DraftLiteDebug.buildDxfText()`, `DraftLiteDebug.getDxfExportSummary()`, `DraftLiteDebug.validateDxfText()`, and `DraftLiteDebug.createMinimalDxfFixture()` are available for export verification.
 - JSON save/load should preserve rectangle entities.
+
+- Text tool and `type:"text"` annotation entity are now available as the baseline for future Dimension/Leader/Revision Cloud work.
