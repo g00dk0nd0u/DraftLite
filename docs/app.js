@@ -50,6 +50,10 @@ const themeToggleButton = document.getElementById("themeToggleButton");
 
 const ctx = canvas.getContext("2d");
 
+function setStatus(message) {
+  statusReadout.textContent = message;
+}
+
 let state = createInitialState();
 let history = {
   undoStack: [],
@@ -179,6 +183,27 @@ function clearTransientState() {
   clearTransformPreviewTimer();
 }
 
+function clearLinePreviewTimer() {
+  if (uiState.linePreviewTimer) {
+    window.clearTimeout(uiState.linePreviewTimer);
+    uiState.linePreviewTimer = null;
+  }
+}
+
+function clearGripPreviewTimer() {
+  if (uiState.gripPreviewTimer) {
+    window.clearTimeout(uiState.gripPreviewTimer);
+    uiState.gripPreviewTimer = null;
+  }
+}
+
+function clearTransformPreviewTimer() {
+  if (uiState.transformPreviewTimer) {
+    window.clearTimeout(uiState.transformPreviewTimer);
+    uiState.transformPreviewTimer = null;
+  }
+}
+
 function createEntityId() {
   const id = `ent-${state.nextEntityNumber}`;
   state.nextEntityNumber += 1;
@@ -285,87 +310,7 @@ function collectSnapCandidates(worldPoint) {
           { kind: "midpoint", point: midpoint, distancePx: distanceScreenPx(worldPoint, midpoint) },
         ];
       }
-      if (entity.type === "dimension") {
-    const generalGrid = appendSection("General");
-    addPropertyRow(generalGrid, "Type", createReadOnlyText("Dimension"));
-    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Dimension layer updated."));
-
-    const textOverrideInput = document.createElement("input");
-    textOverrideInput.type = "text";
-    textOverrideInput.value = entity.textOverride || "";
-    textOverrideInput.addEventListener("change", () => {
-      pushUndoState();
-      entity.textOverride = textOverrideInput.value;
-      syncAfterStateChange();
-    });
-    addPropertyRow(generalGrid, "Text Override", textOverrideInput);
-
-    const geometryGrid = appendSection("Geometry");
-    const precisionInput = document.createElement("input");
-    precisionInput.type = "number";
-    precisionInput.min = "0";
-    precisionInput.max = "3";
-    precisionInput.step = "1";
-    precisionInput.value = String(entity.precision ?? 0);
-    precisionInput.addEventListener("change", () => {
-      const next = Math.round(Number(precisionInput.value));
-      if (!Number.isFinite(next) || next < 0 || next > 3) {
-        precisionInput.value = String(entity.precision ?? 0);
-        setStatus("Precision must be an integer from 0 to 3.");
-        return;
-      }
-      pushUndoState();
-      entity.precision = next;
-      syncAfterStateChange();
-    });
-    addPropertyRow(geometryGrid, "Precision", precisionInput);
-
-    const textHeightInput = document.createElement("input");
-    textHeightInput.type = "number";
-    textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
-    textHeightInput.addEventListener("change", () => {
-      const nextMm = Number(textHeightInput.value);
-      if (!Number.isFinite(nextMm) || nextMm <= 0) {
-        textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
-        setStatus("Text Height mm must be greater than zero.");
-        return;
-      }
-      pushUndoState();
-      entity.textHeight = Math.max(1, mmToUnits(nextMm));
-      syncAfterStateChange();
-    });
-    addPropertyRow(geometryGrid, "Text Height mm", textHeightInput);
-
-    const tickSizeInput = document.createElement("input");
-    tickSizeInput.type = "number";
-    tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
-    tickSizeInput.addEventListener("change", () => {
-      const nextMm = Number(tickSizeInput.value);
-      if (!Number.isFinite(nextMm) || nextMm <= 0) {
-        tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
-        setStatus("Tick Size mm must be greater than zero.");
-        return;
-      }
-      pushUndoState();
-      entity.tickSize = Math.max(1, mmToUnits(nextMm));
-      syncAfterStateChange();
-    });
-    addPropertyRow(geometryGrid, "Tick Size mm", tickSizeInput);
-
-    const appearanceGrid = appendSection("Appearance");
-    const colorInput = document.createElement("input");
-    colorInput.type = "color";
-    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
-    colorInput.addEventListener("change", () => {
-      pushUndoState();
-      entity.color = colorInput.value;
-      syncAfterStateChange();
-    });
-    addPropertyRow(appearanceGrid, "Color", colorInput);
-    return;
-  }
-
-  if (entity.type === "rect") {
+      if (entity.type === "rect") {
         return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
       if (entity.type === "text") {
@@ -1130,6 +1075,86 @@ function renderPropertiesPanel() {
     return;
   }
 
+  if (entity.type === "dimension") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Dimension"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Dimension layer updated."));
+
+    const textOverrideInput = document.createElement("input");
+    textOverrideInput.type = "text";
+    textOverrideInput.value = entity.textOverride || "";
+    textOverrideInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.textOverride = textOverrideInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(generalGrid, "Text Override", textOverrideInput);
+
+    const geometryGrid = appendSection("Geometry");
+    const precisionInput = document.createElement("input");
+    precisionInput.type = "number";
+    precisionInput.min = "0";
+    precisionInput.max = "3";
+    precisionInput.step = "1";
+    precisionInput.value = String(entity.precision ?? 0);
+    precisionInput.addEventListener("change", () => {
+      const next = Math.round(Number(precisionInput.value));
+      if (!Number.isFinite(next) || next < 0 || next > 3) {
+        precisionInput.value = String(entity.precision ?? 0);
+        setStatus("Precision must be an integer from 0 to 3.");
+        return;
+      }
+      pushUndoState();
+      entity.precision = next;
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Precision", precisionInput);
+
+    const textHeightInput = document.createElement("input");
+    textHeightInput.type = "number";
+    textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+    textHeightInput.addEventListener("change", () => {
+      const nextMm = Number(textHeightInput.value);
+      if (!Number.isFinite(nextMm) || nextMm <= 0) {
+        textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+        setStatus("Text Height mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.textHeight = Math.max(1, mmToUnits(nextMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Text Height mm", textHeightInput);
+
+    const tickSizeInput = document.createElement("input");
+    tickSizeInput.type = "number";
+    tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+    tickSizeInput.addEventListener("change", () => {
+      const nextMm = Number(tickSizeInput.value);
+      if (!Number.isFinite(nextMm) || nextMm <= 0) {
+        tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+        setStatus("Tick Size mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.tickSize = Math.max(1, mmToUnits(nextMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Tick Size mm", tickSizeInput);
+
+    const appearanceGrid = appendSection("Appearance");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
+    colorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.color = colorInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Color", colorInput);
+    return;
+  }
+
   if (entity.type === "line") {
     const generalGrid = appendSection("General");
     addPropertyRow(generalGrid, "Type", createReadOnlyText("Line"));
@@ -1501,21 +1526,61 @@ function getDimensionGeometry(entity) {
   return { o1, o2 };
 }
 
+function getDimensionScreenGeometry(entity) {
+  const { o1: o1World, o2: o2World } = getDimensionGeometry(entity);
+  const p1 = worldToScreen(entity.p1);
+  const p2 = worldToScreen(entity.p2);
+  const o1 = worldToScreen(o1World);
+  const o2 = worldToScreen(o2World);
+  const dx = o2.x - o1.x;
+  const dy = o2.y - o1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const tick = Math.max(4, (entity.tickSize || 250) * state.view.zoom * 0.25);
+  const text = getDimensionDisplayText(entity);
+  const textPosition = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 - 6 };
+  const fontPx = Math.max(10, (entity.textHeight || 250) * state.view.zoom);
+
+  ctx.save();
+  ctx.font = `${fontPx}px sans-serif`;
+  const textWidth = ctx.measureText(text).width;
+  ctx.restore();
+
+  const textBox = {
+    left: textPosition.x - textWidth / 2 - 8,
+    right: textPosition.x + textWidth / 2 + 8,
+    top: textPosition.y - fontPx - 6,
+    bottom: textPosition.y + 6,
+  };
+
+  return {
+    p1,
+    p2,
+    o1,
+    o2,
+    extensionLines: [[p1, o1], [p2, o2]],
+    dimensionLine: [o1, o2],
+    tickLines: [
+      [{ x: o1.x - nx * tick, y: o1.y - ny * tick }, { x: o1.x + nx * tick, y: o1.y + ny * tick }],
+      [{ x: o2.x - nx * tick, y: o2.y - ny * tick }, { x: o2.x + nx * tick, y: o2.y + ny * tick }],
+    ],
+    text,
+    textPosition,
+    textBox,
+    fontPx,
+  };
+}
+
 function drawDimensionEntity(entity) {
   const layer = getLayerById(entity.layerId); if (!layer) return;
   const color = normalizeColor(entity.color || layer.color);
   const isSelected = state.selectedEntityIds.includes(entity.id);
-  const { o1: o1World, o2: o2World } = getDimensionGeometry(entity);
-  const p1 = worldToScreen(entity.p1), p2 = worldToScreen(entity.p2);
-  const o1 = worldToScreen(o1World), o2 = worldToScreen(o2World);
-  const dx = o2.x - o1.x, dy = o2.y - o1.y; const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len, ny = dx / len;
-  const tick = Math.max(4, (entity.tickSize||250) * state.view.zoom * 0.25);
+  const geometry = getDimensionScreenGeometry(entity);
   ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=isSelected?2.4:1.4;
-  [[p1,o1],[p2,o2],[o1,o2]].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
-  [[o1,nx,ny],[o2,nx,ny]].forEach(([a,tx,ty])=>{ctx.beginPath();ctx.moveTo(a.x-tx*tick,a.y-ty*tick);ctx.lineTo(a.x+tx*tick,a.y+ty*tick);ctx.stroke();});
-  const mid={x:(o1.x+o2.x)/2,y:(o1.y+o2.y)/2}; ctx.font=`${Math.max(10,(entity.textHeight||250)*state.view.zoom)}px sans-serif`; ctx.textAlign='center'; ctx.fillText(getDimensionDisplayText(entity),mid.x,mid.y-6);
-  if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(mid.x-40,mid.y-24,80,28);}
+  [...geometry.extensionLines, geometry.dimensionLine, ...geometry.tickLines].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
+  ctx.font=`${geometry.fontPx}px sans-serif`; ctx.textAlign='center'; ctx.fillText(geometry.text, geometry.textPosition.x, geometry.textPosition.y);
+  if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(geometry.textBox.left, geometry.textBox.top, geometry.textBox.right - geometry.textBox.left, geometry.textBox.bottom - geometry.textBox.top);}
   ctx.restore();
 }
 
@@ -1563,8 +1628,18 @@ function drawTransformPreview(transformDraft) {
       drawPreviewLineEntity(previewLine);
     } else if (entity.type === "rect") {
       drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
+    } else if (entity.type === "text" || entity.type === "dimension") {
+      drawEntityPreview(applyOffsetToEntity(entity, offset));
     }
   });
+}
+
+function drawEntityPreview(entity) {
+  if (entity.type === "text") {
+    drawTextEntity(entity);
+  } else if (entity.type === "dimension") {
+    drawDimensionEntity(entity);
+  }
 }
 
 function drawGripEditPreview(gripEditDraft) {
@@ -2230,6 +2305,11 @@ function getTransformOffset(transformDraft) {
   };
 }
 
+function updateTransformDraftStatus(message) {
+  setStatus(message);
+  renderStatusPanel();
+}
+
 function updateTransformDraft(worldPoint) {
   if (!uiState.transformDraft) {
     return;
@@ -2331,6 +2411,15 @@ function applyTransformDraft() {
   syncAfterStateChange();
   updateTransformDraftStatus("Copy created. Specify next point or press Enter/Escape to finish.");
   return true;
+}
+
+function resolveFreeDragPoint(worldPoint) {
+  return worldPoint;
+}
+
+function updateSelectDragStatus(message) {
+  setStatus(message);
+  renderStatusPanel();
 }
 
 function startSelectDragWithMode(worldPoint, mode = "move") {
@@ -2946,6 +3035,23 @@ function selectEntitiesByWindow(selectionWindow) {
           ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
           : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
       }
+      if (entity.type === "dimension") {
+        const geometry = getDimensionScreenGeometry(entity);
+        const boxes = [
+          ...geometry.extensionLines,
+          geometry.dimensionLine,
+          ...geometry.tickLines,
+        ].map(([a, b]) => ({
+          left: Math.min(a.x, b.x),
+          right: Math.max(a.x, b.x),
+          top: Math.min(a.y, b.y),
+          bottom: Math.max(a.y, b.y),
+        }));
+        boxes.push(geometry.textBox);
+        return rect.isCrossing
+          ? boxes.some((box) => !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom))
+          : boxes.every((box) => box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
       return false;
     })
     .map((entity) => entity.id);
@@ -2979,13 +3085,13 @@ function hitTestEntity(entity, worldPoint) {
     return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
   }
   if (entity.type === "dimension") {
-    const { o1, o2 } = getDimensionGeometry(entity);
+    const point = worldToScreen(worldPoint);
+    const geometry = getDimensionScreenGeometry(entity);
     const tol = state.settings.snapTolerancePx + 4;
     return (
-      distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2) <= tol ||
-      distancePointToSegmentScreenPx(worldPoint, entity.p1, o1) <= tol ||
-      distancePointToSegmentScreenPx(worldPoint, entity.p2, o2) <= tol ||
-      distancePointToSegmentScreenPx(worldPoint, o1, o2) <= tol
+      [...geometry.extensionLines, geometry.dimensionLine, ...geometry.tickLines]
+        .some(([start, end]) => distanceScreenPointToSegmentPx(point, start, end) <= tol) ||
+      (point.x >= geometry.textBox.left && point.x <= geometry.textBox.right && point.y >= geometry.textBox.top && point.y <= geometry.textBox.bottom)
     );
   }
   return false;
@@ -3006,6 +3112,10 @@ function distancePointToSegmentScreenPx(point, segmentStart, segmentEnd) {
   const p = worldToScreen(point);
   const a = worldToScreen(segmentStart);
   const b = worldToScreen(segmentEnd);
+  return distanceScreenPointToSegmentPx(p, a, b);
+}
+
+function distanceScreenPointToSegmentPx(p, a, b) {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
   const lengthSq = abx * abx + aby * aby;
