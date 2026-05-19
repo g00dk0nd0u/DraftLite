@@ -285,22 +285,99 @@ function collectSnapCandidates(worldPoint) {
           { kind: "midpoint", point: midpoint, distancePx: distanceScreenPx(worldPoint, midpoint) },
         ];
       }
-      if (entity.type === "rect") {
-        return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
-      }
-      if (entity.type === "text") {
-        const box = getTextBoundsScreen(entity);
-        return rect.isCrossing
-          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
-          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
-      }
       if (entity.type === "dimension") {
-        const points=[entity.p1,entity.p2,entity.offsetPoint].map(worldToScreen);
-        return rect.isCrossing ? points.some((p)=>p.x>=rect.left&&p.x<=rect.right&&p.y>=rect.top&&p.y<=rect.bottom) : points.every((p)=>p.x>=rect.left&&p.x<=rect.right&&p.y>=rect.top&&p.y<=rect.bottom);
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Dimension"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Dimension layer updated."));
+
+    const textOverrideInput = document.createElement("input");
+    textOverrideInput.type = "text";
+    textOverrideInput.value = entity.textOverride || "";
+    textOverrideInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.textOverride = textOverrideInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(generalGrid, "Text Override", textOverrideInput);
+
+    const geometryGrid = appendSection("Geometry");
+    const precisionInput = document.createElement("input");
+    precisionInput.type = "number";
+    precisionInput.min = "0";
+    precisionInput.max = "3";
+    precisionInput.step = "1";
+    precisionInput.value = String(entity.precision ?? 0);
+    precisionInput.addEventListener("change", () => {
+      const next = Math.round(Number(precisionInput.value));
+      if (!Number.isFinite(next) || next < 0 || next > 3) {
+        precisionInput.value = String(entity.precision ?? 0);
+        setStatus("Precision must be an integer from 0 to 3.");
+        return;
+      }
+      pushUndoState();
+      entity.precision = next;
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Precision", precisionInput);
+
+    const textHeightInput = document.createElement("input");
+    textHeightInput.type = "number";
+    textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+    textHeightInput.addEventListener("change", () => {
+      const nextMm = Number(textHeightInput.value);
+      if (!Number.isFinite(nextMm) || nextMm <= 0) {
+        textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+        setStatus("Text Height mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.textHeight = Math.max(1, mmToUnits(nextMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Text Height mm", textHeightInput);
+
+    const tickSizeInput = document.createElement("input");
+    tickSizeInput.type = "number";
+    tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+    tickSizeInput.addEventListener("change", () => {
+      const nextMm = Number(tickSizeInput.value);
+      if (!Number.isFinite(nextMm) || nextMm <= 0) {
+        tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+        setStatus("Tick Size mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.tickSize = Math.max(1, mmToUnits(nextMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Tick Size mm", tickSizeInput);
+
+    const appearanceGrid = appendSection("Appearance");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
+    colorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.color = colorInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Color", colorInput);
+    return;
+  }
+
+  if (entity.type === "rect") {
+        return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
       if (entity.type === "text") {
         const point = { x: entity.x, y: entity.y };
         return [{ kind: "endpoint", point, distancePx: distanceScreenPx(worldPoint, point) }];
+      }
+      if (entity.type === "dimension") {
+        return [entity.p1, entity.p2, entity.offsetPoint].map((point) => ({
+          kind: "endpoint",
+          point,
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
       }
       return [];
     });
@@ -355,98 +432,35 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
   let constrainedWorld = worldPoint;
   const orthoEnabled = !shiftKey;
 
+  if (uiState.dimensionDraft) {
+    if (uiState.dimensionDraft.step === 1) {
+      drawDraftLine(uiState.dimensionDraft.p1, uiState.hoverWorld);
+    } else {
+      drawDimensionEntity({
+        id: "draft-dimension",
+        type: "dimension",
+        layerId: state.activeLayerId,
+        p1: roundWorldPoint(uiState.dimensionDraft.p1),
+        p2: roundWorldPoint(uiState.dimensionDraft.p2),
+        offsetPoint: roundWorldPoint(uiState.hoverWorld),
+        textOverride: "",
+        textHeight: 250,
+        tickSize: 250,
+        color: "",
+        precision: 0,
+      });
+    }
+  }
+
   if (uiState.lineDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, orthoEnabled);
   } else if (uiState.transformDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, orthoEnabled);
   } else if (uiState.gripEditDraft) {
-    constrainedWorld = applyOrthoConstraint(uiState.gripEditDraft.fixedPoint, constrainedWorld, orthoEnabled);
+    constrainedWorld = applyOrthoConstraint(uiState.gripEditDraft.startPoint, constrainedWorld, orthoEnabled);
   }
 
   return getSnapPoint(constrainedWorld);
-}
-
-function resolveFreeDragPoint(worldPoint) {
-  return roundWorldPoint(worldPoint);
-}
-
-function refreshPointerConstraint(shiftKey) {
-  if (!uiState.lineDraft && !uiState.transformDraft && !uiState.gripEditDraft) {
-    return;
-  }
-
-  const snappedWorld = resolveConstrainedSnapPoint(uiState.pointerWorld, shiftKey);
-  uiState.hoverWorld = snappedWorld;
-  if (uiState.transformDraft) {
-    uiState.transformDraft.currentPoint = snappedWorld;
-  }
-  if (uiState.gripEditDraft) {
-    uiState.gripEditDraft.currentPoint = snappedWorld;
-  }
-  pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
-  draw();
-  renderStatusPanel();
-}
-
-function setStatus(message) {
-  statusReadout.textContent = message;
-}
-
-function updateLineDraftStatus(prefix) {
-  if (!uiState.lineDraft) {
-    return;
-  }
-
-  const inputSuffix = uiState.lineDraft.numericInputBuffer
-    ? ` Length: ${uiState.lineDraft.numericInputBuffer} mm`
-    : " Length: -";
-  setStatus(`${prefix}${inputSuffix}`);
-  renderStatusPanel();
-}
-
-function updateTransformDraftStatus(prefix) {
-  if (!uiState.transformDraft) {
-    return;
-  }
-
-  const inputSuffix = uiState.transformDraft.numericInputBuffer
-    ? ` Distance: ${uiState.transformDraft.numericInputBuffer} mm`
-    : " Distance: -";
-  setStatus(`${prefix}${inputSuffix}`);
-  renderStatusPanel();
-}
-
-function updateSelectDragStatus(prefix) {
-  if (!uiState.selectDragDraft) {
-    return;
-  }
-
-  const offset = getTransformOffset(uiState.selectDragDraft);
-  setStatus(
-    `${prefix} Offset: ${unitsToMm(offset.dx)} mm, ${unitsToMm(offset.dy)} mm`
-  );
-  renderStatusPanel();
-}
-
-function clearTransformPreviewTimer() {
-  if (uiState.transformPreviewTimer) {
-    window.clearTimeout(uiState.transformPreviewTimer);
-    uiState.transformPreviewTimer = null;
-  }
-}
-
-function clearLinePreviewTimer() {
-  if (uiState.linePreviewTimer) {
-    window.clearTimeout(uiState.linePreviewTimer);
-    uiState.linePreviewTimer = null;
-  }
-}
-
-function clearGripPreviewTimer() {
-  if (uiState.gripPreviewTimer) {
-    window.clearTimeout(uiState.gripPreviewTimer);
-    uiState.gripPreviewTimer = null;
-  }
 }
 
 function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
@@ -1474,15 +1488,28 @@ function getDimensionDisplayText(entity) {
   return dist.toFixed(entity.precision ?? 0);
 }
 
+function getDimensionGeometry(entity) {
+  const dx = entity.p2.x - entity.p1.x;
+  const dy = entity.p2.y - entity.p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const d1 = (entity.offsetPoint.x - entity.p1.x) * nx + (entity.offsetPoint.y - entity.p1.y) * ny;
+  const d2 = (entity.offsetPoint.x - entity.p2.x) * nx + (entity.offsetPoint.y - entity.p2.y) * ny;
+  const o1 = { x: roundToUnit(entity.p1.x + nx * d1), y: roundToUnit(entity.p1.y + ny * d1) };
+  const o2 = { x: roundToUnit(entity.p2.x + nx * d2), y: roundToUnit(entity.p2.y + ny * d2) };
+  return { o1, o2 };
+}
+
 function drawDimensionEntity(entity) {
   const layer = getLayerById(entity.layerId); if (!layer) return;
   const color = normalizeColor(entity.color || layer.color);
   const isSelected = state.selectedEntityIds.includes(entity.id);
-  const p1 = worldToScreen(entity.p1), p2 = worldToScreen(entity.p2), op = worldToScreen(entity.offsetPoint);
-  const dx = p2.x - p1.x, dy = p2.y - p1.y; const len = Math.hypot(dx, dy) || 1;
+  const { o1: o1World, o2: o2World } = getDimensionGeometry(entity);
+  const p1 = worldToScreen(entity.p1), p2 = worldToScreen(entity.p2);
+  const o1 = worldToScreen(o1World), o2 = worldToScreen(o2World);
+  const dx = o2.x - o1.x, dy = o2.y - o1.y; const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len, ny = dx / len;
-  const o1 = {x:p1.x + nx*(((op.x-p1.x)*nx + (op.y-p1.y)*ny)), y:p1.y + ny*(((op.x-p1.x)*nx + (op.y-p1.y)*ny))};
-  const o2 = {x:p2.x + nx*(((op.x-p2.x)*nx + (op.y-p2.y)*ny)), y:p2.y + ny*(((op.x-p2.x)*nx + (op.y-p2.y)*ny))};
   const tick = Math.max(4, (entity.tickSize||250) * state.view.zoom * 0.25);
   ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=isSelected?2.4:1.4;
   [[p1,o1],[p2,o2],[o1,o2]].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
@@ -2952,7 +2979,14 @@ function hitTestEntity(entity, worldPoint) {
     return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
   }
   if (entity.type === "dimension") {
-    return distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2) <= state.settings.snapTolerancePx + 4;
+    const { o1, o2 } = getDimensionGeometry(entity);
+    const tol = state.settings.snapTolerancePx + 4;
+    return (
+      distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2) <= tol ||
+      distancePointToSegmentScreenPx(worldPoint, entity.p1, o1) <= tol ||
+      distancePointToSegmentScreenPx(worldPoint, entity.p2, o2) <= tol ||
+      distancePointToSegmentScreenPx(worldPoint, o1, o2) <= tol
+    );
   }
   return false;
 }
@@ -4263,6 +4297,15 @@ function onKeyDown(event) {
     }
     if (uiState.filletDraft || uiState.activeTool === "fillet") {
       cancelFillet();
+      return;
+    }
+    if (uiState.dimensionDraft || uiState.activeTool === "dimension") {
+      uiState.dimensionDraft = null;
+      if (uiState.activeTool === "dimension") {
+        setStatus("Dimension: pick first point");
+      }
+      draw();
+      renderStatusPanel();
       return;
     }
   }
