@@ -20,11 +20,16 @@
 - Confirming with `Enter` must match the currently displayed preview position.
 - `Move` / `Copy` Dynamic Input should be shown at the lower-right of the cursor.
 - `Line` / `Grip edit` Dynamic Input should be shown near the edited segment.
-- Internal coordinates must remain `0.5 mm` integer units.
+- Internal coordinates must remain integer units.
+- `1 unit = 0.1 mm`.
+- Do not store mm values in state.
+- Convert to mm only for display, input parsing, DXF/PDF export, and external integrations.
+- Legacy `0.5 mm` unit JSON must be migrated on load by multiplying unit coordinates by `5`.
+- Do not draw a `0.1 mm` visual grid.
 - Do not turn DraftLite into a floating-point CAD model.
 - JSON save/load must remain compatible.
 - DXF is the primary export target going forward.
-- DXF export must keep internal coordinates as `0.5 mm` integer units and convert to `mm` only at export time.
+- DXF export must keep internal coordinates as integer units and convert to `mm` only at export time.
 - DXF export must flip Y coordinates only at export time so AutoCAD orientation matches the canvas; do not change internal state, canvas rendering, or JSON save/load for this.
 - DXF export should remain conservative R12/AC1009-style ASCII with CRLF line endings and explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
 - DXF `HEADER` should stay minimal with `$ACADVER` only; do not emit `$INSUNITS`, `OBJECTS`, subclass markers, or group code `100`.
@@ -38,7 +43,7 @@
 - Extend must keep the boundary line fixed.
 - Extend must move only the boundary-side endpoint of the second picked target line to the infinite-line intersection.
 - Do not rotate target geometry in the first implementation.
-- Keep internal `0.5 mm` integer unit coordinates.
+- Keep internal `0.1 mm` integer unit coordinates.
 - Do not introduce arc entities yet.
 - Fillet modifies existing line endpoints to their infinite-line intersection.
 - Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.
