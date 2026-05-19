@@ -203,3 +203,9 @@ result.client.y;
 - JSON save/load should preserve rectangle entities.
 
 - Text tool and `type:"text"` annotation entity are now available as the baseline for future Dimension/Leader/Revision Cloud work.
+
+
+## Dimension tool (Linear)
+- Added `Dimension` tool to create `type:"dimension"` annotations via 3 picks (p1, p2, offset).
+- Dimension value is derived at render/export time from p1-p2 distance and displayed in mm.
+- DXF export decomposes dimensions into LINE + TEXT primitives (no native DIMENSION entity).

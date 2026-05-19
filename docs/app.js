@@ -29,6 +29,7 @@ const toolButtons = {
   line: document.getElementById("toolLineButton"),
   rectangle: document.getElementById("rectangleButton"),
   text: document.getElementById("textButton"),
+  dimension: document.getElementById("dimensionButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   align: document.getElementById("alignButton"),
@@ -65,6 +66,7 @@ const uiState = {
   alignDraft: null,
   extendDraft: null,
   filletDraft: null,
+  dimensionDraft: null,
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
@@ -169,6 +171,7 @@ function clearTransientState() {
   uiState.alignDraft = null;
   uiState.extendDraft = null;
   uiState.filletDraft = null;
+  uiState.dimensionDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
   clearLinePreviewTimer();
@@ -284,6 +287,17 @@ function collectSnapCandidates(worldPoint) {
       }
       if (entity.type === "rect") {
         return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      if (entity.type === "text") {
+        const point = { x: entity.x, y: entity.y };
+        return [{ kind: "endpoint", point, distancePx: distanceScreenPx(worldPoint, point) }];
+      }
+      if (entity.type === "dimension") {
+        return [entity.p1, entity.p2, entity.offsetPoint].map((point) => ({
+          kind: "endpoint",
+          point,
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
       }
       return [];
     });
@@ -507,6 +521,7 @@ function cancelGripEdit(message = "Grip edit cancelled.") {
 function cancelFillet(message = "Fillet cancelled.") {
   state.selectedEntityIds = [];
   uiState.filletDraft = null;
+  uiState.dimensionDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
   setStatus(message);
@@ -660,6 +675,22 @@ function normalizeEntity(entity, options = {}) {
       rotation: Number(entity.rotation) || 0,
       align: ["left", "center", "right"].includes(entity.align) ? entity.align : "left",
       color: entity.color ? normalizeColor(entity.color) : "",
+    };
+  }
+
+  if (entity.type === "dimension") {
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "dimension",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      p1: normalizePoint(entity.p1, legacyUnits),
+      p2: normalizePoint(entity.p2, legacyUnits),
+      offsetPoint: normalizePoint(entity.offsetPoint, legacyUnits),
+      textOverride: typeof entity.textOverride === "string" ? entity.textOverride : "",
+      textHeight: Math.max(1, normalizeUnitValue(entity.textHeight ?? 250, legacyUnits)),
+      tickSize: Math.max(1, normalizeUnitValue(entity.tickSize ?? 250, legacyUnits)),
+      color: entity.color ? normalizeColor(entity.color) : "",
+      precision: Math.max(0, Math.min(3, Math.round(Number(entity.precision) || 0))),
     };
   }
   return null;
@@ -1010,6 +1041,91 @@ function renderPropertiesPanel() {
     addPropertyRow(appearanceGrid, "Color", colorInput);
     return;
   }
+  if (entity.type === "dimension") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Dimension"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Dimension layer updated."));
+
+    const textOverrideInput = document.createElement("input");
+    textOverrideInput.type = "text";
+    textOverrideInput.value = entity.textOverride || "";
+    textOverrideInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.textOverride = textOverrideInput.value || "";
+      syncAfterStateChange();
+      setStatus("Dimension text override updated.");
+    });
+    addPropertyRow(generalGrid, "Text Override", textOverrideInput);
+
+    const precisionInput = document.createElement("input");
+    precisionInput.type = "number";
+    precisionInput.step = "1";
+    precisionInput.min = "0";
+    precisionInput.max = "3";
+    precisionInput.value = String(entity.precision ?? 0);
+    precisionInput.addEventListener("change", () => {
+      const precision = Math.round(Number(precisionInput.value));
+      if (!Number.isFinite(precision) || precision < 0 || precision > 3) {
+        precisionInput.value = String(entity.precision ?? 0);
+        setStatus("Precision must be between 0 and 3.");
+        return;
+      }
+      pushUndoState();
+      entity.precision = precision;
+      syncAfterStateChange();
+      setStatus("Dimension precision updated.");
+    });
+    addPropertyRow(generalGrid, "Precision", precisionInput);
+
+    const geometryGrid = appendSection("Geometry");
+    const textHeightInput = document.createElement("input");
+    textHeightInput.type = "number";
+    textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+    textHeightInput.addEventListener("change", () => {
+      const mm = Number(textHeightInput.value);
+      if (!Number.isFinite(mm) || mm <= 0) {
+        textHeightInput.value = String(unitsToMm(entity.textHeight || 250));
+        setStatus("Text Height mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.textHeight = mmToUnits(mm);
+      syncAfterStateChange();
+      setStatus("Dimension text height updated.");
+    });
+    addPropertyRow(geometryGrid, "Text Height mm", textHeightInput);
+
+    const tickSizeInput = document.createElement("input");
+    tickSizeInput.type = "number";
+    tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+    tickSizeInput.addEventListener("change", () => {
+      const mm = Number(tickSizeInput.value);
+      if (!Number.isFinite(mm) || mm <= 0) {
+        tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
+        setStatus("Tick Size mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.tickSize = mmToUnits(mm);
+      syncAfterStateChange();
+      setStatus("Dimension tick size updated.");
+    });
+    addPropertyRow(geometryGrid, "Tick Size mm", tickSizeInput);
+
+    const appearanceGrid = appendSection("Appearance");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
+    colorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.color = colorInput.value;
+      syncAfterStateChange();
+      setStatus("Dimension color updated.");
+    });
+    addPropertyRow(appearanceGrid, "Color", colorInput);
+    return;
+  }
+
   if (entity.type === "rect") {
     const generalGrid = appendSection("General");
     const nameInput = document.createElement("input");
@@ -1131,6 +1247,8 @@ function renderStatusPanel() {
       ? "Extend: pick target line"
     : uiState.filletDraft
       ? "Fillet: pick side to keep on second line"
+    : uiState.dimensionDraft
+      ? (uiState.dimensionDraft.step === 1 ? "Dimension: pick second point" : "Dimension: pick dimension line position")
     : uiState.lineDraft
       ? "Line: specify next point"
     : uiState.rectangleDraft
@@ -1139,6 +1257,8 @@ function renderStatusPanel() {
       ? `${capitalize(uiState.transformDraft.mode)}: specify second point`
       : uiState.activeTool === "line"
         ? "Line: specify first point"
+        : uiState.activeTool === "dimension"
+          ? "Dimension: pick first point"
         : uiState.activeTool === "rectangle"
           ? "Rectangle: specify first corner"
         : uiState.activeTool === "move"
@@ -1218,6 +1338,8 @@ function draw() {
       drawRectEntity(entity);
     } else if (entity.type === "text") {
       drawTextEntity(entity);
+    } else if (entity.type === "dimension") {
+      drawDimensionEntity(entity);
     }
   });
 
@@ -1425,6 +1547,30 @@ function drawTextEntity(entity) {
     ctx.lineWidth = 1.3;
     ctx.strokeRect(left - 4, top - 4, w + 8, h + 8);
   }
+  ctx.restore();
+}
+
+function getDimensionDisplayText(entity) {
+  if ((entity.textOverride || "").trim()) return entity.textOverride.trim();
+  const dist = unitsToMm(Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y));
+  return dist.toFixed(entity.precision ?? 0);
+}
+
+function drawDimensionEntity(entity) {
+  const layer = getLayerById(entity.layerId); if (!layer) return;
+  const color = normalizeColor(entity.color || layer.color);
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  const p1 = worldToScreen(entity.p1), p2 = worldToScreen(entity.p2), op = worldToScreen(entity.offsetPoint);
+  const dx = p2.x - p1.x, dy = p2.y - p1.y; const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  const o1 = {x:p1.x + nx*(((op.x-p1.x)*nx + (op.y-p1.y)*ny)), y:p1.y + ny*(((op.x-p1.x)*nx + (op.y-p1.y)*ny))};
+  const o2 = {x:p2.x + nx*(((op.x-p2.x)*nx + (op.y-p2.y)*ny)), y:p2.y + ny*(((op.x-p2.x)*nx + (op.y-p2.y)*ny))};
+  const tick = Math.max(4, (entity.tickSize||250) * state.view.zoom * 0.25);
+  ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=isSelected?2.4:1.4;
+  [[p1,o1],[p2,o2],[o1,o2]].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
+  [[o1,nx,ny],[o2,nx,ny]].forEach(([a,tx,ty])=>{ctx.beginPath();ctx.moveTo(a.x-tx*tick,a.y-ty*tick);ctx.lineTo(a.x+tx*tick,a.y+ty*tick);ctx.stroke();});
+  const mid={x:(o1.x+o2.x)/2,y:(o1.y+o2.y)/2}; ctx.font=`${Math.max(10,(entity.textHeight||250)*state.view.zoom)}px sans-serif`; ctx.textAlign='center'; ctx.fillText(getDimensionDisplayText(entity),mid.x,mid.y-6);
+  if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(mid.x-40,mid.y-24,80,28);}
   ctx.restore();
 }
 
@@ -2101,7 +2247,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "text") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "text" || entity.type === "dimension") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -2164,6 +2310,9 @@ function applyOffsetToEntity(entity, offset) {
       x: roundToUnit(entity.x + offset.dx),
       y: roundToUnit(entity.y + offset.dy),
     };
+  }
+  if (entity.type === "dimension") {
+    return { ...entity, p1:{x:roundToUnit(entity.p1.x+offset.dx),y:roundToUnit(entity.p1.y+offset.dy)}, p2:{x:roundToUnit(entity.p2.x+offset.dx),y:roundToUnit(entity.p2.y+offset.dy)}, offsetPoint:{x:roundToUnit(entity.offsetPoint.x+offset.dx),y:roundToUnit(entity.offsetPoint.y+offset.dy)} };
   }
   return {
     ...entity,
@@ -2690,6 +2839,7 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
   });
   state.selectedEntityIds = [];
   uiState.filletDraft = null;
+  uiState.dimensionDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
   setStatus("Fillet applied. Clicked sides were kept.");
@@ -2882,6 +3032,9 @@ function hitTestEntity(entity, worldPoint) {
     const p = worldToScreen(worldPoint);
     const box = getTextBoundsScreen(entity);
     return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
+  }
+  if (entity.type === "dimension") {
+    return distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2) <= state.settings.snapTolerancePx + 4;
   }
   return false;
 }
@@ -3476,6 +3629,10 @@ function onCanvasMouseDown(event) {
     handleTextToolClick(worldPoint);
     return;
   }
+  if (uiState.activeTool === "dimension") {
+    handleDimensionToolClick(worldPoint);
+    return;
+  }
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
     if (!uiState.transformDraft) {
@@ -3599,6 +3756,16 @@ function handleTextToolClick(worldPoint) {
   setStatus("Text created.");
 }
 
+function handleDimensionToolClick(worldPoint) {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer || !activeLayer.visible || activeLayer.locked) { setStatus("Choose a visible, unlocked active layer before drawing."); return; }
+  if (!uiState.dimensionDraft) { uiState.dimensionDraft = { step: 1, p1: worldPoint }; setStatus("Dimension: pick second point"); draw(); return; }
+  if (uiState.dimensionDraft.step === 1) { uiState.dimensionDraft.p2 = worldPoint; uiState.dimensionDraft.step = 2; setStatus("Dimension: pick dimension line position"); draw(); return; }
+  pushUndoState();
+  const entity = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:roundWorldPoint(uiState.dimensionDraft.p1), p2:roundWorldPoint(uiState.dimensionDraft.p2), offsetPoint:roundWorldPoint(worldPoint), textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
+  state.entities.push(entity); state.selectedEntityIds=[entity.id]; uiState.dimensionDraft=null; syncAfterStateChange(); setStatus("Dimension created.");
+}
+
 function startPan(event) {
   const now = Date.now();
   if (now - uiState.lastMiddleClickTime < DOUBLE_CLICK_MS) {
@@ -3704,6 +3871,10 @@ function fitAll() {
       minY = Math.min(minY, entity.y);
       maxX = Math.max(maxX, entity.x + entity.width);
       maxY = Math.max(maxY, entity.y + entity.height);
+    } else if (entity.type === "text") {
+      minX = Math.min(minX, entity.x); minY = Math.min(minY, entity.y); maxX = Math.max(maxX, entity.x); maxY = Math.max(maxY, entity.y);
+    } else if (entity.type === "dimension") {
+      [entity.p1, entity.p2, entity.offsetPoint].forEach((pt)=>{minX=Math.min(minX,pt.x);minY=Math.min(minY,pt.y);maxX=Math.max(maxX,pt.x);maxY=Math.max(maxY,pt.y);});
     }
   });
 
@@ -3733,6 +3904,10 @@ function setActiveTool(tool) {
   renderStatusPanel();
   if (missingTransformTarget) {
     setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
+    return;
+  }
+  if (tool === "dimension") {
+    setStatus("Dimension: pick first point");
     return;
   }
   if (tool === "extend") {
@@ -3918,22 +4093,39 @@ function validateDxfText(dxfText = buildDxfText()) {
   };
 }
 
+function explodeDimensionToDxfPrimitives(entity) {
+  const p1=entity.p1,p2=entity.p2,o=entity.offsetPoint;
+  const dx=p2.x-p1.x,dy=p2.y-p1.y; const len=Math.hypot(dx,dy)||1; const nx=-dy/len, ny=dx/len;
+  const d1=(o.x-p1.x)*nx+(o.y-p1.y)*ny; const d2=(o.x-p2.x)*nx+(o.y-p2.y)*ny;
+  const o1={x:roundToUnit(p1.x+nx*d1),y:roundToUnit(p1.y+ny*d1)}; const o2={x:roundToUnit(p2.x+nx*d2),y:roundToUnit(p2.y+ny*d2)};
+  const tick=Math.max(1,Math.round((entity.tickSize||250)*0.25));
+  const tx=roundToUnit(nx*tick), ty=roundToUnit(ny*tick);
+  return {
+    lines:[
+      {layerId:entity.layerId,p1,p2:o1},{layerId:entity.layerId,p1:p2,p2:o2},{layerId:entity.layerId,p1:o1,p2:o2},
+      {layerId:entity.layerId,p1:{x:o1.x-tx,y:o1.y-ty},p2:{x:o1.x+tx,y:o1.y+ty}},
+      {layerId:entity.layerId,p1:{x:o2.x-tx,y:o2.y-ty},p2:{x:o2.x+tx,y:o2.y+ty}},
+    ],
+    text:{type:"text",layerId:entity.layerId,x:roundToUnit((o1.x+o2.x)/2),y:roundToUnit((o1.y+o2.y)/2),height:entity.textHeight||250,text:getDimensionDisplayText(entity)}
+  };
+}
+
 function collectDxfExportEntities() {
   return state.entities.filter((entity) =>
     entity &&
     isLayerVisible(entity.layerId) &&
-    (entity.type === "line" || entity.type === "rect" || entity.type === "text")
+    (entity.type === "line" || entity.type === "rect" || entity.type === "text" || entity.type === "dimension")
   );
 }
 
 function collectDxfExportLines() {
   return collectDxfExportEntities().flatMap((entity) =>
-    entity.type === "line" ? [entity] : (entity.type === "rect" ? rectToOutlineLines(entity) : [])
+    entity.type === "line" ? [entity] : (entity.type === "rect" ? rectToOutlineLines(entity) : (entity.type === "dimension" ? explodeDimensionToDxfPrimitives(entity).lines : []))
   );
 }
 
 function collectDxfExportTextEntities() {
-  return collectDxfExportEntities().filter((entity) => entity.type === "text");
+  return collectDxfExportEntities().flatMap((entity) => entity.type === "text" ? [entity] : (entity.type === "dimension" ? [explodeDimensionToDxfPrimitives(entity).text] : []));
 }
 
 function collectDxfLayerNames(entities) {
@@ -4329,6 +4521,7 @@ function bindEvents() {
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
   toolButtons.rectangle.addEventListener("click", () => setActiveTool("rectangle"));
   toolButtons.text.addEventListener("click", () => setActiveTool("text"));
+  toolButtons.dimension.addEventListener("click", () => setActiveTool("dimension"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
@@ -4436,8 +4629,10 @@ window.DraftLiteDebug = {
 
   getAnnotationSummary() {
     const texts = state.entities.filter((entity) => entity.type === "text");
+    const dimensions = state.entities.filter((entity) => entity.type === "dimension");
     return {
       textCount: texts.length,
+      dimensionCount: dimensions.length,
       byLayer: texts.reduce((acc, entity) => {
         acc[entity.layerId] = (acc[entity.layerId] || 0) + 1;
         return acc;
@@ -4472,6 +4667,18 @@ window.DraftLiteDebug = {
 
   createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
     return createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm);
+  },
+
+  createDimensionFixture() {
+    pushUndoState();
+    const d = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:{x:mmToUnits(0),y:mmToUnits(0)}, p2:{x:mmToUnits(1000),y:mmToUnits(0)}, offsetPoint:{x:mmToUnits(0),y:mmToUnits(200)}, textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
+    state.entities.push(d); state.selectedEntityIds=[d.id]; syncAfterStateChange(); return deepClone(d);
+  },
+
+  getDimensionSummary() {
+    const dimensions = state.entities.filter((entity)=>entity.type==="dimension");
+    const first=dimensions[0];
+    return { dimensionCount: dimensions.length, firstDimensionMeasuredMm: first ? unitsToMm(Math.hypot(first.p2.x-first.p1.x, first.p2.y-first.p1.y)) : null, precision: first ? first.precision : null, hasTextOverride: first ? Boolean((first.textOverride||"").trim()) : false };
   },
 
   createLineMm(x1Mm, y1Mm, x2Mm, y2Mm) {
