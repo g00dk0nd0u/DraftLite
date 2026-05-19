@@ -17,7 +17,6 @@ const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
 const layerList = document.getElementById("layerList");
 const propertiesPanel = document.getElementById("propertiesPanel");
-const statusPanel = document.getElementById("statusPanel");
 const toolReadout = document.getElementById("toolReadout");
 const pointerReadout = document.getElementById("pointerReadout");
 const zoomReadout = document.getElementById("zoomReadout");
@@ -1152,82 +1151,7 @@ function renderPropertiesPanel() {
 }
 
 function renderStatusPanel() {
-  const snapLabel = uiState.snapMarker
-    ? uiState.snapMarker.kind === "midpoint"
-      ? "Midpoint"
-      : uiState.snapMarker.kind === "center"
-        ? "Center"
-        : "Endpoint"
-    : "Grid";
-  const orthoLabel = uiState.isShiftPressed ? "Free angle" : "Ortho ON";
-  const lengthInputLabel =
-    uiState.gripEditDraft && uiState.gripEditDraft.numericInputBuffer
-      ? `${uiState.gripEditDraft.numericInputBuffer} mm`
-      : uiState.lineDraft && uiState.lineDraft.numericInputBuffer
-      ? `${uiState.lineDraft.numericInputBuffer} mm`
-      : "-";
-  const distanceInputLabel =
-    uiState.transformDraft && uiState.transformDraft.numericInputBuffer
-      ? `${uiState.transformDraft.numericInputBuffer} mm`
-      : "-";
-  const commandStateLabel = uiState.selectionWindow
-    ? getSelectionRect(uiState.selectionWindow).isCrossing
-      ? "Select: crossing window"
-      : "Select: window"
-    : uiState.selectDragDraft
-      ? `Select: drag ${uiState.selectDragDraft.mode}`
-    : uiState.gripEditDraft
-      ? "Select: edit endpoint"
-    : uiState.alignDraft
-      ? "Align: pick target line"
-    : uiState.extendDraft
-      ? "Extend: pick target line"
-    : uiState.filletDraft
-      ? "Fillet: pick side to keep on second line"
-    : uiState.dimensionDraft
-      ? (uiState.dimensionDraft.step === 1 ? "Aligned Dimension: pick second point" : "Aligned Dimension: place dimension line")
-    : uiState.lineDraft
-      ? "Line: specify next point"
-    : uiState.rectangleDraft
-      ? "Rectangle: specify opposite corner"
-    : uiState.transformDraft
-      ? `${capitalize(uiState.transformDraft.mode)}: specify second point`
-      : uiState.activeTool === "line"
-        ? "Line: specify first point"
-        : uiState.activeTool === "dimension"
-          ? "Aligned Dimension: pick first point"
-        : uiState.activeTool === "rectangle"
-          ? "Rectangle: specify first corner"
-        : uiState.activeTool === "move"
-          ? "Move: specify base point"
-          : uiState.activeTool === "copy"
-            ? "Copy: specify base point"
-            : uiState.activeTool === "align"
-              ? "Align: pick reference line"
-              : uiState.activeTool === "extend"
-                ? "Extend: pick boundary line"
-              : uiState.activeTool === "fillet"
-                ? "Fillet: pick first line"
-                : "Select: pick entity";
-  const activeLayer = getLayerById(state.activeLayerId);
-  const rows = [
-    ["Tool", capitalize(uiState.activeTool)],
-    ["Command state", commandStateLabel],
-    ["Units", `1 unit = ${UNIT_MM} mm`],
-    ["Grid", `${state.settings.gridUnit} unit`],
-    ["Entities", String(state.entities.length)],
-    ["Selected", String(state.selectedEntityIds.length)],
-    ["Active layer", activeLayer ? activeLayer.name : "-"],
-    ["Visible layers", String(state.layers.filter((layer) => layer.visible).length)],
-    ["Snap", snapLabel],
-    ["Ortho", orthoLabel],
-    ["Length input", lengthInputLabel],
-    ["Distance input", distanceInputLabel],
-  ];
-
-  statusPanel.innerHTML = rows
-    .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
-    .join("");
+  return undefined;
 }
 
 function escapeHtml(value) {
