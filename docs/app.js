@@ -1,9 +1,11 @@
 "use strict";
 
 const STORAGE_KEY = "draftlite.autosave.v1";
-const FILE_VERSION = 1;
-const MM_PER_UNIT = 0.5;
-const GRID_MAJOR_UNIT = 2000;
+const CURRENT_FILE_VERSION = 2;
+const UNIT_MM = 0.1;
+const LEGACY_UNIT_MM = 0.5;
+const GRID_MAJOR_MM = 1000;
+const GRID_MAJOR_UNIT = mmToUnits(GRID_MAJOR_MM);
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 50;
 const DOUBLE_CLICK_MS = 320;
@@ -79,7 +81,9 @@ const uiState = {
 
 function createInitialState() {
   return {
-    version: FILE_VERSION,
+    version: CURRENT_FILE_VERSION,
+    fileVersion: CURRENT_FILE_VERSION,
+    unitMm: UNIT_MM,
     entities: [],
     layers: [
       {
@@ -93,13 +97,13 @@ function createInitialState() {
     activeLayerId: "layer-1",
     selectedEntityIds: [],
     view: {
-      zoom: 0.12,
+      zoom: 0.024,
       panX: 0,
       panY: 0,
     },
     settings: {
       unitName: "mm",
-      unitsPerMm: 2,
+      unitsPerMm: 1 / UNIT_MM,
       gridUnit: 1,
       snapTolerancePx: 10,
       showGrid: true,
@@ -182,17 +186,25 @@ function createLayerId() {
   return id;
 }
 
-function unitsToMm(unit) {
-  return unit * MM_PER_UNIT;
+function unitsToMm(units) {
+  return units * UNIT_MM;
 }
 
 function mmToUnits(mm) {
-  return Math.round(mm / MM_PER_UNIT);
+  return Math.round(mm / UNIT_MM);
+}
+
+function legacyUnitsToCurrentUnits(value) {
+  return Math.round(value * LEGACY_UNIT_MM / UNIT_MM);
+}
+
+function roundToUnit(value) {
+  return Math.round(value);
 }
 
 function roundToGridUnit(value) {
   const gridUnit = Math.max(1, Number(state.settings.gridUnit) || 1);
-  return Math.round(value / gridUnit) * gridUnit;
+  return roundToUnit(Math.round(value / gridUnit) * gridUnit);
 }
 
 function roundWorldPoint(point) {
@@ -563,32 +575,56 @@ function normalizeLayer(layer, index) {
   };
 }
 
-function normalizeEntity(entity) {
+function normalizeUnitValue(value, legacyUnits) {
+  const number = Number(value) || 0;
+  return legacyUnits ? legacyUnitsToCurrentUnits(number) : roundToUnit(number);
+}
+
+function normalizePoint(point, legacyUnits) {
+  const sourcePoint = point || {};
+  return {
+    x: normalizeUnitValue(sourcePoint.x, legacyUnits),
+    y: normalizeUnitValue(sourcePoint.y, legacyUnits),
+  };
+}
+
+function getDocumentUnitMm(raw, source) {
+  const candidates = [
+    source && source.unitMm,
+    raw && raw.unitMm,
+    source && source.settings && source.settings.unitMm,
+    raw && raw.settings && raw.settings.unitMm,
+  ];
+  const unitMm = candidates.map(Number).find((value) => Number.isFinite(value) && value > 0);
+  return unitMm || LEGACY_UNIT_MM;
+}
+
+function shouldMigrateLegacyUnits(raw, source) {
+  const unitMm = getDocumentUnitMm(raw, source);
+  const hasExplicitCurrentUnit = unitMm === UNIT_MM;
+  const hasFileVersion = Number(source && source.fileVersion) || Number(raw && raw.fileVersion);
+  return !hasExplicitCurrentUnit || !hasFileVersion || unitMm === LEGACY_UNIT_MM;
+}
+
+function normalizeEntity(entity, options = {}) {
   if (!entity || !entity.type) {
     return null;
   }
+  const legacyUnits = Boolean(options.legacyUnits);
   if (entity.type === "line") {
-    const p1 = entity.p1 || {};
-    const p2 = entity.p2 || {};
     return {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "line",
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
-      p1: {
-        x: roundToGridUnit(Number(p1.x) || 0),
-        y: roundToGridUnit(Number(p1.y) || 0),
-      },
-      p2: {
-        x: roundToGridUnit(Number(p2.x) || 0),
-        y: roundToGridUnit(Number(p2.y) || 0),
-      },
+      p1: normalizePoint(entity.p1, legacyUnits),
+      p2: normalizePoint(entity.p2, legacyUnits),
     };
   }
   if (entity.type === "rect") {
-    const x = roundToGridUnit(Number(entity.x) || 0);
-    const y = roundToGridUnit(Number(entity.y) || 0);
-    const width = roundToGridUnit(Number(entity.width) || 0);
-    const height = roundToGridUnit(Number(entity.height) || 0);
+    const x = normalizeUnitValue(entity.x, legacyUnits);
+    const y = normalizeUnitValue(entity.y, legacyUnits);
+    const width = normalizeUnitValue(entity.width, legacyUnits);
+    const height = normalizeUnitValue(entity.height, legacyUnits);
     if (width <= 0 || height <= 0) {
       return null;
     }
@@ -612,6 +648,7 @@ function normalizeEntity(entity) {
 function normalizeDocument(raw) {
   const source = raw && raw.state ? raw.state : raw;
   const base = createInitialState();
+  const legacyUnits = shouldMigrateLegacyUnits(raw, source);
   const normalizedLayers = Array.isArray(source && source.layers)
     ? source.layers.map(normalizeLayer)
     : base.layers;
@@ -619,7 +656,7 @@ function normalizeDocument(raw) {
   const layerIds = new Set(normalizedLayers.map((layer) => layer.id));
   const normalizedEntities = Array.isArray(source && source.entities)
     ? source.entities
-        .map(normalizeEntity)
+        .map((entity) => normalizeEntity(entity, { legacyUnits }))
         .filter(Boolean)
         .map((entity, index) => ({
           ...entity,
@@ -647,20 +684,29 @@ function normalizeDocument(raw) {
   }, 0);
 
   return {
-    version: FILE_VERSION,
+    version: CURRENT_FILE_VERSION,
+    fileVersion: CURRENT_FILE_VERSION,
+    unitMm: UNIT_MM,
     entities: normalizedEntities,
     layers: normalizedLayers.length ? normalizedLayers : base.layers,
     activeLayerId,
     selectedEntityIds,
     view: {
-      zoom: clampNumber(source && source.view && source.view.zoom, MIN_ZOOM, MAX_ZOOM, base.view.zoom),
+      zoom: clampNumber(
+        legacyUnits && source && source.view && Number.isFinite(Number(source.view.zoom))
+          ? Number(source.view.zoom) * UNIT_MM / LEGACY_UNIT_MM
+          : source && source.view && source.view.zoom,
+        MIN_ZOOM,
+        MAX_ZOOM,
+        base.view.zoom
+      ),
       panX: Number(source && source.view && source.view.panX) || base.view.panX,
       panY: Number(source && source.view && source.view.panY) || base.view.panY,
     },
     settings: {
       unitName: "mm",
-      unitsPerMm: 2,
-      gridUnit: Math.max(1, Math.round(Number(source && source.settings && source.settings.gridUnit) || base.settings.gridUnit)),
+      unitsPerMm: 1 / UNIT_MM,
+      gridUnit: Math.max(1, roundToUnit(Number(source && source.settings && source.settings.gridUnit) || base.settings.gridUnit)),
       snapTolerancePx: Math.max(1, Number(source && source.settings && source.settings.snapTolerancePx) || base.settings.snapTolerancePx),
       showGrid: source && source.settings ? source.settings.showGrid !== false : base.settings.showGrid,
       ortho: source && source.settings && typeof source.settings.ortho === "boolean" ? source.settings.ortho : base.settings.ortho,
@@ -1027,7 +1073,7 @@ function renderStatusPanel() {
   const rows = [
     ["Tool", capitalize(uiState.activeTool)],
     ["Command state", commandStateLabel],
-    ["Units", `1 unit = ${MM_PER_UNIT} mm`],
+    ["Units", `1 unit = ${UNIT_MM} mm`],
     ["Grid", `${state.settings.gridUnit} unit`],
     ["Entities", String(state.entities.length)],
     ["Selected", String(state.selectedEntityIds.length)],
@@ -1978,8 +2024,8 @@ function startTransformDraft(worldPoint, mode = uiState.activeTool) {
 function getTransformOffset(transformDraft) {
   const currentPoint = transformDraft.currentPoint || transformDraft.startPoint;
   return {
-    dx: currentPoint.x - transformDraft.startPoint.x,
-    dy: currentPoint.y - transformDraft.startPoint.y,
+    dx: roundToUnit(currentPoint.x - transformDraft.startPoint.x),
+    dy: roundToUnit(currentPoint.y - transformDraft.startPoint.y),
   };
 }
 
@@ -1998,19 +2044,19 @@ function applyOffsetToEntity(entity, offset) {
   if (entity.type === "rect") {
     return {
       ...entity,
-      x: entity.x + offset.dx,
-      y: entity.y + offset.dy,
+      x: roundToUnit(entity.x + offset.dx),
+      y: roundToUnit(entity.y + offset.dy),
     };
   }
   return {
     ...entity,
     p1: {
-      x: entity.p1.x + offset.dx,
-      y: entity.p1.y + offset.dy,
+      x: roundToUnit(entity.p1.x + offset.dx),
+      y: roundToUnit(entity.p1.y + offset.dy),
     },
     p2: {
-      x: entity.p2.x + offset.dx,
-      y: entity.p2.y + offset.dy,
+      x: roundToUnit(entity.p2.x + offset.dx),
+      y: roundToUnit(entity.p2.y + offset.dy),
     },
   };
 }
@@ -2121,19 +2167,10 @@ function applySelectDrag() {
   pushUndoState();
   if (selectDragDraft.mode === "copy") {
     const sourceEntities = selectDragDraft.entities.filter((entity) => canSelectEntity(entity));
-    const newEntities = sourceEntities.map((entity) => entity.type === "rect"
-      ? ({
-          ...deepClone(entity),
-          id: createEntityId(),
-          x: entity.x + offset.dx,
-          y: entity.y + offset.dy,
-        })
-      : ({
-          ...deepClone(entity),
-          id: createEntityId(),
-          p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy },
-          p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy },
-        }));
+    const newEntities = sourceEntities.map((entity) => ({
+      ...applyOffsetToEntity(deepClone(entity), offset),
+      id: createEntityId(),
+    }));
     state.entities.push(...newEntities);
   } else {
     commitMoveEntityOffset(selectDragDraft.entityIds, offset);
@@ -2873,6 +2910,113 @@ function loadDebugFixture(name) {
   return true;
 }
 
+function getUnitConfig() {
+  return {
+    fileVersion: CURRENT_FILE_VERSION,
+    unitMm: UNIT_MM,
+    legacyUnitMm: LEGACY_UNIT_MM,
+  };
+}
+
+function getDocumentBoundsUnits(entities = state.entities) {
+  const xs = [];
+  const ys = [];
+  entities.forEach((entity) => {
+    if (!entity) return;
+    if (entity.type === "line") {
+      xs.push(entity.p1.x, entity.p2.x);
+      ys.push(entity.p1.y, entity.p2.y);
+    } else if (entity.type === "rect") {
+      xs.push(entity.x, entity.x + entity.width);
+      ys.push(entity.y, entity.y + entity.height);
+    }
+  });
+  if (!xs.length || !ys.length) {
+    return null;
+  }
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
+}
+
+function boundsUnitsToMm(bounds) {
+  if (!bounds) {
+    return null;
+  }
+  return {
+    minX: unitsToMm(bounds.minX),
+    minY: unitsToMm(bounds.minY),
+    maxX: unitsToMm(bounds.maxX),
+    maxY: unitsToMm(bounds.maxY),
+  };
+}
+
+function getCurrentDocumentSummary() {
+  const boundsUnits = getDocumentBoundsUnits();
+  return {
+    fileVersion: state.fileVersion || CURRENT_FILE_VERSION,
+    unitMm: state.unitMm || UNIT_MM,
+    entityCount: state.entities.length,
+    lineCount: state.entities.filter((entity) => entity.type === "line").length,
+    rectCount: state.entities.filter((entity) => entity.type === "rect").length,
+    boundsUnits,
+    boundsMm: boundsUnitsToMm(boundsUnits),
+  };
+}
+
+function createLegacyUnitFixture() {
+  const base = createInitialState();
+  return {
+    version: 1,
+    entities: [
+      {
+        id: "legacy-line-1000mm",
+        type: "line",
+        layerId: "layer-1",
+        p1: { x: 0, y: 0 },
+        p2: { x: 2000, y: 0 },
+      },
+      {
+        id: "legacy-rect-1000x500mm",
+        type: "rect",
+        layerId: "layer-1",
+        x: 0,
+        y: 1000,
+        width: 2000,
+        height: 1000,
+        rotation: 0,
+        name: "Legacy Rect",
+        fill: true,
+        fillColor: "#2e3135",
+      },
+    ],
+    layers: base.layers,
+    activeLayerId: base.activeLayerId,
+    selectedEntityIds: [],
+    view: base.view,
+    settings: {
+      ...base.settings,
+      unitsPerMm: 2,
+    },
+    nextEntityNumber: 3,
+    nextLayerNumber: 2,
+  };
+}
+
+function loadLegacyUnitFixture() {
+  pushUndoState();
+  state = normalizeDocument(createLegacyUnitFixture());
+  state.selectedEntityIds = [];
+  clearTransientState();
+  syncAfterStateChange();
+  fitAll();
+  setStatus("Legacy 0.5 mm unit fixture loaded and migrated.");
+  return getCurrentDocumentSummary();
+}
+
 function measureLineDistanceToLine(lineId, referenceLineId) {
   const line = getEntityById(lineId);
   const referenceLine = getEntityById(referenceLineId);
@@ -3516,9 +3660,12 @@ function getDxfExportSummary() {
   const bounds = getDxfLineBoundsMm(exportLines);
 
   return {
+    fileVersion: CURRENT_FILE_VERSION,
+    unitMm: UNIT_MM,
     exportedLineCount: exportLines.length,
     visibleEntityCount: collectDxfExportEntities().length,
     layerCount: collectDxfLayerNames(exportLines).length,
+    boundsMm: bounds,
     minX: bounds ? bounds.minX : null,
     minY: bounds ? bounds.minY : null,
     maxX: bounds ? bounds.maxX : null,
@@ -4009,6 +4156,22 @@ initializeView();
 window.DraftLiteDebug = {
   getState() {
     return snapshotState();
+  },
+
+  getUnitConfig() {
+    return getUnitConfig();
+  },
+
+  getCurrentDocumentSummary() {
+    return getCurrentDocumentSummary();
+  },
+
+  createLegacyUnitFixture() {
+    return createLegacyUnitFixture();
+  },
+
+  loadLegacyUnitFixture() {
+    return loadLegacyUnitFixture();
   },
 
   getUiState() {
