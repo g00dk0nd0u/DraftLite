@@ -2883,7 +2883,88 @@ function hitTestEntity(entity, worldPoint) {
     const box = getTextBoundsScreen(entity);
     return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
   }
+  if (entity.type === "dimension") {
+    const geometry = getDimensionScreenGeometry(entity);
+    if (!geometry) {
+      return false;
+    }
+    const tolerance = state.settings.snapTolerancePx;
+    const p = worldToScreen(worldPoint);
+    const segments = [
+      [geometry.p1, geometry.o1],
+      [geometry.p2, geometry.o2],
+      [geometry.o1, geometry.o2],
+      [geometry.o1TickStart, geometry.o1TickEnd],
+      [geometry.o2TickStart, geometry.o2TickEnd],
+    ];
+    if (segments.some(([a, b]) => distancePointToScreenSegmentPx(p, a, b) <= tolerance)) {
+      return true;
+    }
+    if (geometry.textBox) {
+      return p.x >= geometry.textBox.left &&
+        p.x <= geometry.textBox.right &&
+        p.y >= geometry.textBox.top &&
+        p.y <= geometry.textBox.bottom;
+    }
+    return false;
+  }
   return false;
+}
+
+function getDimensionScreenGeometry(entity) {
+  if (!entity || !entity.p1 || !entity.p2) {
+    return null;
+  }
+  const p1 = worldToScreen(entity.p1);
+  const p2 = worldToScreen(entity.p2);
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const length = Math.hypot(dx, dy);
+  if (!length) {
+    return null;
+  }
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  const offsetUnits = Number(entity.offset) || 0;
+  const offsetPx = offsetUnits * state.view.zoom;
+  const o1 = { x: p1.x + normalX * offsetPx, y: p1.y + normalY * offsetPx };
+  const o2 = { x: p2.x + normalX * offsetPx, y: p2.y + normalY * offsetPx };
+  const tickSizePx = 7;
+  const o1TickStart = { x: o1.x - normalX * tickSizePx, y: o1.y - normalY * tickSizePx };
+  const o1TickEnd = { x: o1.x + normalX * tickSizePx, y: o1.y + normalY * tickSizePx };
+  const o2TickStart = { x: o2.x - normalX * tickSizePx, y: o2.y - normalY * tickSizePx };
+  const o2TickEnd = { x: o2.x + normalX * tickSizePx, y: o2.y + normalY * tickSizePx };
+
+  let textBox = null;
+  const label = typeof entity.text === "string" && entity.text.trim()
+    ? entity.text
+    : `${formatDistanceMmFromPoints(entity.p1, entity.p2)} mm`;
+  ctx.save();
+  ctx.font = "12px sans-serif";
+  const width = ctx.measureText(label).width;
+  ctx.restore();
+  const center = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 };
+  textBox = {
+    left: center.x - width / 2 - 4,
+    right: center.x + width / 2 + 4,
+    top: center.y - 10,
+    bottom: center.y + 6,
+  };
+
+  return { p1, p2, o1, o2, o1TickStart, o1TickEnd, o2TickStart, o2TickEnd, textBox };
+}
+
+function distancePointToScreenSegmentPx(point, segmentStart, segmentEnd) {
+  const abx = segmentEnd.x - segmentStart.x;
+  const aby = segmentEnd.y - segmentStart.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq === 0) {
+    return Math.hypot(point.x - segmentStart.x, point.y - segmentStart.y);
+  }
+  const t = Math.max(0, Math.min(1, ((point.x - segmentStart.x) * abx + (point.y - segmentStart.y) * aby) / lengthSq));
+  const closestX = segmentStart.x + abx * t;
+  const closestY = segmentStart.y + aby * t;
+  return Math.hypot(point.x - closestX, point.y - closestY);
 }
 
 function getTextBoundsScreen(entity) {
