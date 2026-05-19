@@ -3781,8 +3781,8 @@ function loadJsonFromFile(file) {
 function exportDxf() {
   const summary = getDxfExportSummary();
 
-  if (!summary.exportedLineCount) {
-    setStatus("No visible lines to export.");
+  if (summary.exportedLineCount + summary.exportedTextCount === 0) {
+    setStatus("No visible entities to export.");
     return;
   }
 
@@ -3791,12 +3791,14 @@ function exportDxf() {
     new Blob([dxfText], { type: "text/plain;charset=us-ascii" }),
     `draftlite-${createTimestampLabel()}.dxf`
   );
-  setStatus(`DXF exported: ${summary.exportedLineCount} lines.`);
+  setStatus(`DXF exported: ${summary.exportedLineCount} lines, ${summary.exportedTextCount} text.`);
 }
 
 function buildDxfText() {
+  const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
-  const layerNames = collectDxfLayerNames(exportLines);
+  const exportTexts = collectDxfExportTextEntities();
+  const layerNames = collectDxfLayerNames(exportEntities);
 
   const dxfLines = [];
   dxfLines.push("0", "SECTION", "2", "HEADER");
@@ -3832,14 +3834,14 @@ function buildDxfText() {
     dxfLines.push("21", formatDxfNumber(dxfYUnitsToMm(line.p2.y)));
     dxfLines.push("31", formatDxfNumber(0));
   });
-  collectDxfExportTextEntities().forEach((entity) => {
+  exportTexts.forEach((entity) => {
     dxfLines.push("0", "TEXT");
     dxfLines.push("8", getDxfLayerNameForEntity(entity));
     dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.x)));
     dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.y)));
     dxfLines.push("30", formatDxfNumber(0));
     dxfLines.push("40", formatDxfNumber(unitsToMm(entity.height)));
-    dxfLines.push("1", String(entity.text || ""));
+    dxfLines.push("1", sanitizeDxfText(entity.text || ""));
   });
   dxfLines.push("0", "ENDSEC", "0", "EOF");
 
@@ -3847,15 +3849,18 @@ function buildDxfText() {
 }
 
 function getDxfExportSummary() {
+  const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
-  const bounds = getDxfLineBoundsMm(exportLines);
+  const exportTexts = collectDxfExportTextEntities();
+  const bounds = getDxfBoundsMm(exportLines, exportTexts);
 
   return {
     fileVersion: CURRENT_FILE_VERSION,
     unitMm: UNIT_MM,
     exportedLineCount: exportLines.length,
-    visibleEntityCount: collectDxfExportEntities().length,
-    layerCount: collectDxfLayerNames(exportLines).length,
+    exportedTextCount: exportTexts.length,
+    visibleEntityCount: exportEntities.length,
+    layerCount: collectDxfLayerNames(exportEntities).length,
     boundsMm: bounds,
     minX: bounds ? bounds.minX : null,
     minY: bounds ? bounds.minY : null,
@@ -3870,6 +3875,7 @@ function validateDxfText(dxfText = buildDxfText()) {
     ? text.slice(0, -2).split("\r\n")
     : text.split("\r\n");
   const lineCount = countDxfEntityRecords(text, "LINE");
+  const textCount = countDxfEntityRecords(text, "TEXT");
   const sectionCount = countDxfEntityRecords(text, "SECTION");
   const endsecCount = countDxfEntityRecords(text, "ENDSEC");
   const groupCode100Count = countDxfGroupCode(text, "100");
@@ -3900,6 +3906,7 @@ function validateDxfText(dxfText = buildDxfText()) {
     endsecCount,
     hasEof,
     lineCount,
+    textCount,
     hasEvenGroupCodeValueLines,
     hasValidGroupCodes,
     hasOnlyAscii,
@@ -3929,10 +3936,10 @@ function collectDxfExportTextEntities() {
   return collectDxfExportEntities().filter((entity) => entity.type === "text");
 }
 
-function collectDxfLayerNames(lines) {
+function collectDxfLayerNames(entities) {
   const names = new Set(["0"]);
-  lines.forEach((line) => {
-    names.add(getDxfLayerNameForLine(line));
+  entities.forEach((entity) => {
+    names.add(getDxfLayerNameForEntity(entity));
   });
   return [...names];
 }
@@ -3972,8 +3979,8 @@ function createMinimalDxfFixture() {
   }
 }
 
-function getDxfLineBoundsMm(lines) {
-  if (!lines.length) {
+function getDxfBoundsMm(lines, textEntities = []) {
+  if (!lines.length && !textEntities.length) {
     return null;
   }
 
@@ -3982,6 +3989,10 @@ function getDxfLineBoundsMm(lines) {
   lines.forEach((line) => {
     xs.push(dxfXUnitsToMm(line.p1.x), dxfXUnitsToMm(line.p2.x));
     ys.push(dxfYUnitsToMm(line.p1.y), dxfYUnitsToMm(line.p2.y));
+  });
+  textEntities.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.x));
+    ys.push(dxfYUnitsToMm(entity.y));
   });
 
   return {
@@ -4005,6 +4016,14 @@ function sanitizeDxfLayerName(value) {
     .replace(/[^A-Za-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return sanitized || "0";
+}
+
+function sanitizeDxfText(value) {
+  return String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[\x00-\x1F\x7F]/g, "")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .trim();
 }
 
 function formatDxfNumber(value) {
@@ -4406,12 +4425,13 @@ window.DraftLiteDebug = {
 
   createTextFixture() {
     pushUndoState();
-    const fixture = createDebugFixtureTextMm(100, 100, "NOTE", 25);
-    state.entities.push(fixture);
-    state.selectedEntityIds = [fixture.id];
+    const english = createDebugFixtureTextMm(100, 100, "NOTE", 25);
+    const japanese = createDebugFixtureTextMm(180, 120, "注記", 25);
+    state.entities.push(english, japanese);
+    state.selectedEntityIds = [english.id, japanese.id];
     clearTransientState();
     syncAfterStateChange();
-    return deepClone(fixture);
+    return deepClone({ english, japanese });
   },
 
   getAnnotationSummary() {
