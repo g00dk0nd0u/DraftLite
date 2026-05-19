@@ -66,6 +66,7 @@ const uiState = {
   transformDraft: null,
   selectDragDraft: null,
   gripEditDraft: null,
+  rectEdgeEditDraft: null,
   alignDraft: null,
   extendDraft: null,
   filletDraft: null,
@@ -78,6 +79,7 @@ const uiState = {
   transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
+  hoverRectEdge: null,
   panning: false,
   panStartScreen: { x: 0, y: 0 },
   panStartView: { panX: 0, panY: 0 },
@@ -171,12 +173,15 @@ function clearTransientState() {
   uiState.transformDraft = null;
   uiState.selectDragDraft = null;
   uiState.gripEditDraft = null;
+  uiState.rectEdgeEditDraft = null;
   uiState.alignDraft = null;
   uiState.extendDraft = null;
   uiState.filletDraft = null;
   uiState.dimensionDraft = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  uiState.hoverRectEdge = null;
+  document.body.style.cursor = "";
   clearLinePreviewTimer();
   clearGripPreviewTimer();
   clearTransformPreviewTimer();
@@ -1227,6 +1232,23 @@ function draw() {
   if (uiState.gripEditDraft) {
     drawGripEditPreview(uiState.gripEditDraft);
   }
+  if (uiState.rectEdgeEditDraft) {
+    const previewRect = getResizedRectFromDraft(uiState.rectEdgeEditDraft, uiState.rectEdgeEditDraft.currentPoint);
+    drawRectEntity({ ...getEntityById(uiState.rectEdgeEditDraft.entityId), ...previewRect });
+    const previewEdge = getRectEdges(previewRect).find((edgeDef) => edgeDef.edge === uiState.rectEdgeEditDraft.edge);
+    if (previewEdge) {
+      const s = worldToScreen(previewEdge.p1);
+      const e = worldToScreen(previewEdge.p2);
+      ctx.save();
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.9)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(e.x, e.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
   if (uiState.selectionWindow) {
     drawSelectionWindow(uiState.selectionWindow);
@@ -1382,6 +1404,19 @@ function drawRectEntity(entity) {
   ctx.strokeStyle = layer.color;
   ctx.lineWidth = isSelected ? 2.4 : 1.6;
   ctx.strokeRect(p1.x, p1.y, w, h);
+  if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
+    const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
+    if (hoveredEdge) {
+      const start = worldToScreen(hoveredEdge.p1);
+      const end = worldToScreen(hoveredEdge.p2);
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.82)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+    }
+  }
   if (isSelected) {
     ctx.fillStyle = "#fffaf2";
     ctx.strokeStyle = "#c2693e";
@@ -3031,6 +3066,60 @@ function hitTestEntity(entity, worldPoint) {
   return false;
 }
 
+function getRectEdges(entity) {
+  if (!entity || entity.type !== "rect") {
+    return [];
+  }
+  const x1 = entity.x;
+  const y1 = entity.y;
+  const x2 = entity.x + entity.width;
+  const y2 = entity.y + entity.height;
+  return [
+    { edge: "top", p1: { x: x1, y: y1 }, p2: { x: x2, y: y1 } },
+    { edge: "right", p1: { x: x2, y: y1 }, p2: { x: x2, y: y2 } },
+    { edge: "bottom", p1: { x: x2, y: y2 }, p2: { x: x1, y: y2 } },
+    { edge: "left", p1: { x: x1, y: y2 }, p2: { x: x1, y: y1 } },
+  ];
+}
+
+function findRectEdgeAtPoint(worldPoint) {
+  return state.entities
+    .filter((entity) => entity.type === "rect" && canSelectEntity(entity))
+    .slice()
+    .reverse()
+    .map((entity) => {
+      const edgeHit = getRectEdges(entity)
+        .find((edgeDef) => distancePointToSegmentScreenPx(worldPoint, edgeDef.p1, edgeDef.p2) <= state.settings.snapTolerancePx);
+      return edgeHit ? { entityId: entity.id, edge: edgeHit.edge } : null;
+    })
+    .find(Boolean) || null;
+}
+
+function getResizedRectFromDraft(draft, worldPoint) {
+  const anchorPoint = getSnapPoint(worldPoint);
+  const original = draft.originalRect;
+  const right = original.x + original.width;
+  const bottom = original.y + original.height;
+  const minSize = 1;
+  const nextRect = { ...original };
+  if (draft.edge === "top") {
+    const nextY = clampNumber(anchorPoint.y, Number.NEGATIVE_INFINITY, bottom - minSize, original.y);
+    nextRect.y = nextY;
+    nextRect.height = Math.max(minSize, bottom - nextY);
+  } else if (draft.edge === "bottom") {
+    const nextBottom = Math.max(original.y + minSize, anchorPoint.y);
+    nextRect.height = Math.max(minSize, nextBottom - original.y);
+  } else if (draft.edge === "left") {
+    const nextX = clampNumber(anchorPoint.x, Number.NEGATIVE_INFINITY, right - minSize, original.x);
+    nextRect.x = nextX;
+    nextRect.width = Math.max(minSize, right - nextX);
+  } else if (draft.edge === "right") {
+    const nextRight = Math.max(original.x + minSize, anchorPoint.x);
+    nextRect.width = Math.max(minSize, nextRight - original.x);
+  }
+  return roundWorldPoint(nextRect);
+}
+
 function getTextBoundsScreen(entity) {
   const base = worldToScreen({ x: entity.x, y: entity.y });
   const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
@@ -3576,6 +3665,12 @@ function onPointerMove(event) {
     renderStatusPanel();
     return;
   }
+  if (uiState.rectEdgeEditDraft) {
+    uiState.rectEdgeEditDraft.currentPoint = snappedWorld;
+    draw();
+    renderStatusPanel();
+    return;
+  }
 
   if (uiState.selectionWindow) {
     uiState.selectionWindow.currentScreen = screenPoint;
@@ -3583,6 +3678,30 @@ function onPointerMove(event) {
     draw();
     renderStatusPanel();
     return;
+  }
+
+  if (
+    uiState.activeTool === "select" &&
+    !uiState.panning &&
+    !uiState.selectionWindow &&
+    !uiState.selectDragDraft &&
+    !uiState.transformDraft &&
+    !uiState.lineDraft &&
+    !uiState.rectangleDraft &&
+    !uiState.gripEditDraft &&
+    !uiState.rectEdgeEditDraft
+  ) {
+    uiState.hoverRectEdge = findRectEdgeAtPoint(roundWorldPoint(worldPoint));
+    if (uiState.hoverRectEdge) {
+      document.body.style.cursor = (uiState.hoverRectEdge.edge === "left" || uiState.hoverRectEdge.edge === "right")
+        ? "ew-resize"
+        : "ns-resize";
+    } else {
+      document.body.style.cursor = "";
+    }
+  } else {
+    uiState.hoverRectEdge = null;
+    document.body.style.cursor = "";
   }
 
   draw();
@@ -3668,6 +3787,23 @@ function onCanvasMouseDown(event) {
     if (gripHit) {
       startGripEdit(gripHit, worldPoint);
       return;
+    }
+    const rectEdgeHit = findRectEdgeAtPoint(roundWorldPoint(rawWorldPoint));
+    if (rectEdgeHit) {
+      const rectEntity = getEntityById(rectEdgeHit.entityId);
+      if (rectEntity && rectEntity.type === "rect" && canSelectEntity(rectEntity)) {
+        state.selectedEntityIds = [rectEntity.id];
+        uiState.rectEdgeEditDraft = {
+          entityId: rectEntity.id,
+          edge: rectEdgeHit.edge,
+          originalRect: { x: rectEntity.x, y: rectEntity.y, width: rectEntity.width, height: rectEntity.height },
+          startPoint: worldPoint,
+          currentPoint: worldPoint,
+        };
+        setStatus(`Rectangle ${rectEdgeHit.edge} edge resize started.`);
+        syncAfterStateChange();
+        return;
+      }
     }
     const selectedHit = state.selectedEntityIds
       .map(getEntityById)
@@ -3830,6 +3966,31 @@ function onWindowMouseUp(event) {
 
   if (uiState.selectDragDraft) {
     applySelectDrag();
+    return;
+  }
+  if (uiState.rectEdgeEditDraft) {
+    const draft = uiState.rectEdgeEditDraft;
+    const entity = getEntityById(draft.entityId);
+    if (entity && entity.type === "rect" && canSelectEntity(entity)) {
+      const nextRect = getResizedRectFromDraft(draft, draft.currentPoint);
+      if (
+        nextRect.x !== draft.originalRect.x ||
+        nextRect.y !== draft.originalRect.y ||
+        nextRect.width !== draft.originalRect.width ||
+        nextRect.height !== draft.originalRect.height
+      ) {
+        pushUndoState();
+        entity.x = nextRect.x;
+        entity.y = nextRect.y;
+        entity.width = nextRect.width;
+        entity.height = nextRect.height;
+        setStatus("Rectangle resized.");
+        syncAfterStateChange();
+      }
+    }
+    uiState.rectEdgeEditDraft = null;
+    draw();
+    renderStatusPanel();
     return;
   }
 
@@ -4310,6 +4471,13 @@ function onKeyDown(event) {
       cancelGripEdit();
       return;
     }
+    if (uiState.rectEdgeEditDraft) {
+      uiState.rectEdgeEditDraft = null;
+      setStatus("Rectangle edge resize cancelled.");
+      draw();
+      renderStatusPanel();
+      return;
+    }
     if (uiState.transformDraft) {
       if (uiState.transformDraft.numericInputBuffer) {
         clearTransformPreviewTimer();
@@ -4612,9 +4780,11 @@ window.DraftLiteDebug = {
       transformDraft: Boolean(uiState.transformDraft),
       selectDragDraft: Boolean(uiState.selectDragDraft),
       gripEditDraft: Boolean(uiState.gripEditDraft),
+      rectEdgeEditDraft: Boolean(uiState.rectEdgeEditDraft),
       alignDraft: uiState.alignDraft ? deepClone(uiState.alignDraft) : null,
       extendDraft: uiState.extendDraft ? deepClone(uiState.extendDraft) : null,
       filletDraft: uiState.filletDraft ? deepClone(uiState.filletDraft) : null,
+      hoverRectEdge: uiState.hoverRectEdge ? deepClone(uiState.hoverRectEdge) : null,
       hoverWorld: deepClone(uiState.hoverWorld),
       pointerWorld: deepClone(uiState.pointerWorld),
     };
@@ -4711,6 +4881,45 @@ window.DraftLiteDebug = {
     const result = createRectangleMm(xMm, yMm, xMm + widthMm, yMm + heightMm);
     if (result) { const rect = state.entities[state.entities.length-1]; if (rect && rect.type === "rect") rect.name = name || "Box"; syncAfterStateChange(); }
     return result;
+  },
+
+  getRectEdgeHitForRect(rectId, edge) {
+    const rect = getEntityById(rectId);
+    if (!rect || rect.type !== "rect") return null;
+    const edgeDef = getRectEdges(rect).find((entry) => entry.edge === edge);
+    if (!edgeDef) return null;
+    const worldPoint = roundWorldPoint({
+      x: (edgeDef.p1.x + edgeDef.p2.x) / 2,
+      y: (edgeDef.p1.y + edgeDef.p2.y) / 2,
+    });
+    return findRectEdgeAtPoint(worldPoint);
+  },
+
+  resizeRectEdgeForTest(rectId, edge, deltaMm) {
+    const rect = getEntityById(rectId);
+    if (!rect || rect.type !== "rect") return false;
+    const deltaUnits = mmToUnits(deltaMm);
+    const edgeDef = getRectEdges(rect).find((entry) => entry.edge === edge);
+    if (!edgeDef) return false;
+    const startPoint = roundWorldPoint({
+      x: (edgeDef.p1.x + edgeDef.p2.x) / 2,
+      y: (edgeDef.p1.y + edgeDef.p2.y) / 2,
+    });
+    const movedPoint = roundWorldPoint({
+      x: startPoint.x + (edge === "left" || edge === "right" ? deltaUnits : 0),
+      y: startPoint.y + (edge === "top" || edge === "bottom" ? deltaUnits : 0),
+    });
+    const nextRect = getResizedRectFromDraft(
+      { entityId: rect.id, edge, originalRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, startPoint, currentPoint: movedPoint },
+      movedPoint
+    );
+    pushUndoState();
+    rect.x = nextRect.x;
+    rect.y = nextRect.y;
+    rect.width = nextRect.width;
+    rect.height = nextRect.height;
+    syncAfterStateChange();
+    return deepClone(rect);
   },
 
   explodeSelectedRects() {
