@@ -5,7 +5,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 ## Concept
 
 - Revit Drafting View Lite
-- 0.5mm integer grid
+- 0.1mm integer coordinate precision
 - no floating point geometry
 - no build step
 - HTML/CSS/JavaScript only
@@ -74,12 +74,14 @@ Included in this first pass:
 
 ## Coordinate model
 
-- Internal geometry uses integers only
-- `1 unit = 0.5 mm`
-- Example: `3000 mm = 6000 units`
-- Display values are shown in `mm`
-- Saved document geometry remains integer `unit` data
-- Internal precision remains `0.5 mm`, while the display grid uses `1 m` dot intervals
+- DraftLite uses integer coordinates for internal geometry
+- Current precision is `1 unit = 0.1 mm`
+- Example: `3000 mm = 30000 units`
+- JavaScript `Number` values are used as integer units; state does not store `mm` coordinates
+- Display values, input parsing, DXF/PDF export, and external integrations convert units to `mm` at the boundary
+- Saved document geometry remains integer `unit` data with `fileVersion: 2` and `unitMm: 0.1`
+- Legacy `0.5 mm` documents are automatically migrated on load by multiplying unit coordinates by `5`
+- Visual grid density is independent from internal precision and remains a coarse `1 m` dot grid; DraftLite does not draw a `0.1 mm` visual grid
 
 ## Interaction principles
 
@@ -103,7 +105,7 @@ Included in this first pass:
 - Confirming with `Enter` matches the currently displayed preview position
 - `Move` / `Copy` dynamic input is shown near the lower-right of the cursor
 - `Line` / `Grip edit` dynamic input is shown near the edited segment
-- Numeric input is entered in `mm`, while internal geometry remains `0.5 mm` integer units
+- Numeric input is entered in `mm`, then converted to `0.1 mm` integer units for internal geometry
 
 ## File layout
 
