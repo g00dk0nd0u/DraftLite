@@ -2888,14 +2888,14 @@ function hitTestEntity(entity, worldPoint) {
     if (!geometry) {
       return false;
     }
-    const tolerance = state.settings.snapTolerancePx;
+    const tolerance = state.settings.snapTolerancePx + 4;
     const p = worldToScreen(worldPoint);
     const segments = [
-      [geometry.p1, geometry.o1],
-      [geometry.p2, geometry.o2],
-      [geometry.o1, geometry.o2],
-      [geometry.o1TickStart, geometry.o1TickEnd],
-      [geometry.o2TickStart, geometry.o2TickEnd],
+      [geometry.extensionLine1.start, geometry.extensionLine1.end],
+      [geometry.extensionLine2.start, geometry.extensionLine2.end],
+      [geometry.dimensionLine.start, geometry.dimensionLine.end],
+      [geometry.tickLine1.start, geometry.tickLine1.end],
+      [geometry.tickLine2.start, geometry.tickLine2.end],
     ];
     if (segments.some(([a, b]) => distancePointToScreenSegmentPx(p, a, b) <= tolerance)) {
       return true;
@@ -2915,25 +2915,53 @@ function getDimensionScreenGeometry(entity) {
   if (!entity || !entity.p1 || !entity.p2) {
     return null;
   }
-  const p1 = worldToScreen(entity.p1);
-  const p2 = worldToScreen(entity.p2);
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
+  const p1Screen = worldToScreen(entity.p1);
+  const p2Screen = worldToScreen(entity.p2);
+  const dx = p2Screen.x - p1Screen.x;
+  const dy = p2Screen.y - p1Screen.y;
   const length = Math.hypot(dx, dy);
   if (!length) {
     return null;
   }
-  const normalX = -dy / length;
-  const normalY = dx / length;
-  const offsetUnits = Number(entity.offset) || 0;
-  const offsetPx = offsetUnits * state.view.zoom;
-  const o1 = { x: p1.x + normalX * offsetPx, y: p1.y + normalY * offsetPx };
-  const o2 = { x: p2.x + normalX * offsetPx, y: p2.y + normalY * offsetPx };
+
+  let offsetPointScreen = null;
+  if (entity.offsetPoint && Number.isFinite(Number(entity.offsetPoint.x)) && Number.isFinite(Number(entity.offsetPoint.y))) {
+    offsetPointScreen = worldToScreen(entity.offsetPoint);
+  }
+  const baseCenter = { x: (p1Screen.x + p2Screen.x) / 2, y: (p1Screen.y + p2Screen.y) / 2 };
+  let normalX = -dy / length;
+  let normalY = dx / length;
+  let offsetPx = (Number(entity.offset) || 0) * state.view.zoom;
+
+  if (offsetPointScreen) {
+    const toOffsetX = offsetPointScreen.x - baseCenter.x;
+    const toOffsetY = offsetPointScreen.y - baseCenter.y;
+    const signed = toOffsetX * normalX + toOffsetY * normalY;
+    if (signed < 0) {
+      normalX *= -1;
+      normalY *= -1;
+    }
+    offsetPx = Math.abs(signed);
+  } else {
+    offsetPointScreen = {
+      x: baseCenter.x + normalX * offsetPx,
+      y: baseCenter.y + normalY * offsetPx,
+    };
+  }
+
+  const o1 = { x: p1Screen.x + normalX * offsetPx, y: p1Screen.y + normalY * offsetPx };
+  const o2 = { x: p2Screen.x + normalX * offsetPx, y: p2Screen.y + normalY * offsetPx };
   const tickSizePx = 7;
-  const o1TickStart = { x: o1.x - normalX * tickSizePx, y: o1.y - normalY * tickSizePx };
-  const o1TickEnd = { x: o1.x + normalX * tickSizePx, y: o1.y + normalY * tickSizePx };
-  const o2TickStart = { x: o2.x - normalX * tickSizePx, y: o2.y - normalY * tickSizePx };
-  const o2TickEnd = { x: o2.x + normalX * tickSizePx, y: o2.y + normalY * tickSizePx };
+  const tangentX = dx / length;
+  const tangentY = dy / length;
+  const tickLine1 = {
+    start: { x: o1.x - tangentX * tickSizePx, y: o1.y - tangentY * tickSizePx },
+    end: { x: o1.x + tangentX * tickSizePx, y: o1.y + tangentY * tickSizePx },
+  };
+  const tickLine2 = {
+    start: { x: o2.x - tangentX * tickSizePx, y: o2.y - tangentY * tickSizePx },
+    end: { x: o2.x + tangentX * tickSizePx, y: o2.y + tangentY * tickSizePx },
+  };
 
   let textBox = null;
   const label = typeof entity.text === "string" && entity.text.trim()
@@ -2951,7 +2979,19 @@ function getDimensionScreenGeometry(entity) {
     bottom: center.y + 6,
   };
 
-  return { p1, p2, o1, o2, o1TickStart, o1TickEnd, o2TickStart, o2TickEnd, textBox };
+  return {
+    p1Screen,
+    p2Screen,
+    offsetPointScreen,
+    o1,
+    o2,
+    extensionLine1: { start: p1Screen, end: o1 },
+    extensionLine2: { start: p2Screen, end: o2 },
+    dimensionLine: { start: o1, end: o2 },
+    tickLine1,
+    tickLine2,
+    textBox,
+  };
 }
 
 function distancePointToScreenSegmentPx(point, segmentStart, segmentEnd) {
