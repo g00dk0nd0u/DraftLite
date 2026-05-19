@@ -288,6 +288,10 @@ select {
   border-bottom: 1px solid var(--line);
 }
 
+.canvas-header {
+  display: none;
+}
+
 .canvas-meta {
   display: flex;
   flex-wrap: wrap;
