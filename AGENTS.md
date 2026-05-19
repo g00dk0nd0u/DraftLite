@@ -67,3 +67,5 @@
 - After implementation, run `node --check docs/app.js`.
 
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
+
+- Dimension entity (`type:"dimension"`) is supported for linear annotation with unit-integer coordinates and mm display conversion only at render/export.
