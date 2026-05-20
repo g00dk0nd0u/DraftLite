@@ -27,6 +27,7 @@
             <section class="ribbon-page is-active" data-ribbon-page="architecture" role="toolbar" aria-label="Architecture ribbon">
               <div class="toolbar-group" role="group" aria-label="Draw panel">
                 <span class="toolbar-group-label">Draw</span>
+                <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select"><span class="tool-icon">↖</span><span>Select</span></button>
                 <button id="toolLineButton" class="tool-button" type="button" data-tool="line" data-testid="tool-line"><span class="tool-icon">／</span><span>Line</span></button>
                 <button id="rectangleButton" class="tool-button" type="button" data-tool="rectangle" data-testid="tool-rectangle"><span class="tool-icon">▭</span><span>Rectangle</span></button>
                 <button id="circleButton" class="tool-button" type="button" data-tool="circle" data-testid="tool-circle"><span class="tool-icon">◯</span><span>Circle</span></button>
@@ -35,10 +36,6 @@
               </div>
             </section>
             <section class="ribbon-page" data-ribbon-page="modify" role="toolbar" aria-label="Modify ribbon" hidden>
-              <div class="toolbar-group" role="group" aria-label="Selection panel">
-                <span class="toolbar-group-label">Selection</span>
-                <button id="toolSelectButton" class="tool-button is-active" type="button" data-tool="select" data-testid="tool-select"><span class="tool-icon">↖</span><span>Select</span></button>
-              </div>
               <div class="toolbar-group" role="group" aria-label="Modify panel">
                 <span class="toolbar-group-label">Modify</span>
                 <button id="moveButton" class="tool-button" type="button" data-tool="move" data-testid="tool-move"><span class="tool-icon">✥</span><span>Move</span></button>
