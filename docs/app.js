@@ -594,6 +594,15 @@ function getLayerById(layerId) {
   return state.layers.find((layer) => layer.id === layerId) || null;
 }
 
+function canDrawOnActiveLayer() {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
+    setStatus("Choose a visible, unlocked active layer before drawing.");
+    return false;
+  }
+  return true;
+}
+
 function isLayerDrawable(layerId) {
   const layer = getLayerById(layerId);
   return Boolean(layer && layer.visible && !layer.locked);
@@ -4282,7 +4291,13 @@ function handleRectangleToolClick(worldPoint) {
 
 function handleCircleToolClick(worldPoint) {
   if (!uiState.circleDraft) {
+    if (!canDrawOnActiveLayer()) {
+      return;
+    }
     beginCircleDraft(worldPoint);
+    return;
+  }
+  if (!canDrawOnActiveLayer()) {
     return;
   }
   addCircleEntity(uiState.circleDraft.center, worldPoint);
@@ -4291,7 +4306,13 @@ function handleCircleToolClick(worldPoint) {
 
 function handleArcToolClick(worldPoint) {
   if (!uiState.arcDraft) {
+    if (!canDrawOnActiveLayer()) {
+      return;
+    }
     beginArcDraft(worldPoint);
+    return;
+  }
+  if (!canDrawOnActiveLayer()) {
     return;
   }
   if (uiState.arcDraft.step === 1) {
@@ -4312,6 +4333,9 @@ function handleArcToolClick(worldPoint) {
 }
 
 function handleFilledRegionToolClick(worldPoint, event) {
+  if (!canDrawOnActiveLayer()) {
+    return;
+  }
   const point = roundWorldPoint(worldPoint);
   if (!uiState.filledRegionDraft) {
     beginFilledRegionDraft(point);
@@ -4331,6 +4355,9 @@ function handleFilledRegionToolClick(worldPoint, event) {
 function finishFilledRegionDraft() {
   if (!uiState.filledRegionDraft || uiState.filledRegionDraft.points.length < 3) {
     setStatus("Filled Region requires at least 3 points.");
+    return false;
+  }
+  if (!canDrawOnActiveLayer()) {
     return false;
   }
   const layer = getLayerById(state.activeLayerId);
@@ -4676,14 +4703,15 @@ function buildDxfText() {
     dxfLines.push("40", formatDxfNumber(unitsToMm(entity.radius)));
   });
   exportArcs.forEach((entity) => {
+    const dxfAngles = getDxfArcAngles(entity.startAngleDeg || 0, entity.endAngleDeg || 0);
     dxfLines.push("0", "ARC");
     dxfLines.push("8", getDxfLayerNameForEntity(entity));
     dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.center.x)));
     dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.center.y)));
     dxfLines.push("30", formatDxfNumber(0));
     dxfLines.push("40", formatDxfNumber(unitsToMm(entity.radius)));
-    dxfLines.push("50", formatDxfNumber(entity.startAngleDeg || 0));
-    dxfLines.push("51", formatDxfNumber(entity.endAngleDeg || 0));
+    dxfLines.push("50", formatDxfNumber(dxfAngles.start));
+    dxfLines.push("51", formatDxfNumber(dxfAngles.end));
   });
   exportTexts.forEach((entity) => {
     dxfLines.push("0", "TEXT");
@@ -4916,6 +4944,17 @@ function dxfXUnitsToMm(x) {
 
 function dxfYUnitsToMm(y) {
   return -unitsToMm(y);
+}
+
+function dxfAngleDegFromCanvasAngle(angleDeg) {
+  return ((360 - (Number(angleDeg) || 0)) % 360 + 360) % 360;
+}
+
+function getDxfArcAngles(startCanvasDeg, endCanvasDeg) {
+  return {
+    start: dxfAngleDegFromCanvasAngle(endCanvasDeg),
+    end: dxfAngleDegFromCanvasAngle(startCanvasDeg),
+  };
 }
 
 function sanitizeDxfLayerName(value) {
