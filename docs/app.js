@@ -1193,6 +1193,114 @@ function renderPropertiesPanel() {
     addPropertyRow(appearanceGrid, "Fill Color", fillColor);
     return;
   }
+  if (entity.type === "circle") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Circle"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Circle layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
+    const radiusInput = document.createElement("input");
+    radiusInput.type = "number";
+    radiusInput.value = String(unitsToMm(entity.radius || 0));
+    radiusInput.addEventListener("change", () => {
+      const radiusMm = Number(radiusInput.value);
+      if (!Number.isFinite(radiusMm) || radiusMm <= 0) {
+        radiusInput.value = String(unitsToMm(entity.radius || 0));
+        setStatus("Radius mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.radius = Math.max(1, mmToUnits(radiusMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Radius mm", radiusInput);
+    return;
+  }
+  if (entity.type === "arc") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Arc"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Arc layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
+    const normalizeAngle = (value) => ((value % 360) + 360) % 360;
+
+    const radiusInput = document.createElement("input");
+    radiusInput.type = "number";
+    radiusInput.value = String(unitsToMm(entity.radius || 0));
+    radiusInput.addEventListener("change", () => {
+      const radiusMm = Number(radiusInput.value);
+      if (!Number.isFinite(radiusMm) || radiusMm <= 0) {
+        radiusInput.value = String(unitsToMm(entity.radius || 0));
+        setStatus("Radius mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.radius = Math.max(1, mmToUnits(radiusMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Radius mm", radiusInput);
+
+    const startAngleInput = document.createElement("input");
+    startAngleInput.type = "number";
+    startAngleInput.value = String(normalizeAngle(entity.startAngleDeg || 0));
+    startAngleInput.addEventListener("change", () => {
+      const angle = Number(startAngleInput.value);
+      if (!Number.isFinite(angle)) {
+        startAngleInput.value = String(normalizeAngle(entity.startAngleDeg || 0));
+        setStatus("Start Angle deg must be a valid number.");
+        return;
+      }
+      pushUndoState();
+      entity.startAngleDeg = normalizeAngle(angle);
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Start Angle deg", startAngleInput);
+
+    const endAngleInput = document.createElement("input");
+    endAngleInput.type = "number";
+    endAngleInput.value = String(normalizeAngle(entity.endAngleDeg || 0));
+    endAngleInput.addEventListener("change", () => {
+      const angle = Number(endAngleInput.value);
+      if (!Number.isFinite(angle)) {
+        endAngleInput.value = String(normalizeAngle(entity.endAngleDeg || 0));
+        setStatus("End Angle deg must be a valid number.");
+        return;
+      }
+      pushUndoState();
+      entity.endAngleDeg = normalizeAngle(angle);
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "End Angle deg", endAngleInput);
+    return;
+  }
+  if (entity.type === "filledRegion") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Filled Region"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Filled Region layer updated."));
+    addPropertyRow(generalGrid, "Vertex Count", createReadOnlyText(String((entity.points || []).length)));
+
+    const appearanceGrid = appendSection("Appearance");
+    const fill = document.createElement("input");
+    fill.type = "checkbox";
+    fill.checked = entity.fill !== false;
+    fill.addEventListener("change", () => {
+      pushUndoState();
+      entity.fill = fill.checked;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Fill", fill);
+
+    const fillColorInput = document.createElement("input");
+    fillColorInput.type = "color";
+    fillColorInput.value = normalizeColor(entity.fillColor || getLayerById(entity.layerId)?.color);
+    fillColorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.fillColor = normalizeColor(fillColorInput.value);
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Fill Color", fillColorInput);
+    return;
+  }
 
   if (entity.type === "dimension") {
     const generalGrid = appendSection("General");
