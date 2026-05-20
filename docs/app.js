@@ -27,6 +27,9 @@ const toolButtons = {
   select: document.getElementById("toolSelectButton"),
   line: document.getElementById("toolLineButton"),
   rectangle: document.getElementById("rectangleButton"),
+  circle: document.getElementById("circleButton"),
+  arc: document.getElementById("arcButton"),
+  filledRegion: document.getElementById("filledRegionButton"),
   text: document.getElementById("textButton"),
   dimension: document.getElementById("dimensionButton"),
   move: document.getElementById("moveButton"),
@@ -65,6 +68,9 @@ const uiState = {
   activeTool: "select",
   lineDraft: null,
   rectangleDraft: null,
+  circleDraft: null,
+  arcDraft: null,
+  filledRegionDraft: null,
   transformDraft: null,
   selectDragDraft: null,
   gripEditDraft: null,
@@ -172,6 +178,9 @@ function clearTransientState() {
   }
   uiState.lineDraft = null;
   uiState.rectangleDraft = null;
+  uiState.circleDraft = null;
+  uiState.arcDraft = null;
+  uiState.filledRegionDraft = null;
   uiState.transformDraft = null;
   uiState.selectDragDraft = null;
   uiState.gripEditDraft = null;
@@ -327,6 +336,50 @@ function collectSnapCandidates(worldPoint) {
       }
       if (entity.type === "rect") {
         return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      if (entity.type === "circle") {
+        const { center, radius } = entity;
+        const points = [
+          { kind: "center", point: center },
+          { kind: "quadrant", point: { x: center.x + radius, y: center.y } },
+          { kind: "quadrant", point: { x: center.x, y: center.y + radius } },
+          { kind: "quadrant", point: { x: center.x - radius, y: center.y } },
+          { kind: "quadrant", point: { x: center.x, y: center.y - radius } },
+        ];
+        return points.map((c) => ({ ...c, point: roundWorldPoint(c.point), distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      if (entity.type === "arc") {
+        const startPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        const endPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        const start = ((entity.startAngleDeg % 360) + 360) % 360;
+        const end = ((entity.endAngleDeg % 360) + 360) % 360;
+        const sweep = ((end - start) + 360) % 360 || 360;
+        const midDeg = (start + sweep / 2) % 360;
+        const midPoint = {
+          x: roundToUnit(entity.center.x + Math.cos(midDeg * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin(midDeg * Math.PI / 180) * entity.radius),
+        };
+        return [
+          { kind: "center", point: roundWorldPoint(entity.center) },
+          { kind: "endpoint", point: startPoint },
+          { kind: "endpoint", point: endPoint },
+          { kind: "midpoint", point: midPoint },
+        ].map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      if (entity.type === "filledRegion") {
+        const candidates = [];
+        entity.points.forEach((point, index) => {
+          candidates.push({ kind: "endpoint", point: roundWorldPoint(point) });
+          const next = entity.points[(index + 1) % entity.points.length];
+          candidates.push({ kind: "midpoint", point: roundWorldPoint({ x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 }) });
+        });
+        return candidates.map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
       if (entity.type === "text") {
         const point = { x: entity.x, y: entity.y };
@@ -507,6 +560,24 @@ function cancelRectangle(message = "Rectangle cancelled.") {
   setStatus(message);
 }
 
+function beginCircleDraft(centerPoint) {
+  uiState.circleDraft = { center: roundWorldPoint(centerPoint) };
+  setStatus(`Circle center set at ${formatWorldPoint(uiState.circleDraft.center)}. Pick radius point.`);
+  draw();
+}
+
+function beginArcDraft(centerPoint) {
+  uiState.arcDraft = { step: 1, center: roundWorldPoint(centerPoint) };
+  setStatus(`Arc center set at ${formatWorldPoint(uiState.arcDraft.center)}. Pick start direction/radius.`);
+  draw();
+}
+
+function beginFilledRegionDraft(firstPoint) {
+  uiState.filledRegionDraft = { points: [roundWorldPoint(firstPoint)] };
+  setStatus("Filled Region: pick next point. Enter or double-click to close.");
+  draw();
+}
+
 function getSelectionRect(selectionWindow) {
   return {
     left: Math.min(selectionWindow.startScreen.x, selectionWindow.currentScreen.x),
@@ -521,6 +592,15 @@ function getSelectionRect(selectionWindow) {
 
 function getLayerById(layerId) {
   return state.layers.find((layer) => layer.id === layerId) || null;
+}
+
+function canDrawOnActiveLayer() {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
+    setStatus("Choose a visible, unlocked active layer before drawing.");
+    return false;
+  }
+  return true;
 }
 
 function isLayerDrawable(layerId) {
@@ -612,6 +692,50 @@ function normalizeEntity(entity, options = {}) {
       height,
       rotation: 0,
       name: typeof entity.name === "string" ? entity.name : "Box",
+      fill: entity.fill !== false,
+      fillColor: normalizeColor(entity.fillColor || ""),
+    };
+  }
+  if (entity.type === "circle") {
+    const radius = normalizeUnitValue(entity.radius, legacyUnits);
+    if (radius <= 0) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "circle",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      center: normalizePoint(entity.center, legacyUnits),
+      radius,
+    };
+  }
+  if (entity.type === "arc") {
+    const radius = normalizeUnitValue(entity.radius, legacyUnits);
+    if (radius <= 0) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "arc",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      center: normalizePoint(entity.center, legacyUnits),
+      radius,
+      startAngleDeg: Number(entity.startAngleDeg) || 0,
+      endAngleDeg: Number(entity.endAngleDeg) || 90,
+    };
+  }
+  if (entity.type === "filledRegion") {
+    const points = Array.isArray(entity.points)
+      ? entity.points.map((point) => normalizePoint(point, legacyUnits))
+      : [];
+    if (points.length < 3) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "filledRegion",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      points,
       fill: entity.fill !== false,
       fillColor: normalizeColor(entity.fillColor || ""),
     };
@@ -1213,6 +1337,12 @@ function draw() {
       drawLineEntity(entity);
     } else if (entity.type === "rect") {
       drawRectEntity(entity);
+    } else if (entity.type === "circle") {
+      drawCircleEntity(entity);
+    } else if (entity.type === "arc") {
+      drawArcEntity(entity);
+    } else if (entity.type === "filledRegion") {
+      drawFilledRegionEntity(entity);
     } else if (entity.type === "text") {
       drawTextEntity(entity);
     } else if (entity.type === "dimension") {
@@ -1226,6 +1356,15 @@ function draw() {
 
   if (uiState.rectangleDraft) {
     drawDraftRectangle(uiState.rectangleDraft.start, uiState.hoverWorld);
+  }
+  if (uiState.circleDraft) {
+    drawDraftCircle(uiState.circleDraft.center, uiState.hoverWorld);
+  }
+  if (uiState.arcDraft) {
+    drawDraftArc(uiState.arcDraft);
+  }
+  if (uiState.filledRegionDraft) {
+    drawDraftFilledRegion(uiState.filledRegionDraft);
   }
 
   if (uiState.dimensionDraft) {
@@ -1398,6 +1537,53 @@ function drawDraftRectangle(start, opposite) {
   ctx.restore();
 }
 
+function drawDraftCircle(centerPoint, radiusPoint) {
+  const center = worldToScreen(roundWorldPoint(centerPoint));
+  const radiusUnits = Math.max(1, roundToUnit(Math.hypot(radiusPoint.x - centerPoint.x, radiusPoint.y - centerPoint.y)));
+  const radiusPx = Math.max(1, radiusUnits * state.view.zoom);
+  ctx.save();
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDraftArc(draft) {
+  if (!draft || !draft.center) return;
+  const center = worldToScreen(draft.center);
+  const current = uiState.hoverWorld;
+  const radiusUnits = draft.radius || Math.max(1, roundToUnit(Math.hypot(current.x - draft.center.x, current.y - draft.center.y)));
+  const radiusPx = Math.max(1, radiusUnits * state.view.zoom);
+  const startAngle = draft.startAngleDeg ?? snapAngleTo90(angleDegFromCenter(draft.center, current));
+  const endAngle = draft.step === 2 ? snapAngleTo90(angleDegFromCenter(draft.center, current)) : startAngle;
+  const end = endAngle === startAngle ? (startAngle + 270) % 360 : endAngle;
+  ctx.save();
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radiusPx, startAngle * Math.PI / 180, end * Math.PI / 180);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDraftFilledRegion(draft) {
+  if (!draft || !Array.isArray(draft.points) || !draft.points.length) return;
+  const points = [...draft.points, roundWorldPoint(uiState.hoverWorld)].map(worldToScreen);
+  ctx.save();
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.9)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawRectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer) return;
@@ -1438,6 +1624,86 @@ function drawRectEntity(entity) {
     getRectSnapPoints(entity).filter((g)=>g.kind!=="center").forEach((g)=>{ const s=worldToScreen(g.point); ctx.beginPath(); ctx.arc(s.x,s.y,4,0,Math.PI*2); ctx.fill(); ctx.stroke();});
   }
   ctx.restore();
+}
+
+function drawCircleEntity(entity) {
+  const center = worldToScreen(entity.center);
+  const radiusPx = Math.max(1, Math.abs(entity.radius * state.view.zoom));
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  ctx.save();
+  if (isSelected) {
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawArcEntity(entity) {
+  const center = worldToScreen(entity.center);
+  const radiusPx = Math.max(1, Math.abs(entity.radius * state.view.zoom));
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  const startRad = (entity.startAngleDeg || 0) * Math.PI / 180;
+  const endRad = (entity.endAngleDeg || 0) * Math.PI / 180;
+  ctx.save();
+  if (isSelected) {
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFilledRegionEntity(entity) {
+  if (!Array.isArray(entity.points) || entity.points.length < 3) return;
+  const points = entity.points.map(worldToScreen);
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i += 1) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.closePath();
+  if (entity.fill !== false) {
+    const fillColor = entity.fillColor || getEntityStrokeColor(entity);
+    ctx.fillStyle = withAlpha(fillColor, isSelected ? 0.26 : 0.18);
+    ctx.fill();
+  }
+  if (isSelected) {
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
+    ctx.lineWidth = 8;
+    ctx.stroke();
+  }
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = isSelected ? 2.2 : 1.4;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function withAlpha(colorHex, alpha) {
+  const clean = String(colorHex || "").trim();
+  const match = /^#([0-9a-f]{6})$/i.exec(clean);
+  if (!match) return `rgba(123, 160, 219, ${alpha})`;
+  const value = match[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function drawTextEntity(entity) {
@@ -1612,14 +1878,20 @@ function drawTransformPreview(transformDraft) {
       drawPreviewLineEntity(previewLine);
     } else if (entity.type === "rect") {
       drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
-    } else if (entity.type === "text" || entity.type === "dimension") {
+    } else if (entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
     }
   });
 }
 
 function drawEntityPreview(entity) {
-  if (entity.type === "text") {
+  if (entity.type === "circle") {
+    drawCircleEntity(entity);
+  } else if (entity.type === "arc") {
+    drawArcEntity(entity);
+  } else if (entity.type === "filledRegion") {
+    drawFilledRegionEntity(entity);
+  } else if (entity.type === "text") {
     drawTextEntity(entity);
   } else if (entity.type === "dimension") {
     drawDimensionEntity(entity);
@@ -1871,6 +2143,52 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
   syncAfterStateChange();
   setStatus("Rectangle object created.");
   return true;
+}
+
+function addCircleEntity(centerPoint, radiusPoint) {
+  const center = roundWorldPoint(centerPoint);
+  const radius = roundToUnit(Math.hypot(radiusPoint.x - center.x, radiusPoint.y - center.y));
+  if (radius <= 0) {
+    setStatus("Circle radius must be greater than zero.");
+    return null;
+  }
+  pushUndoState();
+  const circle = { id: createEntityId(), type: "circle", layerId: state.activeLayerId, center, radius };
+  state.entities.push(circle);
+  state.selectedEntityIds = [circle.id];
+  syncAfterStateChange();
+  setStatus("Circle created.");
+  return circle;
+}
+
+function angleDegFromCenter(center, point) {
+  return (Math.atan2(point.y - center.y, point.x - center.x) * 180 / Math.PI + 360) % 360;
+}
+
+function snapAngleTo90(angleDeg) {
+  const snapped = Math.round(angleDeg / 90) * 90;
+  return ((snapped % 360) + 360) % 360;
+}
+
+function addArcEntity(centerPoint, radiusPoint, endPoint) {
+  const center = roundWorldPoint(centerPoint);
+  const radius = roundToUnit(Math.hypot(radiusPoint.x - center.x, radiusPoint.y - center.y));
+  if (radius <= 0) {
+    setStatus("Arc radius must be greater than zero.");
+    return null;
+  }
+  const startAngleDeg = snapAngleTo90(angleDegFromCenter(center, radiusPoint));
+  let endAngleDeg = snapAngleTo90(angleDegFromCenter(center, endPoint));
+  if (endAngleDeg === startAngleDeg) {
+    endAngleDeg = (startAngleDeg + 270) % 360;
+  }
+  pushUndoState();
+  const arc = { id: createEntityId(), type: "arc", layerId: state.activeLayerId, center, radius, startAngleDeg, endAngleDeg };
+  state.entities.push(arc);
+  state.selectedEntityIds = [arc.id];
+  syncAfterStateChange();
+  setStatus("Arc created.");
+  return arc;
 }
 
 function createLineFromNumericInput() {
@@ -2251,7 +2569,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "text" || entity.type === "dimension") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -2319,6 +2637,15 @@ function applyOffsetToEntity(entity, offset) {
       x: roundToUnit(entity.x + offset.dx),
       y: roundToUnit(entity.y + offset.dy),
     };
+  }
+  if (entity.type === "circle") {
+    return { ...entity, center: { x: roundToUnit(entity.center.x + offset.dx), y: roundToUnit(entity.center.y + offset.dy) } };
+  }
+  if (entity.type === "arc") {
+    return { ...entity, center: { x: roundToUnit(entity.center.x + offset.dx), y: roundToUnit(entity.center.y + offset.dy) } };
+  }
+  if (entity.type === "filledRegion") {
+    return { ...entity, points: entity.points.map((point) => ({ x: roundToUnit(point.x + offset.dx), y: roundToUnit(point.y + offset.dy) })) };
   }
   if (entity.type === "dimension") {
     return { ...entity, p1:{x:roundToUnit(entity.p1.x+offset.dx),y:roundToUnit(entity.p1.y+offset.dy)}, p2:{x:roundToUnit(entity.p2.x+offset.dx),y:roundToUnit(entity.p2.y+offset.dy)}, offsetPoint:{x:roundToUnit(entity.offsetPoint.x+offset.dx),y:roundToUnit(entity.offsetPoint.y+offset.dy)} };
@@ -3013,6 +3340,28 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
+      if (entity.type === "circle" || entity.type === "arc") {
+        const centerScreen = worldToScreen(entity.center);
+        const radiusScreen = Math.abs(entity.radius * state.view.zoom);
+        const box = {
+          left: centerScreen.x - radiusScreen,
+          right: centerScreen.x + radiusScreen,
+          top: centerScreen.y - radiusScreen,
+          bottom: centerScreen.y + radiusScreen,
+        };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
+      if (entity.type === "filledRegion") {
+        const points = entity.points.map(worldToScreen);
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const box = { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
       if (entity.type === "text") {
         const box = getTextBoundsScreen(entity);
         return rect.isCrossing
@@ -3051,6 +3400,30 @@ function selectEntitiesByWindow(selectionWindow) {
   );
 }
 
+function isPointInPolygon(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    const intersects = ((yi > point.y) !== (yj > point.y))
+      && (point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || 1e-9) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function hitTestFilledRegionEntity(entity, worldPoint) {
+  if (!Array.isArray(entity.points) || entity.points.length < 3) return false;
+  if (isPointInPolygon(worldPoint, entity.points)) return true;
+  return entity.points.some((point, index) => {
+    const next = entity.points[(index + 1) % entity.points.length];
+    const distancePx = distancePointToSegmentScreenPx(worldPoint, point, next);
+    return distancePx <= state.settings.snapTolerancePx;
+  });
+}
+
 function hitTestEntity(entity, worldPoint) {
   if (entity.type === "line") {
     const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
@@ -3062,6 +3435,23 @@ function hitTestEntity(entity, worldPoint) {
     const inside = p.x>=left && p.x<=right && p.y>=top && p.y<=bottom;
     const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
     return inside || edge;
+  }
+  if (entity.type === "circle") {
+    const d = Math.hypot(worldPoint.x - entity.center.x, worldPoint.y - entity.center.y);
+    const tolUnits = state.settings.snapTolerancePx / state.view.zoom;
+    return d <= entity.radius + tolUnits && d >= entity.radius - tolUnits || d < entity.radius;
+  }
+  if (entity.type === "arc") {
+    const d = Math.hypot(worldPoint.x - entity.center.x, worldPoint.y - entity.center.y);
+    const tolUnits = state.settings.snapTolerancePx / state.view.zoom;
+    if (Math.abs(d - entity.radius) > tolUnits) return false;
+    const a = angleDegFromCenter(entity.center, worldPoint);
+    const start = ((entity.startAngleDeg % 360) + 360) % 360;
+    const end = ((entity.endAngleDeg % 360) + 360) % 360;
+    return start <= end ? (a >= start && a <= end) : (a >= start || a <= end);
+  }
+  if (entity.type === "filledRegion") {
+    return hitTestFilledRegionEntity(entity, worldPoint);
   }
   if (entity.type === "text") {
     const p = worldToScreen(worldPoint);
@@ -3336,6 +3726,14 @@ function getDocumentBoundsUnits(entities = state.entities) {
     } else if (entity.type === "rect") {
       xs.push(entity.x, entity.x + entity.width);
       ys.push(entity.y, entity.y + entity.height);
+    } else if (entity.type === "circle" || entity.type === "arc") {
+      xs.push(entity.center.x - entity.radius, entity.center.x + entity.radius);
+      ys.push(entity.center.y - entity.radius, entity.center.y + entity.radius);
+    } else if (entity.type === "filledRegion") {
+      entity.points.forEach((point) => {
+        xs.push(point.x);
+        ys.push(point.y);
+      });
     }
   });
   if (!xs.length || !ys.length) {
@@ -3755,6 +4153,18 @@ function onCanvasMouseDown(event) {
     handleRectangleToolClick(worldPoint);
     return;
   }
+  if (uiState.activeTool === "circle") {
+    handleCircleToolClick(worldPoint);
+    return;
+  }
+  if (uiState.activeTool === "arc") {
+    handleArcToolClick(worldPoint);
+    return;
+  }
+  if (uiState.activeTool === "filledRegion") {
+    handleFilledRegionToolClick(worldPoint, event);
+    return;
+  }
   if (uiState.activeTool === "text") {
     handleTextToolClick(worldPoint);
     return;
@@ -3877,6 +4287,95 @@ function handleRectangleToolClick(worldPoint) {
     return;
   }
   endRectangleDraft("Rectangle object created.");
+}
+
+function handleCircleToolClick(worldPoint) {
+  if (!uiState.circleDraft) {
+    if (!canDrawOnActiveLayer()) {
+      return;
+    }
+    beginCircleDraft(worldPoint);
+    return;
+  }
+  if (!canDrawOnActiveLayer()) {
+    return;
+  }
+  addCircleEntity(uiState.circleDraft.center, worldPoint);
+  uiState.circleDraft = null;
+}
+
+function handleArcToolClick(worldPoint) {
+  if (!uiState.arcDraft) {
+    if (!canDrawOnActiveLayer()) {
+      return;
+    }
+    beginArcDraft(worldPoint);
+    return;
+  }
+  if (!canDrawOnActiveLayer()) {
+    return;
+  }
+  if (uiState.arcDraft.step === 1) {
+    uiState.arcDraft.radiusPoint = roundWorldPoint(worldPoint);
+    uiState.arcDraft.radius = roundToUnit(Math.hypot(worldPoint.x - uiState.arcDraft.center.x, worldPoint.y - uiState.arcDraft.center.y));
+    if (uiState.arcDraft.radius <= 0) {
+      setStatus("Arc radius must be greater than zero.");
+      return;
+    }
+    uiState.arcDraft.startAngleDeg = snapAngleTo90(angleDegFromCenter(uiState.arcDraft.center, worldPoint));
+    uiState.arcDraft.step = 2;
+    setStatus("Arc: pick end direction.");
+    draw();
+    return;
+  }
+  addArcEntity(uiState.arcDraft.center, uiState.arcDraft.radiusPoint, worldPoint);
+  uiState.arcDraft = null;
+}
+
+function handleFilledRegionToolClick(worldPoint, event) {
+  if (!canDrawOnActiveLayer()) {
+    return;
+  }
+  const point = roundWorldPoint(worldPoint);
+  if (!uiState.filledRegionDraft) {
+    beginFilledRegionDraft(point);
+    return;
+  }
+  const last = uiState.filledRegionDraft.points[uiState.filledRegionDraft.points.length - 1];
+  if (!last || last.x !== point.x || last.y !== point.y) {
+    uiState.filledRegionDraft.points.push(point);
+  }
+  if (event.detail >= 2 && uiState.filledRegionDraft.points.length >= 3) {
+    finishFilledRegionDraft();
+    return;
+  }
+  draw();
+}
+
+function finishFilledRegionDraft() {
+  if (!uiState.filledRegionDraft || uiState.filledRegionDraft.points.length < 3) {
+    setStatus("Filled Region requires at least 3 points.");
+    return false;
+  }
+  if (!canDrawOnActiveLayer()) {
+    return false;
+  }
+  const layer = getLayerById(state.activeLayerId);
+  pushUndoState();
+  const entity = {
+    id: createEntityId(),
+    type: "filledRegion",
+    layerId: state.activeLayerId,
+    points: uiState.filledRegionDraft.points.map(roundWorldPoint),
+    fill: true,
+    fillColor: normalizeColor(layer?.color || "#5e6b78"),
+  };
+  state.entities.push(entity);
+  state.selectedEntityIds = [entity.id];
+  uiState.filledRegionDraft = null;
+  syncAfterStateChange();
+  setStatus("Filled Region created.");
+  return true;
 }
 
 function handleTextToolClick(worldPoint) {
@@ -4038,28 +4537,17 @@ function fitAll() {
     return;
   }
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  visibleEntities.forEach((entity) => {
-    if (entity.type === "line") {
-      minX = Math.min(minX, entity.p1.x, entity.p2.x);
-      minY = Math.min(minY, entity.p1.y, entity.p2.y);
-      maxX = Math.max(maxX, entity.p1.x, entity.p2.x);
-      maxY = Math.max(maxY, entity.p1.y, entity.p2.y);
-    } else if (entity.type === "rect") {
-      minX = Math.min(minX, entity.x);
-      minY = Math.min(minY, entity.y);
-      maxX = Math.max(maxX, entity.x + entity.width);
-      maxY = Math.max(maxY, entity.y + entity.height);
-    } else if (entity.type === "text") {
-      minX = Math.min(minX, entity.x); minY = Math.min(minY, entity.y); maxX = Math.max(maxX, entity.x); maxY = Math.max(maxY, entity.y);
-    } else if (entity.type === "dimension") {
-      [entity.p1, entity.p2, entity.offsetPoint].forEach((pt)=>{minX=Math.min(minX,pt.x);minY=Math.min(minY,pt.y);maxX=Math.max(maxX,pt.x);maxY=Math.max(maxY,pt.y);});
-    }
-  });
+  const boundsUnits = getDocumentBoundsUnits(visibleEntities);
+  if (!boundsUnits) {
+    setStatus("Fit all reset to origin.");
+    draw();
+    renderStatusPanel();
+    return;
+  }
+  const minX = boundsUnits.minX;
+  const minY = boundsUnits.minY;
+  const maxX = boundsUnits.maxX;
+  const maxY = boundsUnits.maxY;
 
   const marginPx = 48;
   const boxWidth = Math.max(1, maxX - minX);
@@ -4091,6 +4579,18 @@ function setActiveTool(tool) {
   }
   if (tool === "dimension") {
     setStatus("Aligned Dimension: pick first point");
+    return;
+  }
+  if (tool === "circle") {
+    setStatus("Circle: pick center point.");
+    return;
+  }
+  if (tool === "arc") {
+    setStatus("Arc: pick center point.");
+    return;
+  }
+  if (tool === "filledRegion") {
+    setStatus("Filled Region: pick first point.");
     return;
   }
   if (tool === "extend") {
@@ -4139,7 +4639,7 @@ function loadJsonFromFile(file) {
 function exportDxf() {
   const summary = getDxfExportSummary();
 
-  if (summary.exportedLineCount + summary.exportedTextCount === 0) {
+  if (summary.exportedLineCount + summary.exportedTextCount + summary.exportedCircleCount + summary.exportedArcCount === 0) {
     setStatus("No visible entities to export.");
     return;
   }
@@ -4149,12 +4649,14 @@ function exportDxf() {
     new Blob([dxfText], { type: "text/plain;charset=us-ascii" }),
     `draftlite-${createTimestampLabel()}.dxf`
   );
-  setStatus(`DXF exported: ${summary.exportedLineCount} lines, ${summary.exportedTextCount} text.`);
+  setStatus(`DXF exported: ${summary.exportedLineCount} lines, ${summary.exportedCircleCount} circles, ${summary.exportedArcCount} arcs, ${summary.exportedTextCount} text.`);
 }
 
 function buildDxfText() {
   const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
+  const exportCircles = collectDxfExportCircleEntities();
+  const exportArcs = collectDxfExportArcEntities();
   const exportTexts = collectDxfExportTextEntities();
   const layerNames = collectDxfLayerNames(exportEntities);
 
@@ -4192,6 +4694,25 @@ function buildDxfText() {
     dxfLines.push("21", formatDxfNumber(dxfYUnitsToMm(line.p2.y)));
     dxfLines.push("31", formatDxfNumber(0));
   });
+  exportCircles.forEach((entity) => {
+    dxfLines.push("0", "CIRCLE");
+    dxfLines.push("8", getDxfLayerNameForEntity(entity));
+    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.center.x)));
+    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.center.y)));
+    dxfLines.push("30", formatDxfNumber(0));
+    dxfLines.push("40", formatDxfNumber(unitsToMm(entity.radius)));
+  });
+  exportArcs.forEach((entity) => {
+    const dxfAngles = getDxfArcAngles(entity.startAngleDeg || 0, entity.endAngleDeg || 0);
+    dxfLines.push("0", "ARC");
+    dxfLines.push("8", getDxfLayerNameForEntity(entity));
+    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.center.x)));
+    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.center.y)));
+    dxfLines.push("30", formatDxfNumber(0));
+    dxfLines.push("40", formatDxfNumber(unitsToMm(entity.radius)));
+    dxfLines.push("50", formatDxfNumber(dxfAngles.start));
+    dxfLines.push("51", formatDxfNumber(dxfAngles.end));
+  });
   exportTexts.forEach((entity) => {
     dxfLines.push("0", "TEXT");
     dxfLines.push("8", getDxfLayerNameForEntity(entity));
@@ -4209,13 +4730,17 @@ function buildDxfText() {
 function getDxfExportSummary() {
   const exportEntities = collectDxfExportEntities();
   const exportLines = collectDxfExportLines();
+  const exportCircles = collectDxfExportCircleEntities();
+  const exportArcs = collectDxfExportArcEntities();
   const exportTexts = collectDxfExportTextEntities();
-  const bounds = getDxfBoundsMm(exportLines, exportTexts);
+  const bounds = getDxfBoundsMm(exportLines, exportTexts, exportCircles, exportArcs);
 
   return {
     fileVersion: CURRENT_FILE_VERSION,
     unitMm: UNIT_MM,
     exportedLineCount: exportLines.length,
+    exportedCircleCount: exportCircles.length,
+    exportedArcCount: exportArcs.length,
     exportedTextCount: exportTexts.length,
     visibleEntityCount: exportEntities.length,
     layerCount: collectDxfLayerNames(exportEntities).length,
@@ -4297,18 +4822,45 @@ function collectDxfExportEntities() {
   return state.entities.filter((entity) =>
     entity &&
     isLayerVisible(entity.layerId) &&
-    (entity.type === "line" || entity.type === "rect" || entity.type === "text" || entity.type === "dimension")
+    (entity.type === "line" || entity.type === "rect" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
   );
 }
 
 function collectDxfExportLines() {
   return collectDxfExportEntities().flatMap((entity) =>
-    entity.type === "line" ? [entity] : (entity.type === "rect" ? rectToOutlineLines(entity) : (entity.type === "dimension" ? explodeDimensionToDxfPrimitives(entity).lines : []))
+    entity.type === "line"
+      ? [entity]
+      : (entity.type === "rect"
+        ? rectToOutlineLines(entity)
+        : (entity.type === "filledRegion"
+          ? filledRegionToOutlineLines(entity)
+          : (entity.type === "dimension" ? explodeDimensionToDxfPrimitives(entity).lines : [])))
   );
 }
 
 function collectDxfExportTextEntities() {
   return collectDxfExportEntities().flatMap((entity) => entity.type === "text" ? [entity] : (entity.type === "dimension" ? [explodeDimensionToDxfPrimitives(entity).text] : []));
+}
+
+function collectDxfExportCircleEntities() {
+  return collectDxfExportEntities().filter((entity) => entity.type === "circle");
+}
+
+function collectDxfExportArcEntities() {
+  return collectDxfExportEntities().filter((entity) => entity.type === "arc");
+}
+
+function filledRegionToOutlineLines(entity) {
+  if (!entity || !Array.isArray(entity.points) || entity.points.length < 3) {
+    return [];
+  }
+  const lines = [];
+  for (let i = 0; i < entity.points.length; i += 1) {
+    const p1 = entity.points[i];
+    const p2 = entity.points[(i + 1) % entity.points.length];
+    lines.push({ type: "line", layerId: entity.layerId, p1, p2 });
+  }
+  return lines;
 }
 
 function collectDxfLayerNames(entities) {
@@ -4354,8 +4906,8 @@ function createMinimalDxfFixture() {
   }
 }
 
-function getDxfBoundsMm(lines, textEntities = []) {
-  if (!lines.length && !textEntities.length) {
+function getDxfBoundsMm(lines, textEntities = [], circles = [], arcs = []) {
+  if (!lines.length && !textEntities.length && !circles.length && !arcs.length) {
     return null;
   }
 
@@ -4368,6 +4920,14 @@ function getDxfBoundsMm(lines, textEntities = []) {
   textEntities.forEach((entity) => {
     xs.push(dxfXUnitsToMm(entity.x));
     ys.push(dxfYUnitsToMm(entity.y));
+  });
+  circles.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.center.x - entity.radius), dxfXUnitsToMm(entity.center.x + entity.radius));
+    ys.push(dxfYUnitsToMm(entity.center.y - entity.radius), dxfYUnitsToMm(entity.center.y + entity.radius));
+  });
+  arcs.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.center.x - entity.radius), dxfXUnitsToMm(entity.center.x + entity.radius));
+    ys.push(dxfYUnitsToMm(entity.center.y - entity.radius), dxfYUnitsToMm(entity.center.y + entity.radius));
   });
 
   return {
@@ -4384,6 +4944,17 @@ function dxfXUnitsToMm(x) {
 
 function dxfYUnitsToMm(y) {
   return -unitsToMm(y);
+}
+
+function dxfAngleDegFromCanvasAngle(angleDeg) {
+  return ((360 - (Number(angleDeg) || 0)) % 360 + 360) % 360;
+}
+
+function getDxfArcAngles(startCanvasDeg, endCanvasDeg) {
+  return {
+    start: dxfAngleDegFromCanvasAngle(endCanvasDeg),
+    end: dxfAngleDegFromCanvasAngle(startCanvasDeg),
+  };
 }
 
 function sanitizeDxfLayerName(value) {
@@ -4525,6 +5096,27 @@ function onKeyDown(event) {
       cancelRectangle();
       return;
     }
+    if (uiState.circleDraft || uiState.activeTool === "circle") {
+      uiState.circleDraft = null;
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Circle cancelled.");
+      return;
+    }
+    if (uiState.arcDraft || uiState.activeTool === "arc") {
+      uiState.arcDraft = null;
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Arc cancelled.");
+      return;
+    }
+    if (uiState.filledRegionDraft || uiState.activeTool === "filledRegion") {
+      uiState.filledRegionDraft = null;
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Filled Region cancelled.");
+      return;
+    }
     if (uiState.alignDraft || uiState.activeTool === "align") {
       cancelAlign();
       return;
@@ -4623,6 +5215,12 @@ function onKeyDown(event) {
       endLineDraft("Line command ended.");
       return;
     }
+  }
+
+  if (uiState.filledRegionDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA" && event.key === "Enter") {
+    event.preventDefault();
+    finishFilledRegionDraft();
+    return;
   }
 
   if (uiState.transformDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
@@ -4731,6 +5329,9 @@ function bindEvents() {
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
   toolButtons.rectangle.addEventListener("click", () => setActiveTool("rectangle"));
+  toolButtons.circle.addEventListener("click", () => setActiveTool("circle"));
+  toolButtons.arc.addEventListener("click", () => setActiveTool("arc"));
+  toolButtons.filledRegion.addEventListener("click", () => setActiveTool("filledRegion"));
   toolButtons.text.addEventListener("click", () => setActiveTool("text"));
   toolButtons.dimension.addEventListener("click", () => setActiveTool("dimension"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
@@ -4842,6 +5443,52 @@ window.DraftLiteDebug = {
     clearTransientState();
     syncAfterStateChange();
     return deepClone({ english, japanese });
+  },
+
+  createCircleFixture() {
+    pushUndoState();
+    const entity = { id: createEntityId(), type: "circle", layerId: state.activeLayerId, center: { x: mmToUnits(500), y: mmToUnits(500) }, radius: mmToUnits(250) };
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    syncAfterStateChange();
+    return deepClone(entity);
+  },
+
+  createArcFixture() {
+    pushUndoState();
+    const entity = { id: createEntityId(), type: "arc", layerId: state.activeLayerId, center: { x: mmToUnits(1200), y: mmToUnits(500) }, radius: mmToUnits(300), startAngleDeg: 0, endAngleDeg: 90 };
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    syncAfterStateChange();
+    return deepClone(entity);
+  },
+
+  createFilledRegionFixture() {
+    pushUndoState();
+    const entity = {
+      id: createEntityId(),
+      type: "filledRegion",
+      layerId: state.activeLayerId,
+      points: [
+        { x: mmToUnits(300), y: mmToUnits(1300) },
+        { x: mmToUnits(700), y: mmToUnits(1300) },
+        { x: mmToUnits(600), y: mmToUnits(1600) },
+      ],
+      fill: true,
+      fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color || "#5e6b78"),
+    };
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    syncAfterStateChange();
+    return deepClone(entity);
+  },
+
+  getShapeSummary() {
+    return {
+      circleCount: state.entities.filter((entity) => entity.type === "circle").length,
+      arcCount: state.entities.filter((entity) => entity.type === "arc").length,
+      filledRegionCount: state.entities.filter((entity) => entity.type === "filledRegion").length,
+    };
   },
 
   getAnnotationSummary() {
