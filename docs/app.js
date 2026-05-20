@@ -337,22 +337,49 @@ function collectSnapCandidates(worldPoint) {
       if (entity.type === "rect") {
         return getRectSnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
-      if (entity.type === "circle" || entity.type === "arc") {
-        const c = worldToScreen(entity.center);
-        const r = Math.abs(entity.radius * state.view.zoom);
-        const box = { left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r };
-        return rect.isCrossing
-          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
-          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      if (entity.type === "circle") {
+        const { center, radius } = entity;
+        const points = [
+          { kind: "center", point: center },
+          { kind: "quadrant", point: { x: center.x + radius, y: center.y } },
+          { kind: "quadrant", point: { x: center.x, y: center.y + radius } },
+          { kind: "quadrant", point: { x: center.x - radius, y: center.y } },
+          { kind: "quadrant", point: { x: center.x, y: center.y - radius } },
+        ];
+        return points.map((c) => ({ ...c, point: roundWorldPoint(c.point), distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
+      if (entity.type === "arc") {
+        const startPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        const endPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        const start = ((entity.startAngleDeg % 360) + 360) % 360;
+        const end = ((entity.endAngleDeg % 360) + 360) % 360;
+        const sweep = ((end - start) + 360) % 360 || 360;
+        const midDeg = (start + sweep / 2) % 360;
+        const midPoint = {
+          x: roundToUnit(entity.center.x + Math.cos(midDeg * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin(midDeg * Math.PI / 180) * entity.radius),
+        };
+        return [
+          { kind: "center", point: roundWorldPoint(entity.center) },
+          { kind: "endpoint", point: startPoint },
+          { kind: "endpoint", point: endPoint },
+          { kind: "midpoint", point: midPoint },
+        ].map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
       if (entity.type === "filledRegion") {
-        const screenPoints = entity.points.map(worldToScreen);
-        const xs = screenPoints.map((point) => point.x);
-        const ys = screenPoints.map((point) => point.y);
-        const box = { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
-        return rect.isCrossing
-          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
-          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+        const candidates = [];
+        entity.points.forEach((point, index) => {
+          candidates.push({ kind: "endpoint", point: roundWorldPoint(point) });
+          const next = entity.points[(index + 1) % entity.points.length];
+          candidates.push({ kind: "midpoint", point: roundWorldPoint({ x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 }) });
+        });
+        return candidates.map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
       }
       if (entity.type === "text") {
         const point = { x: entity.x, y: entity.y };
@@ -3304,6 +3331,28 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
+      if (entity.type === "circle" || entity.type === "arc") {
+        const centerScreen = worldToScreen(entity.center);
+        const radiusScreen = Math.abs(entity.radius * state.view.zoom);
+        const box = {
+          left: centerScreen.x - radiusScreen,
+          right: centerScreen.x + radiusScreen,
+          top: centerScreen.y - radiusScreen,
+          bottom: centerScreen.y + radiusScreen,
+        };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
+      if (entity.type === "filledRegion") {
+        const points = entity.points.map(worldToScreen);
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const box = { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
       if (entity.type === "text") {
         const box = getTextBoundsScreen(entity);
         return rect.isCrossing
@@ -4461,28 +4510,17 @@ function fitAll() {
     return;
   }
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  visibleEntities.forEach((entity) => {
-    if (entity.type === "line") {
-      minX = Math.min(minX, entity.p1.x, entity.p2.x);
-      minY = Math.min(minY, entity.p1.y, entity.p2.y);
-      maxX = Math.max(maxX, entity.p1.x, entity.p2.x);
-      maxY = Math.max(maxY, entity.p1.y, entity.p2.y);
-    } else if (entity.type === "rect") {
-      minX = Math.min(minX, entity.x);
-      minY = Math.min(minY, entity.y);
-      maxX = Math.max(maxX, entity.x + entity.width);
-      maxY = Math.max(maxY, entity.y + entity.height);
-    } else if (entity.type === "text") {
-      minX = Math.min(minX, entity.x); minY = Math.min(minY, entity.y); maxX = Math.max(maxX, entity.x); maxY = Math.max(maxY, entity.y);
-    } else if (entity.type === "dimension") {
-      [entity.p1, entity.p2, entity.offsetPoint].forEach((pt)=>{minX=Math.min(minX,pt.x);minY=Math.min(minY,pt.y);maxX=Math.max(maxX,pt.x);maxY=Math.max(maxY,pt.y);});
-    }
-  });
+  const boundsUnits = getDocumentBoundsUnits(visibleEntities);
+  if (!boundsUnits) {
+    setStatus("Fit all reset to origin.");
+    draw();
+    renderStatusPanel();
+    return;
+  }
+  const minX = boundsUnits.minX;
+  const minY = boundsUnits.minY;
+  const maxX = boundsUnits.maxX;
+  const maxY = boundsUnits.maxY;
 
   const marginPx = 48;
   const boxWidth = Math.max(1, maxX - minX);
@@ -4667,7 +4705,7 @@ function getDxfExportSummary() {
   const exportCircles = collectDxfExportCircleEntities();
   const exportArcs = collectDxfExportArcEntities();
   const exportTexts = collectDxfExportTextEntities();
-  const bounds = getDxfBoundsMm(exportLines, exportTexts);
+  const bounds = getDxfBoundsMm(exportLines, exportTexts, exportCircles, exportArcs);
 
   return {
     fileVersion: CURRENT_FILE_VERSION,
@@ -4840,8 +4878,8 @@ function createMinimalDxfFixture() {
   }
 }
 
-function getDxfBoundsMm(lines, textEntities = []) {
-  if (!lines.length && !textEntities.length) {
+function getDxfBoundsMm(lines, textEntities = [], circles = [], arcs = []) {
+  if (!lines.length && !textEntities.length && !circles.length && !arcs.length) {
     return null;
   }
 
@@ -4854,6 +4892,14 @@ function getDxfBoundsMm(lines, textEntities = []) {
   textEntities.forEach((entity) => {
     xs.push(dxfXUnitsToMm(entity.x));
     ys.push(dxfYUnitsToMm(entity.y));
+  });
+  circles.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.center.x - entity.radius), dxfXUnitsToMm(entity.center.x + entity.radius));
+    ys.push(dxfYUnitsToMm(entity.center.y - entity.radius), dxfYUnitsToMm(entity.center.y + entity.radius));
+  });
+  arcs.forEach((entity) => {
+    xs.push(dxfXUnitsToMm(entity.center.x - entity.radius), dxfXUnitsToMm(entity.center.x + entity.radius));
+    ys.push(dxfYUnitsToMm(entity.center.y - entity.radius), dxfYUnitsToMm(entity.center.y + entity.radius));
   });
 
   return {
