@@ -48,7 +48,12 @@ const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
 const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
+const deleteLayerButton = document.getElementById("deleteLayerButton");
 const themeToggleButton = document.getElementById("themeToggleButton");
+const deleteLayerDialog = document.getElementById("deleteLayerDialog");
+const moveLayerObjectsButton = document.getElementById("moveLayerObjectsButton");
+const deleteLayerAndObjectsButton = document.getElementById("deleteLayerAndObjectsButton");
+const cancelDeleteLayerButton = document.getElementById("cancelDeleteLayerButton");
 const ribbonTabs = Array.from(document.querySelectorAll(".ribbon-tab"));
 const ribbonPages = Array.from(document.querySelectorAll(".ribbon-page"));
 
@@ -88,6 +93,7 @@ const uiState = {
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   hoverRectEdge: null,
+  deleteLayerDialogLayerId: null,
   panning: false,
   panStartScreen: { x: 0, y: 0 },
   panStartView: { panX: 0, panY: 0 },
@@ -465,6 +471,18 @@ function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoi
   };
   updateLineDraftStatus(prefix);
   draw();
+  renderStatusPanel();
+}
+
+function updateLineDraftStatus(prefix) {
+  if (!uiState.lineDraft) {
+    return;
+  }
+
+  const inputSuffix = uiState.lineDraft.numericInputBuffer
+    ? ` Length: ${uiState.lineDraft.numericInputBuffer} mm`
+    : " Length: -";
+  setStatus(`${prefix}${inputSuffix}`);
   renderStatusPanel();
 }
 
@@ -972,11 +990,117 @@ function renderLayersPanel() {
   });
 }
 
+function isDeleteLayerDialogOpen() {
+  return Boolean(uiState.deleteLayerDialogLayerId && deleteLayerDialog && !deleteLayerDialog.hidden);
+}
+
+function closeDeleteLayerDialog() {
+  uiState.deleteLayerDialogLayerId = null;
+  if (deleteLayerDialog) {
+    deleteLayerDialog.hidden = true;
+  }
+}
+
+function showDeleteLayerDialog(layerId) {
+  const layer = getLayerById(layerId);
+  if (!layer || !deleteLayerDialog) {
+    return;
+  }
+  uiState.deleteLayerDialogLayerId = layerId;
+  deleteLayerDialog.hidden = false;
+}
+
+function getTopLayerIdExcluding(layerId) {
+  const targetLayer = state.layers.find((layer) => layer.id !== layerId);
+  return targetLayer ? targetLayer.id : null;
+}
+
+function pruneSelectedEntityIds() {
+  const entityIds = new Set(state.entities.map((entity) => entity.id));
+  state.selectedEntityIds = state.selectedEntityIds.filter((entityId) => entityIds.has(entityId));
+}
+
+function moveEntitiesToLayer(fromLayerId, toLayerId) {
+  state.entities.forEach((entity) => {
+    if (entity.layerId === fromLayerId) {
+      entity.layerId = toLayerId;
+    }
+  });
+}
+
+function removeLayerAndOptionallyEntities(layerId, mode) {
+  const layer = getLayerById(layerId);
+  if (!layer) {
+    closeDeleteLayerDialog();
+    return false;
+  }
+
+  if (state.layers.length <= 1) {
+    closeDeleteLayerDialog();
+    window.alert("At least one layer is required.");
+    return false;
+  }
+
+  const moveTargetLayerId = mode === "move" ? getTopLayerIdExcluding(layerId) : null;
+  if (mode === "move" && !moveTargetLayerId) {
+    closeDeleteLayerDialog();
+    window.alert("At least one layer is required.");
+    return false;
+  }
+
+  pushUndoState();
+
+  if (mode === "move") {
+    moveEntitiesToLayer(layerId, moveTargetLayerId);
+    state.activeLayerId = moveTargetLayerId;
+  } else if (mode === "delete") {
+    state.entities = state.entities.filter((entity) => entity.layerId !== layerId);
+  } else {
+    closeDeleteLayerDialog();
+    return false;
+  }
+
+  state.layers = state.layers.filter((entry) => entry.id !== layerId);
+  if (mode === "delete") {
+    state.activeLayerId = state.layers[0] ? state.layers[0].id : null;
+  }
+  pruneSelectedEntityIds();
+  closeDeleteLayerDialog();
+  syncAfterStateChange();
+  setStatus(
+    mode === "move"
+      ? `Deleted ${layer.name} and moved its objects to ${getLayerById(state.activeLayerId)?.name || "the top layer"}.`
+      : `Deleted ${layer.name} and its objects.`
+  );
+  return true;
+}
+
+function deleteActiveLayer() {
+  const layer = getLayerById(state.activeLayerId);
+  if (!layer) {
+    setStatus("No active layer.");
+    return false;
+  }
+  if (state.layers.length <= 1) {
+    window.alert("At least one layer is required.");
+    setStatus("At least one layer is required.");
+    return false;
+  }
+  showDeleteLayerDialog(layer.id);
+  setStatus(`Choose how to delete ${layer.name}.`);
+  return true;
+}
+
 function normalizeColor(color) {
   if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) {
     return color;
   }
   return "#2e3135";
+}
+
+function getEntityStrokeColor(entity) {
+  const layer = getLayerById(entity.layerId);
+  return normalizeColor(entity.color || layer?.color || "#2e3135");
 }
 
 function renderPropertiesPanel() {
@@ -5143,6 +5267,15 @@ function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
   const activeTag = document.activeElement ? document.activeElement.tagName : "";
 
+  if (isDeleteLayerDialogOpen()) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDeleteLayerDialog();
+      setStatus("Layer deletion cancelled.");
+    }
+    return;
+  }
+
   if (event.key === "Shift") {
     uiState.isShiftPressed = true;
     refreshPointerConstraint(true);
@@ -5456,6 +5589,17 @@ function bindEvents() {
   exportDxfButton.addEventListener("click", exportDxf);
   explodeButton.addEventListener("click", explodeSelectedRects);
   addLayerButton.addEventListener("click", addLayer);
+  deleteLayerButton.addEventListener("click", deleteActiveLayer);
+  moveLayerObjectsButton.addEventListener("click", () => {
+    removeLayerAndOptionallyEntities(uiState.deleteLayerDialogLayerId, "move");
+  });
+  deleteLayerAndObjectsButton.addEventListener("click", () => {
+    removeLayerAndOptionallyEntities(uiState.deleteLayerDialogLayerId, "delete");
+  });
+  cancelDeleteLayerButton.addEventListener("click", () => {
+    closeDeleteLayerDialog();
+    setStatus("Layer deletion cancelled.");
+  });
   if (themeToggleButton) {
     themeToggleButton.addEventListener("click", toggleTheme);
   }
@@ -5540,6 +5684,23 @@ window.DraftLiteDebug = {
 
   getRects() {
     return deepClone(state.entities.filter((entity) => entity.type === "rect"));
+  },
+
+  getLayers() {
+    return deepClone(state.layers);
+  },
+
+  addLayer() {
+    addLayer();
+    return deepClone(state.layers);
+  },
+
+  deleteActiveLayer(mode = "delete") {
+    const layerId = state.activeLayerId;
+    if (!layerId) {
+      return false;
+    }
+    return removeLayerAndOptionallyEntities(layerId, mode === "move" ? "move" : "delete");
   },
 
   createTextFixture() {

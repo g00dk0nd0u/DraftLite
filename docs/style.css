@@ -190,6 +190,20 @@ select {
     transform 140ms ease;
 }
 
+.panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-icon-button {
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
 .tool-button:hover,
 .panel-button:hover {
   border-color: var(--line-strong);
@@ -355,6 +369,62 @@ body[data-panning="true"] #draftCanvas {
 
 .layer-color input[type="color"] {
   width: 24px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: transparent;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(12, 16, 22, 0.42);
+  z-index: 40;
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-dialog {
+  width: min(360px, 100%);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  box-shadow: 0 18px 42px rgba(15, 23, 31, 0.22);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.modal-body {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.modal-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.modal-action-button {
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.modal-danger-button {
+  border-color: rgba(156, 72, 72, 0.35);
+  color: #8f3838;
+}
+
+.modal-danger-button:hover {
+  border-color: rgba(156, 72, 72, 0.48);
+  background: rgba(156, 72, 72, 0.1);
 }
 
 .tool-icon { font-size: 0.9em; min-width: 1.2em; text-align: center; }

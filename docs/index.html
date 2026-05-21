@@ -99,7 +99,10 @@
           <section class="panel">
             <div class="panel-header">
               <h2>Layers</h2>
-              <button id="addLayerButton" class="panel-button" type="button">Add</button>
+              <div class="panel-actions">
+                <button id="addLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Add layer" title="Add layer" data-testid="add-layer-button">+</button>
+                <button id="deleteLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Delete active layer" title="Delete active layer" data-testid="delete-layer-button">-</button>
+              </div>
             </div>
             <div id="layerList" class="layer-list"></div>
           </section>
@@ -116,6 +119,17 @@
     </div>
 
     <input id="loadJsonInput" type="file" accept=".json,application/json" hidden />
+    <div id="deleteLayerDialog" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deleteLayerDialogTitle" aria-describedby="deleteLayerDialogBody">
+        <h3 id="deleteLayerDialogTitle" class="modal-title">Delete layer?</h3>
+        <p id="deleteLayerDialogBody" class="modal-body">Choose what to do with objects on this layer.</p>
+        <div class="modal-actions">
+          <button id="moveLayerObjectsButton" class="panel-button modal-action-button" type="button" data-testid="move-layer-objects-button">Move objects to top layer</button>
+          <button id="deleteLayerAndObjectsButton" class="panel-button modal-action-button modal-danger-button" type="button" data-testid="delete-layer-and-objects-button">Delete layer and objects</button>
+          <button id="cancelDeleteLayerButton" class="panel-button modal-action-button" type="button" data-testid="cancel-delete-layer-button">Cancel</button>
+        </div>
+      </div>
+    </div>
     <textarea
       id="draftliteDebugBridgeRequest"
       data-testid="debug-bridge-request"
