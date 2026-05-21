@@ -17,3 +17,4 @@ exports/
 .idea/
 
 node_modules/
+.playwright-cli/
