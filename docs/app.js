@@ -4262,6 +4262,482 @@ function getCurrentDocumentSummary() {
   };
 }
 
+function getLayerByName(name) {
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  if (!normalizedName) {
+    return null;
+  }
+  return state.layers.find((layer) => layer.name === normalizedName) || null;
+}
+
+function createAgentLayer(name, color = "#2e3135") {
+  const layerName = typeof name === "string" && name.trim() ? name.trim() : `Layer ${state.nextLayerNumber}`;
+  const layer = {
+    id: createLayerId(),
+    name: layerName,
+    color: normalizeColor(color),
+    visible: true,
+    locked: false,
+  };
+  state.layers.push(layer);
+  return layer;
+}
+
+function ensureAgentLayer(name, options = {}) {
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  if (!normalizedName) {
+    return getLayerById(state.activeLayerId) || state.layers[0] || null;
+  }
+  const existing = getLayerByName(normalizedName);
+  if (existing) {
+    return existing;
+  }
+  if (options.createIfMissing === false) {
+    return null;
+  }
+  return createAgentLayer(normalizedName, options.color);
+}
+
+function getAgentBoundsUnits(entities = state.entities) {
+  const xs = [];
+  const ys = [];
+  entities.forEach((entity) => {
+    if (!entity) {
+      return;
+    }
+    if (entity.type === "line") {
+      xs.push(entity.p1.x, entity.p2.x);
+      ys.push(entity.p1.y, entity.p2.y);
+      return;
+    }
+    if (entity.type === "rect") {
+      xs.push(entity.x, entity.x + entity.width);
+      ys.push(entity.y, entity.y + entity.height);
+      return;
+    }
+    if (entity.type === "circle" || entity.type === "arc") {
+      xs.push(entity.center.x - entity.radius, entity.center.x + entity.radius);
+      ys.push(entity.center.y - entity.radius, entity.center.y + entity.radius);
+      return;
+    }
+    if (entity.type === "filledRegion") {
+      (entity.points || []).forEach((point) => {
+        xs.push(point.x);
+        ys.push(point.y);
+      });
+      return;
+    }
+    if (entity.type === "text") {
+      xs.push(entity.x);
+      ys.push(entity.y - Math.max(1, entity.height || 250), entity.y);
+      return;
+    }
+    if (entity.type === "dimension") {
+      const geometry = getDimensionGeometry(entity);
+      xs.push(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x);
+      ys.push(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y);
+    }
+  });
+  if (!xs.length || !ys.length) {
+    return null;
+  }
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
+}
+
+function getAgentSummary() {
+  const baseSummary = getCurrentDocumentSummary();
+  const boundsUnits = getAgentBoundsUnits();
+  const activeLayer = getLayerById(state.activeLayerId);
+  return {
+    ...baseSummary,
+    entityCount: state.entities.length,
+    lineCount: state.entities.filter((entity) => entity.type === "line").length,
+    rectCount: state.entities.filter((entity) => entity.type === "rect").length,
+    textCount: state.entities.filter((entity) => entity.type === "text").length,
+    circleCount: state.entities.filter((entity) => entity.type === "circle").length,
+    arcCount: state.entities.filter((entity) => entity.type === "arc").length,
+    filledRegionCount: state.entities.filter((entity) => entity.type === "filledRegion").length,
+    dimensionCount: state.entities.filter((entity) => entity.type === "dimension").length,
+    layerCount: state.layers.length,
+    activeLayerId: state.activeLayerId,
+    activeLayerName: activeLayer ? activeLayer.name : null,
+    boundsUnits,
+    boundsMm: boundsUnitsToMm(boundsUnits),
+  };
+}
+
+function summarizeInvalidEntity(entity, index) {
+  return {
+    index,
+    id: entity && entity.id ? entity.id : null,
+    type: entity && entity.type ? entity.type : null,
+  };
+}
+
+function validateDrawingState(options = {}) {
+  const invalidEntities = [];
+  const missingLayerReferences = [];
+  const zeroSizeRects = [];
+  const zeroLengthLines = [];
+  const layerIds = new Set(state.layers.map((layer) => layer.id));
+
+  state.entities.forEach((entity, index) => {
+    const normalized = normalizeEntity(entity, { legacyUnits: false });
+    if (!normalized) {
+      invalidEntities.push(summarizeInvalidEntity(entity, index));
+    }
+    if (!entity || !layerIds.has(entity.layerId)) {
+      missingLayerReferences.push(summarizeInvalidEntity(entity, index));
+    }
+    if (entity && entity.type === "rect" && (!(entity.width > 0) || !(entity.height > 0))) {
+      zeroSizeRects.push(summarizeInvalidEntity(entity, index));
+    }
+    if (
+      entity
+      && entity.type === "line"
+      && entity.p1
+      && entity.p2
+      && entity.p1.x === entity.p2.x
+      && entity.p1.y === entity.p2.y
+    ) {
+      zeroLengthLines.push(summarizeInvalidEntity(entity, index));
+    }
+  });
+
+  const summary = {
+    entityCount: state.entities.length,
+    rectCount: state.entities.filter((entity) => entity.type === "rect").length,
+    lineCount: state.entities.filter((entity) => entity.type === "line").length,
+    textCount: state.entities.filter((entity) => entity.type === "text").length,
+    layerCount: state.layers.length,
+    boundsMm: boundsUnitsToMm(getAgentBoundsUnits()),
+    invalidEntities,
+    missingLayerReferences,
+    zeroSizeRects,
+    zeroLengthLines,
+  };
+
+  const issues = [];
+  if (invalidEntities.length) {
+    issues.push(`${invalidEntities.length} invalid entities found.`);
+  }
+  if (missingLayerReferences.length) {
+    issues.push(`${missingLayerReferences.length} entities reference missing layers.`);
+  }
+  if (zeroSizeRects.length) {
+    issues.push(`${zeroSizeRects.length} rectangles have zero size.`);
+  }
+  if (zeroLengthLines.length) {
+    issues.push(`${zeroLengthLines.length} lines have zero length.`);
+  }
+  if (options.requireNonEmpty && summary.entityCount === 0) {
+    issues.push("Drawing is empty.");
+  }
+
+  return {
+    ok: issues.length === 0,
+    summary,
+    issues,
+  };
+}
+
+function readAgentNumeric(command, key) {
+  const value = Number(command && command[key]);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${key} must be a finite number.`);
+  }
+  return value;
+}
+
+function readAgentPositiveNumeric(command, key) {
+  const value = readAgentNumeric(command, key);
+  if (value <= 0) {
+    throw new Error(`${key} must be greater than zero.`);
+  }
+  return value;
+}
+
+function readAgentTextValue(command, key) {
+  const value = typeof (command && command[key]) === "string" ? command[key].trim() : "";
+  if (!value) {
+    throw new Error(`${key} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function createAgentSuccess(action, extras = {}) {
+  return {
+    ok: true,
+    action,
+    entityIds: [],
+    ...extras,
+  };
+}
+
+function createAgentError(action, error) {
+  return {
+    ok: false,
+    action,
+    error: error && error.message ? error.message : String(error),
+  };
+}
+
+function toPublicAgentResult(result) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const publicResult = { ...result };
+  delete publicResult.changed;
+  delete publicResult.fitView;
+  return publicResult;
+}
+
+function resolveAgentEntityLayer(command) {
+  const layerName = typeof command.layer === "string" ? command.layer.trim() : "";
+  const colorHint = command.color || command.fillColor;
+  const layer = ensureAgentLayer(layerName, { color: colorHint });
+  if (!layer) {
+    throw new Error("A valid layer is required.");
+  }
+  if (!layer.visible || layer.locked) {
+    throw new Error(`Layer "${layer.name}" must be visible and unlocked.`);
+  }
+  return layer;
+}
+
+function createAgentRectEntity(command) {
+  const xMm = readAgentNumeric(command, "x");
+  const yMm = readAgentNumeric(command, "y");
+  const widthMm = readAgentPositiveNumeric(command, "width");
+  const heightMm = readAgentPositiveNumeric(command, "height");
+  const layer = resolveAgentEntityLayer(command);
+  const width = mmToUnits(widthMm);
+  const height = mmToUnits(heightMm);
+  if (width <= 0) {
+    throw new Error("width must be greater than zero.");
+  }
+  if (height <= 0) {
+    throw new Error("height must be greater than zero.");
+  }
+  return {
+    id: createEntityId(),
+    type: "rect",
+    layerId: layer.id,
+    x: mmToUnits(xMm),
+    y: mmToUnits(yMm),
+    width,
+    height,
+    rotation: 0,
+    name: typeof command.name === "string" && command.name.trim() ? command.name.trim() : "Box",
+    fill: command.fill !== false,
+    fillColor: normalizeColor(command.fillColor || command.color || layer.color),
+    color: normalizeOptionalColor(command.color || ""),
+  };
+}
+
+function createAgentLineEntity(command) {
+  const x1Mm = readAgentNumeric(command, "x1");
+  const y1Mm = readAgentNumeric(command, "y1");
+  const x2Mm = readAgentNumeric(command, "x2");
+  const y2Mm = readAgentNumeric(command, "y2");
+  const layer = resolveAgentEntityLayer(command);
+  const entity = {
+    id: createEntityId(),
+    type: "line",
+    layerId: layer.id,
+    p1: { x: mmToUnits(x1Mm), y: mmToUnits(y1Mm) },
+    p2: { x: mmToUnits(x2Mm), y: mmToUnits(y2Mm) },
+    color: normalizeOptionalColor(command.color || ""),
+  };
+  if (entity.p1.x === entity.p2.x && entity.p1.y === entity.p2.y) {
+    throw new Error("line length must be greater than zero.");
+  }
+  return entity;
+}
+
+function createAgentTextEntity(command) {
+  const xMm = readAgentNumeric(command, "x");
+  const yMm = readAgentNumeric(command, "y");
+  const text = readAgentTextValue(command, "text");
+  const heightMm = readAgentPositiveNumeric(command, "height");
+  const layer = resolveAgentEntityLayer(command);
+  const height = mmToUnits(heightMm);
+  if (height <= 0) {
+    throw new Error("height must be greater than zero.");
+  }
+  return {
+    id: createEntityId(),
+    type: "text",
+    layerId: layer.id,
+    x: mmToUnits(xMm),
+    y: mmToUnits(yMm),
+    text,
+    height,
+    rotation: 0,
+    align: "left",
+    color: normalizeOptionalColor(command.color || ""),
+  };
+}
+
+function applyAgentCommand(command) {
+  const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+  if (!action) {
+    throw new Error("action is required.");
+  }
+
+  if (action === "rect") {
+    const entity = createAgentRectEntity(command);
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    return createAgentSuccess(action, {
+      entityIds: [entity.id],
+      message: "Rectangle created.",
+      changed: true,
+    });
+  }
+
+  if (action === "line") {
+    const entity = createAgentLineEntity(command);
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    return createAgentSuccess(action, {
+      entityIds: [entity.id],
+      message: "Line created.",
+      changed: true,
+    });
+  }
+
+  if (action === "text") {
+    const entity = createAgentTextEntity(command);
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    return createAgentSuccess(action, {
+      entityIds: [entity.id],
+      message: "Text created.",
+      changed: true,
+    });
+  }
+
+  if (action === "clear") {
+    state.entities = [];
+    state.selectedEntityIds = [];
+    return createAgentSuccess(action, {
+      message: "Document cleared.",
+      changed: true,
+    });
+  }
+
+  if (action === "fitAll") {
+    return createAgentSuccess(action, {
+      message: "Fit all applied.",
+      fitView: true,
+    });
+  }
+
+  if (action === "setLayer") {
+    const layerName = typeof command.layer === "string" && command.layer.trim()
+      ? command.layer.trim()
+      : readAgentTextValue(command, "name");
+    const existing = getLayerByName(layerName);
+    const layer = existing || createAgentLayer(layerName, command.color);
+    state.activeLayerId = layer.id;
+    return createAgentSuccess(action, {
+      message: existing ? `Active layer set to ${layer.name}.` : `Layer ${layer.name} created and activated.`,
+      changed: true,
+      layerId: layer.id,
+    });
+  }
+
+  throw new Error(`Unsupported action: ${action}`);
+}
+
+function isAgentMutationAction(action) {
+  return action === "rect"
+    || action === "line"
+    || action === "text"
+    || action === "clear"
+    || action === "setLayer";
+}
+
+function finalizeAgentStateChange(options = {}) {
+  const shouldSync = options.shouldSync !== false;
+  const shouldFit = Boolean(options.shouldFit);
+  clearTransientState();
+  if (shouldSync) {
+    syncAfterStateChange();
+  }
+  if (shouldFit) {
+    fitAll();
+  }
+}
+
+function executeAgentCommand(command) {
+  const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+  try {
+    if (isAgentMutationAction(action)) {
+      pushUndoState();
+    }
+    const result = applyAgentCommand(command || {});
+    finalizeAgentStateChange({
+      shouldSync: result.changed || result.fitView,
+      shouldFit: result.fitView,
+    });
+    if (result.message) {
+      setStatus(result.message);
+    }
+    return toPublicAgentResult(result);
+  } catch (error) {
+    setStatus(error && error.message ? error.message : String(error));
+    return createAgentError(action || "", error);
+  }
+}
+
+function executeManyAgentCommands(commands) {
+  const items = Array.isArray(commands) ? commands : [];
+  const mutating = items.some((command) => isAgentMutationAction(typeof (command && command.action) === "string" ? command.action.trim() : ""));
+  const results = [];
+  let shouldSync = false;
+  let shouldFit = false;
+
+  if (mutating) {
+    pushUndoState();
+  }
+
+  items.forEach((command) => {
+    const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+    try {
+      const result = applyAgentCommand(command || {});
+      results.push(toPublicAgentResult(result));
+      shouldSync = shouldSync || Boolean(result.changed || result.fitView);
+      shouldFit = shouldFit || Boolean(result.fitView);
+    } catch (error) {
+      results.push(createAgentError(action || "", error));
+    }
+  });
+
+  if (shouldSync || shouldFit) {
+    finalizeAgentStateChange({ shouldSync: shouldSync || shouldFit, shouldFit });
+  }
+
+  const failed = results.find((result) => !result.ok);
+  if (failed && failed.error) {
+    setStatus(failed.error);
+  } else if (results.length) {
+    setStatus("Agent batch complete.");
+  }
+
+  return {
+    ok: !failed,
+    count: items.length,
+    results,
+  };
+}
+
 function createLegacyUnitFixture() {
   const base = createInitialState();
   return {
@@ -4425,6 +4901,20 @@ function writeDebugBridgeOutput(payload) {
   output.dataset.lastError = payload.error || "";
 }
 
+function writeAgentBridgeOutput(payload) {
+  const output = document.getElementById("draftliteDebugBridgeOutput");
+  if (!output) {
+    return;
+  }
+
+  output.dataset.lastAgentCommandId = String(payload.id || "");
+  output.dataset.lastAgentAction = String(payload.action || payload.command || "");
+  output.dataset.lastAgentOk = payload.ok ? "true" : "false";
+  output.dataset.lastAgentResult =
+    payload.result === undefined ? "" : JSON.stringify(payload.result);
+  output.dataset.lastAgentError = payload.error || "";
+}
+
 function tryDispatchDebugBridgeResult(payload) {
   if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") {
     return;
@@ -4432,6 +4922,18 @@ function tryDispatchDebugBridgeResult(payload) {
 
   document.dispatchEvent(
     new CustomEvent("draftlite:debug-result", {
+      detail: payload,
+    })
+  );
+}
+
+function tryDispatchAgentBridgeResult(payload) {
+  if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") {
+    return;
+  }
+
+  document.dispatchEvent(
+    new CustomEvent("draftlite:agent-result", {
       detail: payload,
     })
   );
@@ -4449,6 +4951,22 @@ function executeDebugBridgeCommand(detail) {
 
   writeDebugBridgeOutput(payload);
   tryDispatchDebugBridgeResult(payload);
+  return payload;
+}
+
+function executeAgentBridgeCommand(detail) {
+  const command = detail && detail.command ? detail.command : {};
+  const action = typeof command.action === "string" ? command.action.trim() : "";
+  const result = executeAgentCommand(command);
+  const payload = {
+    id: detail && detail.id ? detail.id : String(Date.now()),
+    action,
+    ok: result.ok,
+    result,
+    error: result.ok ? "" : (result.error || "Unknown agent error."),
+  };
+  writeAgentBridgeOutput(payload);
+  tryDispatchAgentBridgeResult(payload);
   return payload;
 }
 
@@ -4475,6 +4993,10 @@ function readDebugBridgeRequest(output) {
 function bindDebugBridge() {
   document.addEventListener("draftlite:debug-command", (event) => {
     executeDebugBridgeCommand(event.detail || {});
+  });
+
+  document.addEventListener("draftlite:agent-command", (event) => {
+    executeAgentBridgeCommand(event.detail || {});
   });
 
   const requestInput = document.getElementById("draftliteDebugBridgeRequest");
@@ -6182,6 +6704,62 @@ window.DraftLiteDebug = {
 
   mmToScreen(xMm, yMm) {
     return worldToScreen({ x: mmToUnits(xMm), y: mmToUnits(yMm) });
+  },
+};
+
+window.DraftLiteAgent = {
+  version: "0.1",
+
+  execute(command) {
+    return executeAgentCommand(command || {});
+  },
+
+  executeMany(commands) {
+    return executeManyAgentCommands(commands);
+  },
+
+  clear() {
+    return executeAgentCommand({ action: "clear" });
+  },
+
+  fitAll() {
+    return executeAgentCommand({ action: "fitAll" });
+  },
+
+  getState() {
+    return snapshotState();
+  },
+
+  getEntities() {
+    return deepClone(state.entities);
+  },
+
+  getSummary() {
+    return getAgentSummary();
+  },
+
+  getBounds() {
+    return boundsUnitsToMm(getAgentBoundsUnits());
+  },
+
+  validateDrawing(options = {}) {
+    return validateDrawingState(options);
+  },
+
+  createRect(command) {
+    return executeAgentCommand({ ...(command || {}), action: "rect" });
+  },
+
+  createLine(command) {
+    return executeAgentCommand({ ...(command || {}), action: "line" });
+  },
+
+  createText(command) {
+    return executeAgentCommand({ ...(command || {}), action: "text" });
+  },
+
+  setLayer(command) {
+    return executeAgentCommand({ ...(command || {}), action: "setLayer" });
   },
 };
 
