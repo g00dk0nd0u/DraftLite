@@ -361,6 +361,19 @@ body[data-panning="true"] #draftCanvas {
   padding: 10px 12px 12px;
 }
 
+.agent-io-hint {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  opacity: 0.82;
+}
+
+.agent-io-hint code {
+  color: inherit;
+  font: inherit;
+  font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+}
+
 .agent-io-panel textarea,
 .agent-io-panel pre {
   width: 100%;

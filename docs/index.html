@@ -119,14 +119,20 @@
             <details>
               <summary>Agent IO</summary>
               <div class="agent-io-body">
+                <div class="agent-io-hint" data-testid="agent-io-hint">
+                  Start with: <code>tools</code> / <code>resources</code> / <code>summary</code> / <code>validate</code>
+                </div>
                 <textarea
                   id="agentCommandInput"
                   data-testid="agent-command-input"
                   spellcheck="false"
-                  placeholder='[
+                  placeholder='tools
+
+or JSON:
+[
   { "action": "clear" },
-  { "action": "rect", "x": 0, "y": 0, "width": 6000, "height": 3000, "name": "body" },
-  { "action": "fitAll" }
+  { "action": "rect", "x": 0, "y": 0, "width": 6000, "height": 3000 },
+  { "action": "fit" }
 ]'
                 ></textarea>
                 <div class="agent-io-actions">
