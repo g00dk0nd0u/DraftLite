@@ -32,6 +32,7 @@ const toolButtons = {
   filledRegion: document.getElementById("filledRegionButton"),
   text: document.getElementById("textButton"),
   dimension: document.getElementById("dimensionButton"),
+  matchProperties: document.getElementById("matchPropertiesButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   align: document.getElementById("alignButton"),
@@ -84,6 +85,7 @@ const uiState = {
   extendDraft: null,
   filletDraft: null,
   dimensionDraft: null,
+  matchPropertiesSourceId: null,
   selectionWindow: null,
   snapMarker: null,
   isShiftPressed: false,
@@ -195,6 +197,7 @@ function clearTransientState() {
   uiState.extendDraft = null;
   uiState.filletDraft = null;
   uiState.dimensionDraft = null;
+  uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
   uiState.hoverRectEdge = null;
@@ -690,6 +693,7 @@ function normalizeEntity(entity, options = {}) {
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       p1: normalizePoint(entity.p1, legacyUnits),
       p2: normalizePoint(entity.p2, legacyUnits),
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
   if (entity.type === "rect") {
@@ -710,8 +714,7 @@ function normalizeEntity(entity, options = {}) {
       height,
       rotation: 0,
       name: typeof entity.name === "string" ? entity.name : "Box",
-      fill: entity.fill !== false,
-      fillColor: normalizeColor(entity.fillColor || ""),
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true, supportsFill: true }),
     };
   }
   if (entity.type === "circle") {
@@ -725,6 +728,7 @@ function normalizeEntity(entity, options = {}) {
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       center: normalizePoint(entity.center, legacyUnits),
       radius,
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
   if (entity.type === "arc") {
@@ -740,6 +744,7 @@ function normalizeEntity(entity, options = {}) {
       radius,
       startAngleDeg: Number(entity.startAngleDeg) || 0,
       endAngleDeg: Number(entity.endAngleDeg) || 90,
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
   if (entity.type === "filledRegion") {
@@ -754,8 +759,7 @@ function normalizeEntity(entity, options = {}) {
       type: "filledRegion",
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       points,
-      fill: entity.fill !== false,
-      fillColor: normalizeColor(entity.fillColor || ""),
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true, supportsFill: true }),
     };
   }
   if (entity.type === "text") {
@@ -773,7 +777,7 @@ function normalizeEntity(entity, options = {}) {
       height: Math.max(1, normalizeUnitValue(entity.height ?? 250, legacyUnits)),
       rotation: Number(entity.rotation) || 0,
       align: ["left", "center", "right"].includes(entity.align) ? entity.align : "left",
-      color: entity.color ? normalizeColor(entity.color) : "",
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
 
@@ -788,8 +792,8 @@ function normalizeEntity(entity, options = {}) {
       textOverride: typeof entity.textOverride === "string" ? entity.textOverride : "",
       textHeight: Math.max(1, normalizeUnitValue(entity.textHeight ?? 250, legacyUnits)),
       tickSize: Math.max(1, normalizeUnitValue(entity.tickSize ?? 250, legacyUnits)),
-      color: entity.color ? normalizeColor(entity.color) : "",
       precision: Math.max(0, Math.min(3, Math.round(Number(entity.precision) || 0))),
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
   return null;
@@ -1098,9 +1102,228 @@ function normalizeColor(color) {
   return "#2e3135";
 }
 
+function normalizeOptionalColor(color) {
+  if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) {
+    return color;
+  }
+  return "";
+}
+
+function normalizeOptionalOpacity(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return undefined;
+  }
+  return clampNumber(numeric, 0, 1, 1);
+}
+
+function normalizeOptionalStrokeWidth(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return undefined;
+  }
+  return numeric;
+}
+
+function normalizeOptionalDash(value) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const dash = value
+    .map((part) => Number(part))
+    .filter((part) => Number.isFinite(part) && part >= 0);
+  return dash.length ? dash : undefined;
+}
+
+function getNormalizedEntityStyleProps(entity, options = {}) {
+  const style = {};
+  if (options.supportsStroke) {
+    style.color = normalizeOptionalColor(entity.color || entity.strokeColor || entity.lineColor || "");
+    const opacity = normalizeOptionalOpacity(entity.opacity);
+    if (opacity !== undefined) {
+      style.opacity = opacity;
+    }
+    const lineWidth = normalizeOptionalStrokeWidth(entity.lineWidth ?? entity.strokeWidth);
+    if (lineWidth !== undefined) {
+      style.lineWidth = lineWidth;
+    }
+    if (typeof entity.lineStyle === "string" && entity.lineStyle.trim()) {
+      style.lineStyle = entity.lineStyle.trim();
+    }
+    if (typeof entity.dashed === "boolean") {
+      style.dashed = entity.dashed;
+    }
+    const dash = normalizeOptionalDash(entity.dash);
+    if (dash) {
+      style.dash = dash;
+    }
+  }
+  if (options.supportsFill) {
+    style.fill = entity.fill !== false;
+    style.fillColor = normalizeOptionalColor(entity.fillColor || "");
+    const fillAlpha = normalizeOptionalOpacity(entity.fillAlpha);
+    if (fillAlpha !== undefined) {
+      style.fillAlpha = fillAlpha;
+    }
+  }
+  return style;
+}
+
 function getEntityStrokeColor(entity) {
   const layer = getLayerById(entity.layerId);
   return normalizeColor(entity.color || layer?.color || "#2e3135");
+}
+
+function getEntityOpacity(entity) {
+  const opacity = normalizeOptionalOpacity(entity.opacity);
+  return opacity === undefined ? 1 : opacity;
+}
+
+function getEntityStrokeWidth(entity, normalWidth, selectedWidth, isSelected) {
+  const explicitWidth = normalizeOptionalStrokeWidth(entity.lineWidth ?? entity.strokeWidth);
+  if (explicitWidth === undefined) {
+    return isSelected ? selectedWidth : normalWidth;
+  }
+  return isSelected
+    ? Math.max(selectedWidth, explicitWidth + 0.8)
+    : explicitWidth;
+}
+
+function getEntityStrokeDash(entity) {
+  const explicitDash = normalizeOptionalDash(entity.dash);
+  if (explicitDash) {
+    return explicitDash;
+  }
+  if (entity.dashed === true || entity.lineStyle === "dashed") {
+    return [8, 6];
+  }
+  return [];
+}
+
+function getEntityFillOpacity(entity, baseAlpha) {
+  const fillAlpha = normalizeOptionalOpacity(entity.fillAlpha);
+  if (fillAlpha !== undefined) {
+    return clampNumber(baseAlpha * fillAlpha, 0, 1, baseAlpha);
+  }
+  return clampNumber(baseAlpha * getEntityOpacity(entity), 0, 1, baseAlpha);
+}
+
+function supportsStrokeMatchedProperties(entity) {
+  return Boolean(entity) && ["line", "rect", "circle", "arc", "filledRegion", "text", "dimension"].includes(entity.type);
+}
+
+function supportsFillMatchedProperties(entity) {
+  return Boolean(entity) && (entity.type === "rect" || entity.type === "filledRegion");
+}
+
+function supportsMatchedProperties(entity) {
+  return supportsStrokeMatchedProperties(entity) || supportsFillMatchedProperties(entity);
+}
+
+function getTopmostSelectableEntityAtPoint(worldPoint) {
+  return state.entities
+    .filter(canSelectEntity)
+    .slice()
+    .reverse()
+    .find((entity) => hitTestEntity(entity, worldPoint)) || null;
+}
+
+function createMatchedStylePatch(sourceEntity, targetEntity) {
+  if (!supportsMatchedProperties(sourceEntity) || !supportsMatchedProperties(targetEntity)) {
+    return null;
+  }
+
+  const patch = {};
+  if (supportsStrokeMatchedProperties(targetEntity) && supportsStrokeMatchedProperties(sourceEntity)) {
+    patch.color = getEntityStrokeColor(sourceEntity);
+    const opacity = normalizeOptionalOpacity(sourceEntity.opacity);
+    if (opacity !== undefined) {
+      patch.opacity = opacity;
+    }
+    const lineWidth = normalizeOptionalStrokeWidth(sourceEntity.lineWidth ?? sourceEntity.strokeWidth);
+    if (lineWidth !== undefined) {
+      patch.lineWidth = lineWidth;
+    }
+    if (typeof sourceEntity.lineStyle === "string" && sourceEntity.lineStyle.trim()) {
+      patch.lineStyle = sourceEntity.lineStyle.trim();
+    }
+    if (typeof sourceEntity.dashed === "boolean") {
+      patch.dashed = sourceEntity.dashed;
+    }
+    const dash = normalizeOptionalDash(sourceEntity.dash);
+    if (dash) {
+      patch.dash = [...dash];
+    }
+  }
+
+  if (supportsFillMatchedProperties(targetEntity) && supportsFillMatchedProperties(sourceEntity)) {
+    patch.fill = sourceEntity.fill !== false;
+    patch.fillColor = normalizeColor(sourceEntity.fillColor || getEntityStrokeColor(sourceEntity));
+    const fillAlpha = normalizeOptionalOpacity(sourceEntity.fillAlpha);
+    if (fillAlpha !== undefined) {
+      patch.fillAlpha = fillAlpha;
+    }
+  }
+
+  return Object.keys(patch).length ? patch : null;
+}
+
+function applyMatchedStylePatch(targetEntity, patch) {
+  if (!targetEntity || !patch) {
+    return false;
+  }
+  Object.entries(patch).forEach(([key, value]) => {
+    targetEntity[key] = Array.isArray(value) ? [...value] : value;
+  });
+  return true;
+}
+
+function cancelMatchProperties(message = "Match Properties cancelled.") {
+  uiState.matchPropertiesSourceId = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
+  setStatus(message);
+}
+
+function handleMatchPropertiesToolClick(worldPoint) {
+  const hit = getTopmostSelectableEntityAtPoint(worldPoint);
+  if (!hit) {
+    setStatus("No object selected.");
+    return;
+  }
+  if (!supportsMatchedProperties(hit)) {
+    setStatus("Target does not support matched properties.");
+    return;
+  }
+
+  if (!uiState.matchPropertiesSourceId) {
+    uiState.matchPropertiesSourceId = hit.id;
+    state.selectedEntityIds = [hit.id];
+    syncAfterStateChange();
+    setStatus("Select target object.");
+    return;
+  }
+
+  const sourceEntity = getEntityById(uiState.matchPropertiesSourceId);
+  if (!sourceEntity || !supportsMatchedProperties(sourceEntity)) {
+    uiState.matchPropertiesSourceId = null;
+    state.selectedEntityIds = [];
+    syncAfterStateChange();
+    setStatus("Select source object.");
+    return;
+  }
+
+  const patch = createMatchedStylePatch(sourceEntity, hit);
+  if (!patch) {
+    setStatus("Target does not support matched properties.");
+    return;
+  }
+
+  pushUndoState();
+  applyMatchedStylePatch(hit, patch);
+  state.selectedEntityIds = [hit.id];
+  syncAfterStateChange();
+  setStatus("Properties matched.");
 }
 
 function renderPropertiesPanel() {
@@ -1704,8 +1927,10 @@ function drawLineEntity(entity) {
   const screenP2 = worldToScreen(entity.p2);
 
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  ctx.setLineDash(getEntityStrokeDash(entity));
 
   if (isSelected) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.22)";
@@ -1716,8 +1941,8 @@ function drawLineEntity(entity) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = layer.color;
-  ctx.lineWidth = isSelected ? 2.6 : 1.6;
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.6, isSelected);
   ctx.beginPath();
   ctx.moveTo(screenP1.x, screenP1.y);
   ctx.lineTo(screenP2.x, screenP2.y);
@@ -1825,8 +2050,10 @@ function drawRectEntity(entity) {
   const w = p2.x - p1.x;
   const h = p2.y - p1.y;
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
+  ctx.setLineDash(getEntityStrokeDash(entity));
   if (entity.fill !== false) {
-    ctx.fillStyle = getEntityFillStyle(entity, layer.color, isSelected ? 0.26 : 0.18);
+    ctx.fillStyle = getEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     ctx.fillRect(p1.x, p1.y, w, h);
   }
   if (isSelected) {
@@ -1834,8 +2061,8 @@ function drawRectEntity(entity) {
     ctx.lineWidth = 10;
     ctx.strokeRect(p1.x, p1.y, w, h);
   }
-  ctx.strokeStyle = layer.color;
-  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
   ctx.strokeRect(p1.x, p1.y, w, h);
   if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
@@ -1863,6 +2090,8 @@ function drawCircleEntity(entity) {
   const radiusPx = Math.max(1, Math.abs(entity.radius * state.view.zoom));
   const isSelected = state.selectedEntityIds.includes(entity.id);
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
+  ctx.setLineDash(getEntityStrokeDash(entity));
   if (isSelected) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
     ctx.lineWidth = 10;
@@ -1871,7 +2100,7 @@ function drawCircleEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
   ctx.stroke();
@@ -1885,6 +2114,8 @@ function drawArcEntity(entity) {
   const startRad = (entity.startAngleDeg || 0) * Math.PI / 180;
   const endRad = (entity.endAngleDeg || 0) * Math.PI / 180;
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
+  ctx.setLineDash(getEntityStrokeDash(entity));
   if (isSelected) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
     ctx.lineWidth = 10;
@@ -1893,7 +2124,7 @@ function drawArcEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = isSelected ? 2.4 : 1.6;
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
   ctx.stroke();
@@ -1905,6 +2136,8 @@ function drawFilledRegionEntity(entity) {
   const points = entity.points.map(worldToScreen);
   const isSelected = state.selectedEntityIds.includes(entity.id);
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i += 1) {
@@ -1912,7 +2145,7 @@ function drawFilledRegionEntity(entity) {
   }
   ctx.closePath();
   if (entity.fill !== false) {
-    ctx.fillStyle = getEntityFillStyle(entity, getEntityStrokeColor(entity), isSelected ? 0.26 : 0.18);
+    ctx.fillStyle = getEntityFillStyle(entity, getEntityStrokeColor(entity), getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     ctx.fill();
   }
   if (isSelected) {
@@ -1921,7 +2154,7 @@ function drawFilledRegionEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = isSelected ? 2.2 : 1.4;
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.4, 2.2, isSelected);
   ctx.stroke();
   ctx.restore();
 }
@@ -1949,6 +2182,7 @@ function drawTextEntity(entity) {
   const color = normalizeColor(entity.color || layer.color);
   const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
   ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
   ctx.font = `${fontPx}px sans-serif`;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = entity.align || "left";
@@ -2036,7 +2270,7 @@ function drawDimensionEntity(entity) {
   const color = normalizeColor(entity.color || layer.color);
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const geometry = getDimensionScreenGeometry(entity);
-  ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=isSelected?2.4:1.4;
+  ctx.save(); ctx.globalAlpha = getEntityOpacity(entity); ctx.setLineDash(getEntityStrokeDash(entity)); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=getEntityStrokeWidth(entity, 1.4, 2.4, isSelected);
   [...geometry.extensionLines, geometry.dimensionLine, ...geometry.tickLines].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
   ctx.font=`${geometry.fontPx}px sans-serif`; ctx.textAlign='center'; ctx.fillText(geometry.text, geometry.textPosition.x, geometry.textPosition.y);
   if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(geometry.textBox.left, geometry.textBox.top, geometry.textBox.right - geometry.textBox.left, geometry.textBox.bottom - geometry.textBox.top);}
@@ -4408,6 +4642,10 @@ function onCanvasMouseDown(event) {
     handleDimensionToolClick(worldPoint);
     return;
   }
+  if (uiState.activeTool === "matchProperties") {
+    handleMatchPropertiesToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
     if (!uiState.transformDraft) {
@@ -4814,6 +5052,10 @@ function setActiveTool(tool) {
   }
   if (tool === "dimension") {
     setStatus("Aligned Dimension: pick first point");
+    return;
+  }
+  if (tool === "matchProperties") {
+    setStatus("Select source object.");
     return;
   }
   if (tool === "circle") {
@@ -5373,6 +5615,10 @@ function onKeyDown(event) {
       cancelFillet();
       return;
     }
+    if (uiState.matchPropertiesSourceId || uiState.activeTool === "matchProperties") {
+      cancelMatchProperties();
+      return;
+    }
     if (uiState.dimensionDraft || uiState.activeTool === "dimension") {
       uiState.dimensionDraft = null;
       if (uiState.activeTool === "dimension") {
@@ -5578,6 +5824,7 @@ function bindEvents() {
   toolButtons.filledRegion.addEventListener("click", () => setActiveTool("filledRegion"));
   toolButtons.text.addEventListener("click", () => setActiveTool("text"));
   toolButtons.dimension.addEventListener("click", () => setActiveTool("dimension"));
+  toolButtons.matchProperties.addEventListener("click", () => setActiveTool("matchProperties"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
@@ -5661,6 +5908,8 @@ window.DraftLiteDebug = {
   getUiState() {
     return {
       activeTool: uiState.activeTool,
+      matchPropertiesSourceId: uiState.matchPropertiesSourceId,
+      hasMatchPropertiesSource: Boolean(uiState.matchPropertiesSourceId),
       selectedEntityIds: [...state.selectedEntityIds],
       lineDraft: Boolean(uiState.lineDraft),
       rectangleDraft: Boolean(uiState.rectangleDraft),
