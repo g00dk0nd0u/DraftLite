@@ -1,0 +1,59 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - strong [ref=e6]: DraftLite
+        - navigation "Ribbon tabs" [ref=e7]:
+          - button "Architecture" [ref=e8] [cursor=pointer]
+          - button "Modify" [ref=e9] [cursor=pointer]
+          - button "Annotate" [ref=e10] [cursor=pointer]
+          - button "View" [ref=e11] [cursor=pointer]
+          - button "Manage" [ref=e12] [cursor=pointer]
+      - toolbar "Architecture ribbon" [ref=e15]:
+        - group "Draw panel" [ref=e16]:
+          - generic [ref=e17]: Draw
+          - button "↖ Select" [ref=e18] [cursor=pointer]:
+            - generic [ref=e19]: ↖
+            - generic [ref=e20]: Select
+          - button "／ Line" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: ／
+            - generic [ref=e23]: Line
+          - button "▭ Rectangle" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: ▭
+            - generic [ref=e26]: Rectangle
+          - button "◯ Circle" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: ◯
+            - generic [ref=e29]: Circle
+          - button "◜ Arc" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: ◜
+            - generic [ref=e32]: Arc
+          - button "▰ Filled Region" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: ▰
+            - generic [ref=e35]: Filled Region
+    - main [ref=e36]:
+      - region "Drafting canvas area" [ref=e37]:
+        - generic "DraftLite canvas" [ref=e39]
+      - complementary "Layers and properties" [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - heading "Layers" [level=2] [ref=e43]
+            - generic [ref=e44]:
+              - button "Add layer" [ref=e45] [cursor=pointer]: +
+              - button "Delete active layer" [ref=e46] [cursor=pointer]: "-"
+          - generic [ref=e47]:
+            - generic [ref=e48]:
+              - generic [ref=e49]: Active
+              - generic [ref=e50]: Name
+              - generic [ref=e51]: Visible
+              - generic [ref=e52]: Lock
+              - generic [ref=e53]: Color
+            - generic [ref=e54]:
+              - radio [checked] [ref=e55]
+              - textbox [ref=e57]: Layer 1
+              - checkbox [checked] [ref=e58]
+              - checkbox [ref=e59]
+              - textbox [ref=e61]: "#2e3135"
+        - generic [ref=e62]:
+          - heading "Properties" [level=2] [ref=e64]
+          - paragraph [ref=e66]: No entity selected.
+  - textbox
