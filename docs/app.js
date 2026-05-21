@@ -57,6 +57,13 @@ const deleteLayerAndObjectsButton = document.getElementById("deleteLayerAndObjec
 const cancelDeleteLayerButton = document.getElementById("cancelDeleteLayerButton");
 const ribbonTabs = Array.from(document.querySelectorAll(".ribbon-tab"));
 const ribbonPages = Array.from(document.querySelectorAll(".ribbon-page"));
+const agentCommandInput = document.getElementById("agentCommandInput");
+const agentRunButton = document.getElementById("agentRunButton");
+const agentValidateButton = document.getElementById("agentValidateButton");
+const agentClearButton = document.getElementById("agentClearButton");
+const agentFitButton = document.getElementById("agentFitButton");
+const agentCopyResultButton = document.getElementById("agentCopyResultButton");
+const agentResultOutput = document.getElementById("agentResultOutput");
 
 const ctx = canvas.getContext("2d");
 
@@ -4738,6 +4745,105 @@ function executeManyAgentCommands(commands) {
   };
 }
 
+function setAgentResultOutput(payload, options = {}) {
+  if (!agentResultOutput) {
+    return;
+  }
+  const content = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  const lastOk = typeof options.ok === "boolean"
+    ? String(options.ok)
+    : (payload && typeof payload === "object" && typeof payload.ok === "boolean" ? String(payload.ok) : "");
+  const lastError = typeof options.error === "string"
+    ? options.error
+    : (payload && typeof payload === "object" && typeof payload.error === "string" ? payload.error : "");
+  agentResultOutput.textContent = content;
+  agentResultOutput.dataset.lastOk = lastOk;
+  agentResultOutput.dataset.lastResult = content;
+  agentResultOutput.dataset.lastError = lastError;
+}
+
+function normalizeAgentCommandPayload(parsed) {
+  if (Array.isArray(parsed)) {
+    return { mode: "many", commands: parsed };
+  }
+  if (parsed && typeof parsed === "object") {
+    if (Array.isArray(parsed.commands)) {
+      return { mode: "many", commands: parsed.commands };
+    }
+    return { mode: "single", command: parsed };
+  }
+  throw new Error("Agent command JSON must be an object, array, or { commands: [...] }.");
+}
+
+function runAgentPanelCommand() {
+  if (!agentCommandInput || !window.DraftLiteAgent) {
+    return;
+  }
+  try {
+    const raw = agentCommandInput.value.trim();
+    if (!raw) {
+      throw new Error("Agent command input is empty.");
+    }
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeAgentCommandPayload(parsed);
+    const result = normalized.mode === "many"
+      ? window.DraftLiteAgent.executeMany(normalized.commands)
+      : window.DraftLiteAgent.execute(normalized.command);
+    setAgentResultOutput(result);
+  } catch (error) {
+    setAgentResultOutput(
+      {
+        ok: false,
+        error: error && error.message ? error.message : String(error),
+      },
+      {
+        ok: false,
+        error: error && error.message ? error.message : String(error),
+      }
+    );
+  }
+}
+
+function validateAgentPanelDrawing() {
+  if (!window.DraftLiteAgent) {
+    return;
+  }
+  setAgentResultOutput(window.DraftLiteAgent.validateDrawing({ requireNonEmpty: true }));
+}
+
+function clearAgentPanelDrawing() {
+  if (!window.DraftLiteAgent) {
+    return;
+  }
+  setAgentResultOutput(window.DraftLiteAgent.clear());
+}
+
+function fitAgentPanelDrawing() {
+  if (!window.DraftLiteAgent) {
+    return;
+  }
+  setAgentResultOutput(window.DraftLiteAgent.fitAll());
+}
+
+function copyAgentPanelResult() {
+  if (!agentResultOutput) {
+    return;
+  }
+  const text = agentResultOutput.textContent || "";
+  if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    return;
+  }
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+function onAgentCommandInputKeyDown(event) {
+  event.stopPropagation();
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    runAgentPanelCommand();
+  }
+}
+
 function createLegacyUnitFixture() {
   const base = createInitialState();
   return {
@@ -6393,6 +6499,24 @@ function bindEvents() {
   });
   if (themeToggleButton) {
     themeToggleButton.addEventListener("click", toggleTheme);
+  }
+  if (agentRunButton) {
+    agentRunButton.addEventListener("click", runAgentPanelCommand);
+  }
+  if (agentValidateButton) {
+    agentValidateButton.addEventListener("click", validateAgentPanelDrawing);
+  }
+  if (agentClearButton) {
+    agentClearButton.addEventListener("click", clearAgentPanelDrawing);
+  }
+  if (agentFitButton) {
+    agentFitButton.addEventListener("click", fitAgentPanelDrawing);
+  }
+  if (agentCopyResultButton) {
+    agentCopyResultButton.addEventListener("click", copyAgentPanelResult);
+  }
+  if (agentCommandInput) {
+    agentCommandInput.addEventListener("keydown", onAgentCommandInputKeyDown);
   }
   ribbonTabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveRibbonTab(tab.dataset.ribbonTab));

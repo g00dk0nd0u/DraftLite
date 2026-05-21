@@ -115,6 +115,38 @@
             <div id="propertiesPanel" class="properties-panel"></div>
           </section>
 
+          <section class="panel agent-io-panel">
+            <details>
+              <summary>Agent IO</summary>
+              <div class="agent-io-body">
+                <textarea
+                  id="agentCommandInput"
+                  data-testid="agent-command-input"
+                  spellcheck="false"
+                  placeholder='[
+  { "action": "clear" },
+  { "action": "rect", "x": 0, "y": 0, "width": 6000, "height": 3000, "name": "body" },
+  { "action": "fitAll" }
+]'
+                ></textarea>
+                <div class="agent-io-actions">
+                  <button id="agentRunButton" class="panel-button" type="button" data-testid="agent-run-button">Run</button>
+                  <button id="agentValidateButton" class="panel-button" type="button" data-testid="agent-validate-button">Validate</button>
+                  <button id="agentClearButton" class="panel-button" type="button" data-testid="agent-clear-button">Clear</button>
+                  <button id="agentFitButton" class="panel-button" type="button" data-testid="agent-fit-button">Fit</button>
+                  <button id="agentCopyResultButton" class="panel-button" type="button" data-testid="agent-copy-result-button">Copy Result</button>
+                </div>
+                <pre
+                  id="agentResultOutput"
+                  data-testid="agent-result-output"
+                  data-last-ok=""
+                  data-last-result=""
+                  data-last-error=""
+                ></pre>
+              </div>
+            </details>
+          </section>
+
         </aside>
       </main>
     </div>
