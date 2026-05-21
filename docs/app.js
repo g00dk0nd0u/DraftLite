@@ -332,7 +332,7 @@ function getRectSnapPoints(entity) {
 }
 
 function collectSnapCandidates(worldPoint) {
-  return state.entities
+  const candidates = state.entities
     .filter((entity) => isLayerVisible(entity.layerId))
     .flatMap((entity) => {
       if (entity.type === "line") {
@@ -403,6 +403,12 @@ function collectSnapCandidates(worldPoint) {
       }
       return [];
     });
+  candidates.push({
+    kind: "origin",
+    point: { x: 0, y: 0 },
+    distancePx: distanceScreenPx(worldPoint, { x: 0, y: 0 }),
+  });
+  return candidates;
 }
 
 function getSnapPoint(worldPoint) {
@@ -412,6 +418,14 @@ function getSnapPoint(worldPoint) {
       return best;
     }
     if (!best || candidate.distancePx < best.distancePx) {
+      return candidate;
+    }
+    if (
+      best &&
+      candidate.distancePx === best.distancePx &&
+      candidate.kind === "origin" &&
+      best.kind !== "origin"
+    ) {
       return candidate;
     }
     return best;
