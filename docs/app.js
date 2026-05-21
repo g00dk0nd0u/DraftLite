@@ -5718,6 +5718,16 @@ function bindDebugBridge() {
 
 function onPointerMove(event) {
   uiState.isShiftPressed = event.shiftKey;
+  const startedCanvasInteraction =
+    uiState.panning ||
+    uiState.selectionWindow ||
+    uiState.selectDragDraft ||
+    uiState.transformDraft ||
+    uiState.gripEditDraft ||
+    uiState.rectEdgeEditDraft;
+  if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
+    return;
+  }
   const screenPoint = getScreenPointFromEvent(event);
   const worldPoint = screenToWorld(screenPoint);
   const snappedWorld = resolveConstrainedSnapPoint(worldPoint, event.shiftKey);
@@ -5791,6 +5801,11 @@ function onPointerMove(event) {
 
   draw();
   renderStatusPanel();
+}
+
+function isSidebarEventTarget(event) {
+  const target = event && event.target;
+  return !!(target && typeof target.closest === "function" && target.closest(".sidebar"));
 }
 
 function getScreenPointFromEvent(event) {
@@ -6127,6 +6142,16 @@ function stopPan() {
 }
 
 function onWindowMouseUp(event) {
+  const startedCanvasInteraction =
+    uiState.panning ||
+    uiState.selectionWindow ||
+    uiState.selectDragDraft ||
+    uiState.transformDraft ||
+    uiState.gripEditDraft ||
+    uiState.rectEdgeEditDraft;
+  if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
+    return;
+  }
   if (event.button === 1) {
     stopPan();
     return;
