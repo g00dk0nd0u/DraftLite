@@ -169,6 +169,8 @@ Do not include long explanations unless the user asks.
 
 - Agent IO is an AI-agent I/O port, not a human chat UI.
 - Agent IO users should start with `tools` to discover available commands.
+- For ChatGPT Agent Mode or browser agents, open DraftLite with `?agent=1`.
+- `?agent=1` opens Agent IO, preloads `tools`, and makes the agent discovery path visible.
 - `DraftLiteAgent` provides an MCP-style tool/resource interface.
 - This is MCP-shaped browser API for GitHub Pages, not a real MCP server.
 - Keep both legacy action format and MCP-style `tool`/`arguments` format.

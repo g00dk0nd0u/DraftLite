@@ -116,6 +116,32 @@ select {
   backdrop-filter: blur(14px);
 }
 
+.agent-mode-banner {
+  display: none;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(120, 140, 110, 0.25);
+  background: rgba(225, 235, 215, 0.8);
+  color: #3f4a3f;
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.agent-mode-banner code {
+  font: inherit;
+  font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+}
+
+body[data-agent-mode="true"] .agent-mode-banner {
+  display: flex;
+}
+
+body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
+  border-bottom-color: rgba(160, 184, 146, 0.28);
+  background: rgba(66, 79, 64, 0.82);
+  color: #d4e0d1;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -368,6 +394,20 @@ body[data-panning="true"] #draftCanvas {
   opacity: 0.82;
 }
 
+body[data-agent-mode="true"] .agent-io-hint {
+  padding: 6px 8px;
+  border: 1px solid rgba(120, 140, 110, 0.22);
+  border-radius: 8px;
+  background: rgba(225, 235, 215, 0.36);
+  color: inherit;
+  opacity: 1;
+}
+
+body[data-theme="dark"][data-agent-mode="true"] .agent-io-hint {
+  border-color: rgba(160, 184, 146, 0.24);
+  background: rgba(66, 79, 64, 0.42);
+}
+
 .agent-io-hint code {
   color: inherit;
   font: inherit;
@@ -390,6 +430,12 @@ body[data-panning="true"] #draftCanvas {
   padding: 8px 10px;
   resize: vertical;
   overflow: auto;
+}
+
+body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
+  font-weight: 700;
+  outline: 2px solid rgba(80, 120, 80, 0.35);
+  outline-offset: 1px;
 }
 
 .agent-io-panel pre {

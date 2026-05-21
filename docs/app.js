@@ -65,10 +65,69 @@ const agentFitButton = document.getElementById("agentFitButton");
 const agentCopyInputButton = document.getElementById("agentCopyInputButton");
 const agentCopyResultButton = document.getElementById("agentCopyResultButton");
 const agentResultOutput = document.getElementById("agentResultOutput");
+const agentIoDetails = document.getElementById("agentIoDetails");
+const agentModeHint = document.getElementById("agentModeHint");
+const agentModeBanner = document.getElementById("agentModeBanner");
 let agentLastResultText = "";
 let agentLastResultValue = null;
 
 const ctx = canvas.getContext("2d");
+
+function isAgentModeEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("agent");
+  return value === "1" || value === "true";
+}
+
+function updateAgentModeHint(isAgentMode) {
+  if (!agentModeHint) {
+    return;
+  }
+  if (isAgentMode) {
+    agentModeHint.innerHTML = "Agent Mode active. Start with: <code>tools</code>";
+    return;
+  }
+  agentModeHint.innerHTML = "Start with: <code>tools</code> / <code>resources</code> / <code>summary</code> / <code>validate</code>";
+}
+
+function applyAgentModeIfNeeded() {
+  const isAgentMode = isAgentModeEnabled();
+  if (!document.body) {
+    return isAgentMode;
+  }
+  if (isAgentMode) {
+    document.body.dataset.agentMode = "true";
+  } else {
+    delete document.body.dataset.agentMode;
+  }
+  if (agentModeBanner) {
+    agentModeBanner.hidden = !isAgentMode;
+  }
+  updateAgentModeHint(isAgentMode);
+  if (!isAgentMode) {
+    if (agentRunButton) {
+      agentRunButton.classList.remove("agent-mode-primary");
+    }
+    return isAgentMode;
+  }
+  if (agentIoDetails) {
+    agentIoDetails.open = true;
+  }
+  if (agentCommandInput && !agentCommandInput.value.trim()) {
+    agentCommandInput.value = "tools";
+  }
+  if (agentRunButton) {
+    agentRunButton.classList.add("agent-mode-primary");
+  }
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
+      if (agentIoDetails && typeof agentIoDetails.scrollIntoView === "function") {
+        agentIoDetails.scrollIntoView({ block: "center", behavior: "auto" });
+      }
+    }, 0);
+  });
+  return isAgentMode;
+}
 
 function setStatus(message) {
   statusReadout.textContent = message;
@@ -7044,6 +7103,7 @@ function initializeView() {
 
 bindEvents();
 setActiveRibbonTab("architecture");
+applyAgentModeIfNeeded();
 initializeTheme();
 initializeView();
 

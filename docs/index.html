@@ -9,6 +9,9 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
+        <div class="agent-mode-banner" id="agentModeBanner" data-testid="agent-mode-banner" hidden>
+          Agent Mode active: use Agent IO. Start with <code>tools</code>.
+        </div>
         <div class="ribbon-tabs-row">
           <div class="brand">
             <strong class="brand-title">DraftLite</strong>
@@ -116,10 +119,10 @@
           </section>
 
           <section class="panel agent-io-panel">
-            <details>
+            <details id="agentIoDetails" data-testid="agent-io-details">
               <summary>Agent IO</summary>
               <div class="agent-io-body">
-                <div class="agent-io-hint" data-testid="agent-io-hint">
+                <div id="agentModeHint" class="agent-io-hint" data-testid="agent-io-hint">
                   Start with: <code>tools</code> / <code>resources</code> / <code>summary</code> / <code>validate</code>
                 </div>
                 <textarea
