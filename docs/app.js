@@ -1942,7 +1942,7 @@ function drawLineEntity(entity) {
   }
 
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.6, isSelected);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.moveTo(screenP1.x, screenP1.y);
   ctx.lineTo(screenP2.x, screenP2.y);
