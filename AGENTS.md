@@ -5,10 +5,11 @@
 - Do not introduce `npm`, bundlers, frameworks, or build pipelines.
 - Use HTML, CSS, and JavaScript only.
 - Favor an interaction model that feels natural to AutoCAD-experienced users.
+- Keep the app lightweight, simple, and easy to maintain.
 
 ## Git Workflow Rules
 
-- Default workflow is: local edit -> verification -> one local commit -> stop.
+- Default workflow is: local edit -> static verification -> one local commit -> stop.
 - Work from the current local branch unless the user explicitly asks for something else.
 - Do not switch branches unnecessarily.
 - Do not push unless the user explicitly asks.
@@ -17,10 +18,30 @@
 - Do not delete remote branches unless the user explicitly asks.
 - If the user says `local commit only`, `do not push`, or similar, stop before any GitHub operation.
 - Final report must include:
-- summary of changes
-- verification results
-- local commit hash
-- confirmation that nothing was pushed
+  - summary of changes
+  - changed files
+  - changed functions
+  - verification results
+  - local commit hash
+  - confirmation that nothing was pushed
+  - confirmation that no PR was created or merged
+
+## Verification Rules
+
+- Keep changes small, safe, and easy to verify.
+- Default verification scope is:
+  - `node --check docs/app.js`
+  - `git diff --check`
+- Do not perform GUI/manual browser verification unless the user explicitly asks.
+- Do not use Playwright, Chrome automation, temporary browser scripts, or GUI automation unless explicitly instructed.
+- The user will manually verify GUI behavior in the browser.
+- If `python3 scripts/serve.py --no-open --port 8123` fails because the port is already in use, do not inspect processes or kill anything.
+- Report the port conflict and stop.
+- For interaction changes, make the behavior easy for the user to verify manually.
+- Do not rely on hidden or temporary debug UI unless explicitly requested.
+- `data-testid` attributes should remain stable for future Codex, Chrome, and GUI verification.
+- Debug helpers must not change normal user behavior unless explicitly called.
+- Keep any debug bridge hidden and do not change normal user UI.
 
 ## Drafting Interaction Rules
 
@@ -58,10 +79,14 @@
 
 - Keep compatibility with existing `line` entities and legacy line-only JSON documents.
 - Rectangle is a first-class `type:"rect"` rectangular region object.
+- Circle is a first-class `type:"circle"` entity.
+- Arc is a first-class `type:"arc"` entity.
+- Filled Region is a first-class `type:"filledRegion"` entity.
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
-- Dimension entity (`type:"dimension"`) is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.
+- Dimension entity `type:"dimension"` is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.
 - Use Explode only when rectangle outlines need to be converted into 4 `line` entities.
-- Do not introduce arc entities yet.
+- Do not convert rectangles into line entities during normal editing.
+- Filled Region should not duplicate the first point as the last point in stored state.
 
 ### Align
 
@@ -80,15 +105,30 @@
 
 - Initial Fillet implementation is radius=0 join only.
 - Fillet modifies existing line endpoints to their infinite-line intersection.
-- Radius-0 Fillet must keep the clicked side of each picked line. Do not move the endpoint on the clicked side to the intersection.
+- Radius-0 Fillet must keep the clicked side of each picked line.
+- Do not move the endpoint on the clicked side to the intersection.
 - Fillet must clearly show its two-step state: first line picked, then second side-to-keep pick.
 - `Esc` must cancel Fillet and clear the temporary selection.
+
+## Layer Rules
+
+- Layers are part of normal document state.
+- Every entity must reference an existing layer.
+- Do not leave entities pointing to deleted or missing layer IDs.
+- At least one layer must always exist.
+- Layer add/remove must preserve JSON save/load compatibility.
+- If deleting a layer, provide a user choice when requested:
+  - move objects to another layer
+  - delete objects on that layer
+  - cancel
+- After deleting a layer, activeLayer must always be a remaining valid layer.
 
 ## DXF Export Rules
 
 - DXF is the primary export target going forward.
 - DXF export must keep internal coordinates as integer units and convert to `mm` only at export time.
-- DXF export must flip Y coordinates only at export time so AutoCAD orientation matches the canvas; do not change internal state, canvas rendering, or JSON save/load for this.
+- DXF export must flip Y coordinates only at export time so AutoCAD orientation matches the canvas.
+- Do not change internal state, canvas rendering, or JSON save/load for DXF Y flipping.
 - DXF export should remain conservative R12/AC1009-style ASCII.
 - Use CRLF line endings.
 - Include explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections.
@@ -97,22 +137,8 @@
 - DXF `TABLES` should include at least `LTYPE` and `LAYER`.
 - Layer names should be normalized to ASCII letters, numbers, and underscores.
 - `rect` entities must export as virtual 4-segment `LINE` outlines at export time without mutating internal state.
-
-## Verification Rules
-
-- Keep changes small, safe, and easy to verify.
-- After implementation, run `node --check docs/app.js`.
-- Run `git diff --check`.
-- Prefer using `scripts/serve.py` and Chrome GUI verification when changing interactive tools.
-- For geometry tools such as Align and Fillet, verify both visually and numerically using `window.DraftLiteDebug`.
-- Do not rely only on `node --check` for interaction changes.
-- Add or update debug fixtures when introducing geometry editing tools.
-- `data-testid` attributes should remain stable for Codex, Chrome, and GUI verification.
-- Debug helpers must not change normal user behavior unless explicitly called.
-- If `window.DraftLiteDebug` is not visible from the Chrome execution context, use the DOM CustomEvent bridge.
-- Prefer `draftlite:debug-command` plus `[data-testid="debug-bridge-output"]` for Chrome plugin verification.
-- Keep the bridge hidden and do not change normal user UI.
-- Update bridge commands when adding new debug helpers.
+- `filledRegion` entities may export as closed virtual `LINE` outlines unless a conservative compatible hatch implementation is explicitly requested.
+- Do not let DXF export reference missing layer IDs.
 
 ## UI Simplicity Rule
 
@@ -120,3 +146,21 @@
 - Do not add permanent status/debug panels unless explicitly requested.
 - Avoid always-visible diagnostic UI.
 - Keep the normal UI focused on controls needed for drafting.
+- Keep the top ribbon compact.
+- Keep Layers and Properties in the right sidebar unless explicitly requested.
+- Avoid adding large modal workflows unless the user explicitly requests them.
+- Match the existing visual tone when adding buttons, controls, dialogs, or panels.
+
+## Reporting Rules
+
+After completing a task, report only the essential information:
+
+- Summary
+- Changed files
+- Changed functions
+- Verification commands and results
+- Unverified manual GUI items, if any
+- Local commit hash
+- Confirmation that no push / PR / merge was performed
+
+Do not include long explanations unless the user asks.
