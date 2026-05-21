@@ -62,6 +62,7 @@ const agentRunButton = document.getElementById("agentRunButton");
 const agentValidateButton = document.getElementById("agentValidateButton");
 const agentClearButton = document.getElementById("agentClearButton");
 const agentFitButton = document.getElementById("agentFitButton");
+const agentCopyInputButton = document.getElementById("agentCopyInputButton");
 const agentCopyResultButton = document.getElementById("agentCopyResultButton");
 const agentResultOutput = document.getElementById("agentResultOutput");
 
@@ -4756,23 +4757,55 @@ function setAgentResultOutput(payload, options = {}) {
   const lastError = typeof options.error === "string"
     ? options.error
     : (payload && typeof payload === "object" && typeof payload.error === "string" ? payload.error : "");
+  const lastTool = typeof options.tool === "string"
+    ? options.tool
+    : (payload && typeof payload === "object" && typeof payload.tool === "string" ? payload.tool : "");
+  const lastAction = typeof options.action === "string"
+    ? options.action
+    : (payload && typeof payload === "object" && typeof payload.action === "string" ? payload.action : "");
   agentResultOutput.textContent = content;
   agentResultOutput.dataset.lastOk = lastOk;
   agentResultOutput.dataset.lastResult = content;
   agentResultOutput.dataset.lastError = lastError;
+  agentResultOutput.dataset.lastTool = lastTool;
+  agentResultOutput.dataset.lastAction = lastAction;
 }
 
-function normalizeAgentCommandPayload(parsed) {
-  if (Array.isArray(parsed)) {
-    return { mode: "many", commands: parsed };
+function normalizeAgentAction(action) {
+  const map = { fit: "fitAll", zoom: "fitAll", zoomExtents: "fitAll", check: "validate", inspect: "validate", reset: "clear", getSummary: "summary", getEntities: "entities", getState: "state", getBounds: "bounds", describeTools: "describeTools", listResources: "listResources" };
+  return map[action] || action;
+}
+
+function normalizeAgentToolName(tool) {
+  const map = { rect: "create_rect", createRect: "create_rect", line: "create_line", createLine: "create_line", text: "create_text", createText: "create_text", clear: "clear_drawing", clearDrawing: "clear_drawing", fit: "fit_all", fitAll: "fit_all", validate: "validate_drawing", validateDrawing: "validate_drawing", summary: "get_summary", getSummary: "get_summary", entities: "get_entities", getEntities: "get_entities", state: "get_state", getState: "get_state", bounds: "get_bounds", getBounds: "get_bounds" };
+  return map[tool] || tool;
+}
+
+function createAgentJsonParseError(error) {
+  return { ok: false, isError: true, error: { code: "JSON_PARSE_ERROR", message: "JSON parse failed.", detail: error && error.message ? error.message : String(error), hint: "Input must be JSON array, JSON object, MCP-style tool call, or supported text command." } };
+}
+
+function parseAgentPanelInput(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) throw new Error("Agent command input is empty.");
+  if ((trimmed.startsWith("{") || trimmed.startsWith("[") || trimmed.startsWith("\""))) {
+    let parsed;
+    try { parsed = JSON.parse(trimmed); } catch (error) { return { type: "error", payload: createAgentJsonParseError(error) }; }
+    if (typeof parsed === "string") return { type: "single", payload: { action: parsed } };
+    if (Array.isArray(parsed)) return { type: "many", payload: { commands: parsed } };
+    if (parsed && typeof parsed === "object") return { type: "envelope", payload: parsed };
   }
-  if (parsed && typeof parsed === "object") {
-    if (Array.isArray(parsed.commands)) {
-      return { mode: "many", commands: parsed.commands };
-    }
-    return { mode: "single", command: parsed };
+  return { type: "single", payload: { action: trimmed } };
+}
+
+function copyAgentText(text, meta = {}) {
+  const value = String(text || "");
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    return Promise.resolve({ ok: false, copied: false, isError: true, error: { code: "CLIPBOARD_UNAVAILABLE", message: "Clipboard API is not available." }, ...meta });
   }
-  throw new Error("Agent command JSON must be an object, array, or { commands: [...] }.");
+  return navigator.clipboard.writeText(value).then(() => ({ ok: true, copied: true, ...meta })).catch((error) => ({
+    ok: false, copied: false, isError: true, error: { code: "CLIPBOARD_WRITE_FAILED", message: error && error.message ? error.message : "Clipboard write failed." }, ...meta
+  }));
 }
 
 function runAgentPanelCommand() {
@@ -4780,15 +4813,12 @@ function runAgentPanelCommand() {
     return;
   }
   try {
-    const raw = agentCommandInput.value.trim();
-    if (!raw) {
-      throw new Error("Agent command input is empty.");
+    const parsed = parseAgentPanelInput(agentCommandInput.value);
+    if (parsed.type === "error") {
+      setAgentResultOutput(parsed.payload, { ok: false, error: parsed.payload.error.message });
+      return;
     }
-    const parsed = JSON.parse(raw);
-    const normalized = normalizeAgentCommandPayload(parsed);
-    const result = normalized.mode === "many"
-      ? window.DraftLiteAgent.executeMany(normalized.commands)
-      : window.DraftLiteAgent.execute(normalized.command);
+    const result = window.DraftLiteAgent.execute(parsed.payload);
     setAgentResultOutput(result);
   } catch (error) {
     setAgentResultOutput(
@@ -4830,10 +4860,17 @@ function copyAgentPanelResult() {
     return;
   }
   const text = agentResultOutput.textContent || "";
-  if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+  if (!text) {
     return;
   }
-  navigator.clipboard.writeText(text).catch(() => {});
+  copyAgentText(text, { action: "copyResult" }).then((result) => setAgentResultOutput(result));
+}
+
+function copyAgentPanelInput() {
+  if (!agentCommandInput) {
+    return;
+  }
+  copyAgentText(agentCommandInput.value || "", { action: "copyInput" }).then((result) => setAgentResultOutput(result));
 }
 
 function onAgentCommandInputKeyDown(event) {
@@ -6512,6 +6549,9 @@ function bindEvents() {
   if (agentFitButton) {
     agentFitButton.addEventListener("click", fitAgentPanelDrawing);
   }
+  if (agentCopyInputButton) {
+    agentCopyInputButton.addEventListener("click", copyAgentPanelInput);
+  }
   if (agentCopyResultButton) {
     agentCopyResultButton.addEventListener("click", copyAgentPanelResult);
   }
@@ -6832,15 +6872,64 @@ window.DraftLiteDebug = {
 };
 
 window.DraftLiteAgent = {
-  version: "0.1",
-
-  execute(command) {
-    return executeAgentCommand(command || {});
+  version: "0.2",
+  execute(input) {
+    const payload = input || {};
+    if (Array.isArray(payload)) return this.executeMany(payload);
+    if (payload.tool) return this.callTool(payload.tool, payload.arguments || {});
+    if (Array.isArray(payload.toolCalls)) {
+      const calls = payload.toolCalls.map((entry) => ({ tool: entry.tool, arguments: entry.arguments || {} }));
+      return this.executeMany(calls, payload);
+    }
+    if (Array.isArray(payload.commands)) return this.executeMany(payload.commands, payload);
+    const action = normalizeAgentAction(typeof payload.action === "string" ? payload.action.trim() : "");
+    const readOnlyActions = ["validate", "summary", "entities", "state", "bounds", "describeTools", "listResources", "readResource", "copyInput", "copyResult", "copyState", "copyEntities", "copySummary"];
+    if (action === "describeTools") return this.describeTools();
+    if (action === "listResources") return this.listResources();
+    if (action === "summary") return { ok: true, action, structuredContent: this.getSummary() };
+    if (action === "entities") return { ok: true, action, structuredContent: this.getEntities() };
+    if (action === "state") return { ok: true, action, structuredContent: this.getState() };
+    if (action === "bounds") return { ok: true, action, structuredContent: this.getBounds() };
+    if (action === "validate") return { ok: true, action, structuredContent: this.validateDrawing({ requireNonEmpty: true }) };
+    if (action === "copyState") return this.copyState();
+    if (action === "copyEntities") return this.copyEntities();
+    if (action === "copySummary") return this.copySummary();
+    if (action === "copyInput") return { ok: false, isError: true, error: { code: "USE_UI_COMMAND", message: "copyInput is UI-only command." } };
+    if (action === "copyResult") return this.copyResult();
+    const run = executeAgentCommand({ ...payload, action });
+    const result = { ok: run.ok, run, action, validation: this.validateDrawing({ requireNonEmpty: false }), summary: this.getSummary(), boundsMm: this.getBounds() };
+    if (!run.ok) result.error = { code: "COMMAND_FAILED", message: run.error || "Command failed." };
+    if (readOnlyActions.includes(action)) return run;
+    return result;
   },
-
-  executeMany(commands) {
-    return executeManyAgentCommands(commands);
+  executeMany(commands, options = {}) {
+    const useTools = commands.every((c) => c && typeof c === "object" && typeof c.tool === "string");
+    const tx = Boolean(options.transaction);
+    const snapshot = tx ? snapshotState() : null;
+    const results = [];
+    for (let index = 0; index < commands.length; index += 1) {
+      const command = commands[index];
+      const result = useTools ? this.callTool(command.tool, command.arguments || {}) : this.execute(command);
+      results.push(result);
+      if (!result.ok && tx) {
+        state = normalizeDocument(snapshot);
+        clearTransientState();
+        syncAfterStateChange();
+        return { ok: false, rolledBack: true, results, error: { code: "TRANSACTION_ROLLED_BACK", message: `Command ${index + 1} failed: ${result.error && result.error.message ? result.error.message : "Unknown error"}.` } };
+      }
+    }
+    return { ok: results.every((r) => r.ok), count: commands.length, results, validation: options.autoValidate ? this.validateDrawing({ requireNonEmpty: false }) : undefined, summary: this.getSummary(), boundsMm: this.getBounds() };
   },
+  callTool(name, args = {}) {
+    const tool = normalizeAgentToolName(String(name || "").trim());
+    const map = { create_rect: "rect", create_line: "line", create_text: "text", set_layer: "setLayer", clear_drawing: "clear", fit_all: "fitAll", validate_drawing: "validate", get_summary: "summary", get_entities: "entities", get_state: "state", get_bounds: "bounds" };
+    const action = map[tool];
+    if (!action) return { ok: false, tool, isError: true, error: { code: "UNKNOWN_TOOL", message: `Unknown tool: ${tool}` } };
+    return this.execute({ ...args, action, tool });
+  },
+  describeTools() { return { ok: true, protocol: "draftlite-agent-tools", version: "0.2", tools: [{ name: "create_rect", description: "Create a rectangle entity using millimeter input.", inputSchema: { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" }, name: { type: "string" }, fill: { type: "boolean" }, fillColor: { type: "string" }, color: { type: "string" }, layer: { type: "string" } } } }, { name: "create_line" }, { name: "create_text" }, { name: "set_layer" }, { name: "clear_drawing" }, { name: "fit_all" }, { name: "validate_drawing" }, { name: "get_summary" }, { name: "get_entities" }, { name: "get_state" }, { name: "get_bounds" }, { name: "copy_input" }, { name: "copy_result" }, { name: "copy_state" }, { name: "copy_entities" }, { name: "copy_summary" }] }; },
+  listResources() { return { ok: true, resources: [{ uri: "draftlite://state", name: "Current document state" }, { uri: "draftlite://entities", name: "Current drawing entities" }, { uri: "draftlite://summary", name: "Current drawing summary" }, { uri: "draftlite://bounds", name: "Current drawing bounds" }, { uri: "draftlite://validation", name: "Current validation result" }, { uri: "draftlite://tools", name: "Available tool definitions" }] }; },
+  readResource(uri) { const map = { "draftlite://state": this.getState(), "draftlite://entities": this.getEntities(), "draftlite://summary": this.getSummary(), "draftlite://bounds": this.getBounds(), "draftlite://validation": this.validateDrawing({ requireNonEmpty: false }), "draftlite://tools": this.describeTools() }; if (!(uri in map)) return { ok: false, uri, isError: true, error: { code: "UNKNOWN_RESOURCE", message: `Unknown resource: ${uri}` } }; return { ok: true, uri, content: map[uri] }; },
 
   clear() {
     return executeAgentCommand({ action: "clear" });
@@ -6885,6 +6974,10 @@ window.DraftLiteAgent = {
   setLayer(command) {
     return executeAgentCommand({ ...(command || {}), action: "setLayer" });
   },
+  copyResult() { return copyAgentText((agentResultOutput && agentResultOutput.textContent) || "", { action: "copyResult" }); },
+  copyState() { return copyAgentText(JSON.stringify(this.getState(), null, 2), { action: "copyState" }); },
+  copyEntities() { return copyAgentText(JSON.stringify(this.getEntities(), null, 2), { action: "copyEntities" }); },
+  copySummary() { return copyAgentText(JSON.stringify(this.getSummary(), null, 2), { action: "copySummary" }); },
 };
 
 bindDebugBridge();
