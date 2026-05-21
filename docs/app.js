@@ -2062,7 +2062,7 @@ function drawRectEntity(entity) {
     ctx.strokeRect(p1.x, p1.y, w, h);
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.strokeRect(p1.x, p1.y, w, h);
   if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
@@ -2100,7 +2100,7 @@ function drawCircleEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
   ctx.stroke();
@@ -2124,7 +2124,7 @@ function drawArcEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = getEntityStrokeWidth(entity, 1.6, 2.4, isSelected);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
   ctx.stroke();
@@ -2154,7 +2154,7 @@ function drawFilledRegionEntity(entity) {
     ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
-  ctx.lineWidth = getEntityStrokeWidth(entity, 1.4, 2.2, isSelected);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.stroke();
   ctx.restore();
 }
@@ -2270,7 +2270,7 @@ function drawDimensionEntity(entity) {
   const color = normalizeColor(entity.color || layer.color);
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const geometry = getDimensionScreenGeometry(entity);
-  ctx.save(); ctx.globalAlpha = getEntityOpacity(entity); ctx.setLineDash(getEntityStrokeDash(entity)); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=getEntityStrokeWidth(entity, 1.4, 2.4, isSelected);
+  ctx.save(); ctx.globalAlpha = getEntityOpacity(entity); ctx.setLineDash(getEntityStrokeDash(entity)); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   [...geometry.extensionLines, geometry.dimensionLine, ...geometry.tickLines].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
   ctx.font=`${geometry.fontPx}px sans-serif`; ctx.textAlign='center'; ctx.fillText(geometry.text, geometry.textPosition.x, geometry.textPosition.y);
   if (isSelected) { ctx.strokeStyle='#c2693e'; ctx.strokeRect(geometry.textBox.left, geometry.textBox.top, geometry.textBox.right - geometry.textBox.left, geometry.textBox.bottom - geometry.textBox.top);}
