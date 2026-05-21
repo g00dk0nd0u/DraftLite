@@ -164,3 +164,11 @@ After completing a task, report only the essential information:
 - Confirmation that no push / PR / merge was performed
 
 Do not include long explanations unless the user asks.
+
+## Agent IO / DraftLiteAgent Notes
+
+- Agent IO is an AI-agent I/O port, not a human chat UI.
+- `DraftLiteAgent` provides an MCP-style tool/resource interface.
+- This is MCP-shaped browser API for GitHub Pages, not a real MCP server.
+- Keep both legacy action format and MCP-style `tool`/`arguments` format.
+- No destructive API changes; preserve compatibility for debug helpers, hidden bridge, JSON, and DXF.

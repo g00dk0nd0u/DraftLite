@@ -131,10 +131,13 @@
                 ></textarea>
                 <div class="agent-io-actions">
                   <button id="agentRunButton" class="panel-button" type="button" data-testid="agent-run-button">Run</button>
+                  <button id="agentCopyInputButton" class="panel-button" type="button" data-testid="agent-copy-input-button">Copy Input</button>
+                  <button id="agentCopyResultButton" class="panel-button" type="button" data-testid="agent-copy-result-button">Copy Result</button>
+                </div>
+                <div class="agent-io-actions agent-io-actions-secondary">
                   <button id="agentValidateButton" class="panel-button" type="button" data-testid="agent-validate-button">Validate</button>
                   <button id="agentClearButton" class="panel-button" type="button" data-testid="agent-clear-button">Clear</button>
                   <button id="agentFitButton" class="panel-button" type="button" data-testid="agent-fit-button">Fit</button>
-                  <button id="agentCopyResultButton" class="panel-button" type="button" data-testid="agent-copy-result-button">Copy Result</button>
                 </div>
                 <pre
                   id="agentResultOutput"
@@ -142,6 +145,8 @@
                   data-last-ok=""
                   data-last-result=""
                   data-last-error=""
+                  data-last-tool=""
+                  data-last-action=""
                 ></pre>
               </div>
             </details>

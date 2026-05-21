@@ -373,14 +373,15 @@ body[data-panning="true"] #draftCanvas {
 }
 
 .agent-io-panel textarea {
-  min-height: 120px;
+  min-height: 180px;
   padding: 8px 10px;
   resize: vertical;
+  overflow: auto;
 }
 
 .agent-io-panel pre {
-  min-height: 132px;
-  max-height: 160px;
+  min-height: 180px;
+  max-height: 220px;
   padding: 8px 10px;
   overflow: auto;
   white-space: pre-wrap;
@@ -391,6 +392,10 @@ body[data-panning="true"] #draftCanvas {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.agent-io-actions-secondary {
+  opacity: 0.9;
 }
 
 .layer-list {
