@@ -1874,13 +1874,20 @@ function draw() {
 
 function drawGrid(width, height) {
   if (!state.settings.showGrid) return;
+  const zoom = state.view.zoom;
+  const showFineGrid = zoom >= 0.004;
+  const showMajorGrid = zoom >= 0.001;
+  if (!showMajorGrid) {
+    return;
+  }
   const worldTopLeft = screenToWorld({ x: 0, y: 0 });
   const worldBottomRight = screenToWorld({ x: width, y: height });
-  const startX = Math.floor(worldTopLeft.x / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
-  const endX = Math.ceil(worldBottomRight.x / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
-  const startY = Math.floor(worldTopLeft.y / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
-  const endY = Math.ceil(worldBottomRight.y / GRID_MAJOR_UNIT) * GRID_MAJOR_UNIT;
-  const step = state.view.zoom * GRID_MAJOR_UNIT < 14 ? GRID_MAJOR_UNIT * 2 : GRID_MAJOR_UNIT;
+  const gridStep = showFineGrid ? GRID_MAJOR_UNIT : GRID_MAJOR_UNIT * 4;
+  const startX = Math.floor(worldTopLeft.x / gridStep) * gridStep;
+  const endX = Math.ceil(worldBottomRight.x / gridStep) * gridStep;
+  const startY = Math.floor(worldTopLeft.y / gridStep) * gridStep;
+  const endY = Math.ceil(worldBottomRight.y / gridStep) * gridStep;
+  const step = showFineGrid && zoom * GRID_MAJOR_UNIT < 14 ? GRID_MAJOR_UNIT * 2 : gridStep;
   const dotRadius = document.body.dataset.theme === "dark" ? 1.2 : 1.0;
   ctx.save();
   ctx.fillStyle = document.body.dataset.theme === "dark" ? "rgba(186,197,214,0.28)" : "rgba(123, 96, 64, 0.20)";
