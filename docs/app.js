@@ -1826,7 +1826,7 @@ function drawRectEntity(entity) {
   const h = p2.y - p1.y;
   ctx.save();
   if (entity.fill !== false) {
-    ctx.fillStyle = normalizeColor(entity.fillColor || layer.color);
+    ctx.fillStyle = getEntityFillStyle(entity, layer.color, isSelected ? 0.26 : 0.18);
     ctx.fillRect(p1.x, p1.y, w, h);
   }
   if (isSelected) {
@@ -1912,8 +1912,7 @@ function drawFilledRegionEntity(entity) {
   }
   ctx.closePath();
   if (entity.fill !== false) {
-    const fillColor = entity.fillColor || getEntityStrokeColor(entity);
-    ctx.fillStyle = withAlpha(fillColor, isSelected ? 0.26 : 0.18);
+    ctx.fillStyle = getEntityFillStyle(entity, getEntityStrokeColor(entity), isSelected ? 0.26 : 0.18);
     ctx.fill();
   }
   if (isSelected) {
@@ -1936,6 +1935,10 @@ function withAlpha(colorHex, alpha) {
   const g = parseInt(value.slice(2, 4), 16);
   const b = parseInt(value.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getEntityFillStyle(entity, fallbackColor, alpha) {
+  return withAlpha(entity.fillColor || fallbackColor, alpha);
 }
 
 function drawTextEntity(entity) {
