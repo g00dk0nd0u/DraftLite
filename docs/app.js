@@ -5621,11 +5621,9 @@ function onKeyDown(event) {
     }
     if (uiState.dimensionDraft || uiState.activeTool === "dimension") {
       uiState.dimensionDraft = null;
-      if (uiState.activeTool === "dimension") {
-        setStatus("Aligned Dimension: pick first point");
-      }
-      draw();
-      renderStatusPanel();
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Aligned Dimension cancelled.");
       return;
     }
   }
