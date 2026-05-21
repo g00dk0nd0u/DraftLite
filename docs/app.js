@@ -65,6 +65,8 @@ const agentFitButton = document.getElementById("agentFitButton");
 const agentCopyInputButton = document.getElementById("agentCopyInputButton");
 const agentCopyResultButton = document.getElementById("agentCopyResultButton");
 const agentResultOutput = document.getElementById("agentResultOutput");
+let agentLastResultText = "";
+let agentLastResultValue = null;
 
 const ctx = canvas.getContext("2d");
 
@@ -153,6 +155,20 @@ function deepClone(value) {
 
 function snapshotState() {
   return deepClone(state);
+}
+
+function snapshotHistoryStacks() {
+  return {
+    undoStack: deepClone(history.undoStack),
+    redoStack: deepClone(history.redoStack),
+  };
+}
+
+function restoreHistoryStacks(snapshot) {
+  const nextSnapshot = snapshot || {};
+  history.undoStack = deepClone(Array.isArray(nextSnapshot.undoStack) ? nextSnapshot.undoStack : []);
+  history.redoStack = deepClone(Array.isArray(nextSnapshot.redoStack) ? nextSnapshot.redoStack : []);
+  syncUndoRedoButtons();
 }
 
 function pushUndoState() {
@@ -4379,6 +4395,196 @@ function getAgentSummary() {
   };
 }
 
+function getAgentResourceSummary() {
+  return {
+    uri: "draftlite://summary",
+    name: "Draft summary",
+    description: "Current drawing summary in mm and internal unit metadata.",
+  };
+}
+
+function getAgentResourceEntities() {
+  return {
+    uri: "draftlite://entities",
+    name: "Draft entities",
+    description: "Normalized entity list for the current document.",
+  };
+}
+
+function getAgentResourceState() {
+  return {
+    uri: "draftlite://state",
+    name: "Draft state",
+    description: "Complete DraftLite document state snapshot.",
+  };
+}
+
+function getAgentResourceBounds() {
+  return {
+    uri: "draftlite://bounds",
+    name: "Draft bounds",
+    description: "Current drawing bounds in mm.",
+  };
+}
+
+function listAgentResources() {
+  return [
+    getAgentResourceSummary(),
+    getAgentResourceEntities(),
+    getAgentResourceState(),
+    getAgentResourceBounds(),
+  ];
+}
+
+function readAgentResource(uri) {
+  const normalizedUri = typeof uri === "string" ? uri.trim() : "";
+  if (!normalizedUri) {
+    throw new Error("readResource requires a non-empty uri.");
+  }
+  if (normalizedUri === "draftlite://summary") {
+    return getAgentSummary();
+  }
+  if (normalizedUri === "draftlite://entities") {
+    return deepClone(state.entities);
+  }
+  if (normalizedUri === "draftlite://state") {
+    return snapshotState();
+  }
+  if (normalizedUri === "draftlite://bounds") {
+    return boundsUnitsToMm(getAgentBoundsUnits());
+  }
+  throw new Error(`Unknown resource uri: ${normalizedUri}`);
+}
+
+function createAgentSchemaTool(name, description, inputSchema) {
+  return {
+    name,
+    description,
+    inputSchema,
+  };
+}
+
+function describeAgentTools() {
+  return [
+    createAgentSchemaTool("create_rect", "Create a rectangle entity in mm coordinates.", {
+      type: "object",
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        name: { type: "string" },
+        layer: { type: "string" },
+        color: { type: "string" },
+        fillColor: { type: "string" },
+        fill: { type: "boolean" },
+      },
+      required: ["x", "y", "width", "height"],
+      additionalProperties: true,
+    }),
+    createAgentSchemaTool("create_line", "Create a line entity in mm coordinates.", {
+      type: "object",
+      properties: {
+        x1: { type: "number" },
+        y1: { type: "number" },
+        x2: { type: "number" },
+        y2: { type: "number" },
+        layer: { type: "string" },
+        color: { type: "string" },
+      },
+      required: ["x1", "y1", "x2", "y2"],
+      additionalProperties: true,
+    }),
+    createAgentSchemaTool("create_text", "Create a text entity in mm coordinates.", {
+      type: "object",
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        text: { type: "string" },
+        height: { type: "number" },
+        layer: { type: "string" },
+        color: { type: "string" },
+      },
+      required: ["x", "y", "text", "height"],
+      additionalProperties: true,
+    }),
+    createAgentSchemaTool("set_layer", "Activate an existing layer or create it first.", {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        layer: { type: "string" },
+        color: { type: "string" },
+      },
+      additionalProperties: true,
+    }),
+    createAgentSchemaTool("clear_drawing", "Remove all entities from the current drawing.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("fit_all", "Fit the current drawing in view.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("validate_drawing", "Validate entities, layers, and simple geometry constraints.", {
+      type: "object",
+      properties: {
+        requireNonEmpty: { type: "boolean" },
+      },
+      additionalProperties: true,
+    }),
+    createAgentSchemaTool("get_summary", "Return the current drawing summary.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("get_entities", "Return all entities in the current drawing.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("get_state", "Return the complete document state snapshot.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("get_bounds", "Return current drawing bounds in mm.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("read_resource", "Read a DraftLite resource by uri.", {
+      type: "object",
+      properties: {
+        uri: { type: "string" },
+      },
+      required: ["uri"],
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("copy_state", "Copy the current state snapshot to the clipboard and return it.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("copy_entities", "Copy the current entities list to the clipboard and return it.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("copy_summary", "Copy the current drawing summary to the clipboard and return it.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("copy_result", "Copy the latest Agent IO result payload to the clipboard and return it.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+  ];
+}
+
 function summarizeInvalidEntity(entity, index) {
   return {
     index,
@@ -4592,14 +4798,139 @@ function createAgentTextEntity(command) {
   };
 }
 
+function normalizeAgentAction(action) {
+  const rawAction = typeof action === "string" ? action.trim() : "";
+  if (!rawAction) {
+    return "";
+  }
+  const aliasMap = {
+    rect: "rect",
+    line: "line",
+    text: "text",
+    clear: "clear",
+    reset: "clear",
+    fit: "fitAll",
+    fitAll: "fitAll",
+    zoom: "fitAll",
+    zoomExtents: "fitAll",
+    setLayer: "setLayer",
+    describeTools: "describeTools",
+    listResources: "listResources",
+    readResource: "readResource",
+    validate: "validate",
+    validateDrawing: "validate",
+    check: "validate",
+    inspect: "validate",
+    summary: "summary",
+    getSummary: "summary",
+    entities: "entities",
+    getEntities: "entities",
+    state: "state",
+    getState: "state",
+    bounds: "bounds",
+    getBounds: "bounds",
+    copyState: "copyState",
+    copyEntities: "copyEntities",
+    copySummary: "copySummary",
+    copyResult: "copyResult",
+    create_rect: "rect",
+    create_line: "line",
+    create_text: "text",
+    set_layer: "setLayer",
+    clear_drawing: "clear",
+    fit_all: "fitAll",
+    validate_drawing: "validate",
+    get_summary: "summary",
+    get_entities: "entities",
+    get_state: "state",
+    get_bounds: "bounds",
+    read_resource: "readResource",
+    copy_state: "copyState",
+    copy_entities: "copyEntities",
+    copy_summary: "copySummary",
+    copy_result: "copyResult",
+    tools: "describeTools",
+    resources: "listResources",
+    resource: "readResource",
+  };
+  return aliasMap[rawAction] || rawAction;
+}
+
+function normalizeAgentCommand(command) {
+  if (!command || typeof command !== "object") {
+    throw new Error("Agent command must be an object.");
+  }
+  if (typeof command.tool === "string" && command.tool.trim()) {
+    const args = command.arguments && typeof command.arguments === "object" ? command.arguments : {};
+    return {
+      ...args,
+      ...command,
+      action: normalizeAgentAction(command.tool),
+      tool: command.tool,
+    };
+  }
+  return {
+    ...command,
+    action: normalizeAgentAction(command.action),
+  };
+}
+
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === "function";
+}
+
+function copyAgentTextToClipboard(text) {
+  const value = typeof text === "string" ? text : "";
+  if (!value) {
+    return Promise.resolve(false);
+  }
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    return Promise.resolve(false);
+  }
+  return navigator.clipboard.writeText(value).then(() => true).catch(() => false);
+}
+
+function getAgentResultCopyPayload() {
+  if (agentLastResultValue !== null) {
+    return deepClone(agentLastResultValue);
+  }
+  if (agentLastResultText) {
+    try {
+      return JSON.parse(agentLastResultText);
+    } catch (error) {
+      return agentLastResultText;
+    }
+  }
+  return null;
+}
+
+function createAgentCopyResult(action, value, copied, message) {
+  return createAgentSuccess(action, {
+    copied,
+    value,
+    message,
+  });
+}
+
+function copyAgentPayload(action, value, label) {
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return copyAgentTextToClipboard(text).then((copied) => createAgentCopyResult(
+    action,
+    value,
+    copied,
+    copied ? `${label} copied.` : `${label} prepared. Clipboard unavailable.`
+  ));
+}
+
 function applyAgentCommand(command) {
-  const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+  const normalizedCommand = normalizeAgentCommand(command || {});
+  const action = normalizedCommand.action;
   if (!action) {
     throw new Error("action is required.");
   }
 
   if (action === "rect") {
-    const entity = createAgentRectEntity(command);
+    const entity = createAgentRectEntity(normalizedCommand);
     state.entities.push(entity);
     state.selectedEntityIds = [entity.id];
     return createAgentSuccess(action, {
@@ -4610,7 +4941,7 @@ function applyAgentCommand(command) {
   }
 
   if (action === "line") {
-    const entity = createAgentLineEntity(command);
+    const entity = createAgentLineEntity(normalizedCommand);
     state.entities.push(entity);
     state.selectedEntityIds = [entity.id];
     return createAgentSuccess(action, {
@@ -4621,7 +4952,7 @@ function applyAgentCommand(command) {
   }
 
   if (action === "text") {
-    const entity = createAgentTextEntity(command);
+    const entity = createAgentTextEntity(normalizedCommand);
     state.entities.push(entity);
     state.selectedEntityIds = [entity.id];
     return createAgentSuccess(action, {
@@ -4648,17 +4979,89 @@ function applyAgentCommand(command) {
   }
 
   if (action === "setLayer") {
-    const layerName = typeof command.layer === "string" && command.layer.trim()
-      ? command.layer.trim()
-      : readAgentTextValue(command, "name");
+    const layerName = typeof normalizedCommand.layer === "string" && normalizedCommand.layer.trim()
+      ? normalizedCommand.layer.trim()
+      : readAgentTextValue(normalizedCommand, "name");
     const existing = getLayerByName(layerName);
-    const layer = existing || createAgentLayer(layerName, command.color);
+    const layer = existing || createAgentLayer(layerName, normalizedCommand.color);
     state.activeLayerId = layer.id;
     return createAgentSuccess(action, {
       message: existing ? `Active layer set to ${layer.name}.` : `Layer ${layer.name} created and activated.`,
       changed: true,
       layerId: layer.id,
     });
+  }
+
+  if (action === "describeTools") {
+    return createAgentSuccess(action, {
+      tools: describeAgentTools(),
+    });
+  }
+
+  if (action === "listResources") {
+    return createAgentSuccess(action, {
+      resources: listAgentResources(),
+    });
+  }
+
+  if (action === "readResource") {
+    const uri = typeof normalizedCommand.uri === "string" && normalizedCommand.uri.trim()
+      ? normalizedCommand.uri.trim()
+      : (normalizedCommand.payload && typeof normalizedCommand.payload.uri === "string" ? normalizedCommand.payload.uri.trim() : "");
+    if (!uri) {
+      throw new Error("readResource requires payload.uri.");
+    }
+    return createAgentSuccess(action, {
+      uri,
+      resource: readAgentResource(uri),
+    });
+  }
+
+  if (action === "validateDrawing") {
+    return {
+      action,
+      ...validateDrawingState(normalizedCommand),
+    };
+  }
+
+  if (action === "getSummary") {
+    return createAgentSuccess(action, {
+      summary: getAgentSummary(),
+    });
+  }
+
+  if (action === "getEntities") {
+    return createAgentSuccess(action, {
+      entities: deepClone(state.entities),
+    });
+  }
+
+  if (action === "getState") {
+    return createAgentSuccess(action, {
+      state: snapshotState(),
+    });
+  }
+
+  if (action === "getBounds") {
+    return createAgentSuccess(action, {
+      bounds: boundsUnitsToMm(getAgentBoundsUnits()),
+    });
+  }
+
+  if (action === "copyState") {
+    return copyAgentPayload(action, snapshotState(), "State");
+  }
+
+  if (action === "copyEntities") {
+    return copyAgentPayload(action, deepClone(state.entities), "Entities");
+  }
+
+  if (action === "copySummary") {
+    return copyAgentPayload(action, getAgentSummary(), "Summary");
+  }
+
+  if (action === "copyResult") {
+    return copyAgentPayload(action, getAgentResultCopyPayload(), "Result");
   }
 
   throw new Error(`Unsupported action: ${action}`);
@@ -4685,54 +5088,78 @@ function finalizeAgentStateChange(options = {}) {
 }
 
 function executeAgentCommand(command) {
-  const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+  let action = "";
   try {
+    const normalizedCommand = normalizeAgentCommand(command || {});
+    action = normalizedCommand.action;
     if (isAgentMutationAction(action)) {
       pushUndoState();
     }
-    const result = applyAgentCommand(command || {});
-    finalizeAgentStateChange({
-      shouldSync: result.changed || result.fitView,
-      shouldFit: result.fitView,
-    });
-    if (result.message) {
-      setStatus(result.message);
+    const result = applyAgentCommand(normalizedCommand);
+    const finishSuccess = (resolvedResult) => {
+      finalizeAgentStateChange({
+        shouldSync: resolvedResult.changed || resolvedResult.fitView,
+        shouldFit: resolvedResult.fitView,
+      });
+      if (resolvedResult.message) {
+        setStatus(resolvedResult.message);
+      }
+      return toPublicAgentResult(resolvedResult);
+    };
+    const finishFailure = (error) => {
+      setStatus(error && error.message ? error.message : String(error));
+      return createAgentError(action || "", error);
+    };
+    if (isPromiseLike(result)) {
+      return result.then(finishSuccess).catch(finishFailure);
     }
-    return toPublicAgentResult(result);
+    return finishSuccess(result);
   } catch (error) {
     setStatus(error && error.message ? error.message : String(error));
     return createAgentError(action || "", error);
   }
 }
 
-function executeManyAgentCommands(commands) {
+async function executeManyAgentCommands(commands, options = {}) {
   const items = Array.isArray(commands) ? commands : [];
-  const mutating = items.some((command) => isAgentMutationAction(typeof (command && command.action) === "string" ? command.action.trim() : ""));
+  const normalizedItems = items.map((command) => normalizeAgentCommand(command || {}));
+  const mutating = normalizedItems.some((command) => isAgentMutationAction(command.action));
+  const transactional = Boolean(options.transaction);
   const results = [];
   let shouldSync = false;
   let shouldFit = false;
+  const stateSnapshot = transactional ? snapshotState() : null;
+  const historySnapshot = transactional ? snapshotHistoryStacks() : null;
 
   if (mutating) {
     pushUndoState();
   }
 
-  items.forEach((command) => {
-    const action = typeof (command && command.action) === "string" ? command.action.trim() : "";
+  for (const command of normalizedItems) {
+    const action = command.action;
     try {
-      const result = applyAgentCommand(command || {});
+      const result = await applyAgentCommand(command);
       results.push(toPublicAgentResult(result));
       shouldSync = shouldSync || Boolean(result.changed || result.fitView);
       shouldFit = shouldFit || Boolean(result.fitView);
     } catch (error) {
       results.push(createAgentError(action || "", error));
+      if (transactional) {
+        state = normalizeDocument(stateSnapshot);
+        restoreHistoryStacks(historySnapshot);
+        clearTransientState();
+        syncAfterStateChange(false);
+        break;
+      }
     }
-  });
-
-  if (shouldSync || shouldFit) {
-    finalizeAgentStateChange({ shouldSync: shouldSync || shouldFit, shouldFit });
   }
 
   const failed = results.find((result) => !result.ok);
+
+  if (!failed && (shouldSync || shouldFit)) {
+    finalizeAgentStateChange({ shouldSync: shouldSync || shouldFit, shouldFit });
+  }
+
   if (failed && failed.error) {
     setStatus(failed.error);
   } else if (results.length) {
@@ -4743,6 +5170,8 @@ function executeManyAgentCommands(commands) {
     ok: !failed,
     count: items.length,
     results,
+    transaction: transactional,
+    rolledBack: Boolean(transactional && failed),
   };
 }
 
@@ -4763,6 +5192,8 @@ function setAgentResultOutput(payload, options = {}) {
   const lastAction = typeof options.action === "string"
     ? options.action
     : (payload && typeof payload === "object" && typeof payload.action === "string" ? payload.action : "");
+  agentLastResultText = content;
+  agentLastResultValue = payload === undefined ? null : deepClone(payload);
   agentResultOutput.textContent = content;
   agentResultOutput.dataset.lastOk = lastOk;
   agentResultOutput.dataset.lastResult = content;
@@ -4771,13 +5202,37 @@ function setAgentResultOutput(payload, options = {}) {
   agentResultOutput.dataset.lastAction = lastAction;
 }
 
-function normalizeAgentAction(action) {
-  const map = { fit: "fitAll", zoom: "fitAll", zoomExtents: "fitAll", check: "validate", inspect: "validate", reset: "clear", getSummary: "summary", getEntities: "entities", getState: "state", getBounds: "bounds", describeTools: "describeTools", listResources: "listResources" };
-  return map[action] || action;
-}
-
 function normalizeAgentToolName(tool) {
-  const map = { rect: "create_rect", createRect: "create_rect", line: "create_line", createLine: "create_line", text: "create_text", createText: "create_text", clear: "clear_drawing", clearDrawing: "clear_drawing", fit: "fit_all", fitAll: "fit_all", validate: "validate_drawing", validateDrawing: "validate_drawing", summary: "get_summary", getSummary: "get_summary", entities: "get_entities", getEntities: "get_entities", state: "get_state", getState: "get_state", bounds: "get_bounds", getBounds: "get_bounds" };
+  const map = {
+    rect: "create_rect",
+    createRect: "create_rect",
+    line: "create_line",
+    createLine: "create_line",
+    text: "create_text",
+    createText: "create_text",
+    clear: "clear_drawing",
+    clearDrawing: "clear_drawing",
+    fit: "fit_all",
+    fitAll: "fit_all",
+    validate: "validate_drawing",
+    validateDrawing: "validate_drawing",
+    summary: "get_summary",
+    getSummary: "get_summary",
+    entities: "get_entities",
+    getEntities: "get_entities",
+    state: "get_state",
+    getState: "get_state",
+    bounds: "get_bounds",
+    getBounds: "get_bounds",
+    readResource: "read_resource",
+    resource: "read_resource",
+    copyResult: "copy_result",
+    copyState: "copy_state",
+    copyEntities: "copy_entities",
+    copySummary: "copy_summary",
+    tools: "describe_tools",
+    resources: "list_resources",
+  };
   return map[tool] || tool;
 }
 
@@ -4808,7 +5263,7 @@ function copyAgentText(text, meta = {}) {
   }));
 }
 
-function runAgentPanelCommand() {
+async function runAgentPanelCommand() {
   if (!agentCommandInput || !window.DraftLiteAgent) {
     return;
   }
@@ -4819,7 +5274,7 @@ function runAgentPanelCommand() {
       return;
     }
     const result = window.DraftLiteAgent.execute(parsed.payload);
-    setAgentResultOutput(result);
+    setAgentResultOutput(isPromiseLike(result) ? await result : result);
   } catch (error) {
     setAgentResultOutput(
       {
@@ -5097,16 +5552,19 @@ function executeDebugBridgeCommand(detail) {
   return payload;
 }
 
-function executeAgentBridgeCommand(detail) {
+async function executeAgentBridgeCommand(detail) {
   const command = detail && detail.command ? detail.command : {};
   const action = typeof command.action === "string" ? command.action.trim() : "";
-  const result = executeAgentCommand(command);
+  const result = window.DraftLiteAgent && typeof window.DraftLiteAgent.execute === "function"
+    ? window.DraftLiteAgent.execute(command)
+    : executeAgentCommand(command);
+  const resolvedResult = isPromiseLike(result) ? await result : result;
   const payload = {
     id: detail && detail.id ? detail.id : String(Date.now()),
     action,
-    ok: result.ok,
-    result,
-    error: result.ok ? "" : (result.error || "Unknown agent error."),
+    ok: resolvedResult.ok,
+    result: resolvedResult,
+    error: resolvedResult.ok ? "" : (resolvedResult.error || "Unknown agent error."),
   };
   writeAgentBridgeOutput(payload);
   tryDispatchAgentBridgeResult(payload);
@@ -6886,6 +7344,15 @@ window.DraftLiteAgent = {
     const readOnlyActions = ["validate", "summary", "entities", "state", "bounds", "describeTools", "listResources", "readResource", "copyInput", "copyResult", "copyState", "copyEntities", "copySummary"];
     if (action === "describeTools") return this.describeTools();
     if (action === "listResources") return this.listResources();
+    if (action === "readResource") {
+      const uri = typeof payload.uri === "string" && payload.uri.trim()
+        ? payload.uri.trim()
+        : (payload.payload && typeof payload.payload.uri === "string" ? payload.payload.uri.trim() : "");
+      if (!uri) {
+        return { ok: false, action, isError: true, error: { code: "MISSING_URI", message: "readResource requires payload.uri." } };
+      }
+      return this.readResource(uri);
+    }
     if (action === "summary") return { ok: true, action, structuredContent: this.getSummary() };
     if (action === "entities") return { ok: true, action, structuredContent: this.getEntities() };
     if (action === "state") return { ok: true, action, structuredContent: this.getState() };
@@ -6897,39 +7364,114 @@ window.DraftLiteAgent = {
     if (action === "copyInput") return { ok: false, isError: true, error: { code: "USE_UI_COMMAND", message: "copyInput is UI-only command." } };
     if (action === "copyResult") return this.copyResult();
     const run = executeAgentCommand({ ...payload, action });
-    const result = { ok: run.ok, run, action, validation: this.validateDrawing({ requireNonEmpty: false }), summary: this.getSummary(), boundsMm: this.getBounds() };
-    if (!run.ok) result.error = { code: "COMMAND_FAILED", message: run.error || "Command failed." };
-    if (readOnlyActions.includes(action)) return run;
-    return result;
+    const finalizeRunResult = (resolvedRun) => {
+      const result = { ok: resolvedRun.ok, run: resolvedRun, action, validation: this.validateDrawing({ requireNonEmpty: false }), summary: this.getSummary(), boundsMm: this.getBounds() };
+      if (!resolvedRun.ok) result.error = { code: "COMMAND_FAILED", message: resolvedRun.error || "Command failed." };
+      if (readOnlyActions.includes(action)) return resolvedRun;
+      return result;
+    };
+    return isPromiseLike(run) ? run.then(finalizeRunResult) : finalizeRunResult(run);
   },
-  executeMany(commands, options = {}) {
-    const useTools = commands.every((c) => c && typeof c === "object" && typeof c.tool === "string");
+
+  async executeMany(commands, options = {}) {
+    const items = Array.isArray(commands) ? commands : [];
+    const useTools = items.every((command) => command && typeof command === "object" && typeof command.tool === "string");
     const tx = Boolean(options.transaction);
-    const snapshot = tx ? snapshotState() : null;
+    const stateSnapshot = tx ? snapshotState() : null;
+    const historySnapshot = tx ? snapshotHistoryStacks() : null;
     const results = [];
-    for (let index = 0; index < commands.length; index += 1) {
-      const command = commands[index];
-      const result = useTools ? this.callTool(command.tool, command.arguments || {}) : this.execute(command);
-      results.push(result);
-      if (!result.ok && tx) {
-        state = normalizeDocument(snapshot);
+    for (let index = 0; index < items.length; index += 1) {
+      const command = items[index];
+      const result = useTools
+        ? this.callTool(command.tool, command.arguments || {})
+        : this.execute(command);
+      const resolvedResult = isPromiseLike(result) ? await result : result;
+      results.push(resolvedResult);
+      if (!resolvedResult.ok && tx) {
+        state = normalizeDocument(stateSnapshot);
+        restoreHistoryStacks(historySnapshot);
         clearTransientState();
-        syncAfterStateChange();
-        return { ok: false, rolledBack: true, results, error: { code: "TRANSACTION_ROLLED_BACK", message: `Command ${index + 1} failed: ${result.error && result.error.message ? result.error.message : "Unknown error"}.` } };
+        syncAfterStateChange(false);
+        return {
+          ok: false,
+          rolledBack: true,
+          transaction: true,
+          count: items.length,
+          results,
+          error: {
+            code: "TRANSACTION_ROLLED_BACK",
+            message: `Command ${index + 1} failed: ${resolvedResult.error && resolvedResult.error.message ? resolvedResult.error.message : (resolvedResult.error || "Unknown error")}.`,
+          },
+        };
       }
     }
-    return { ok: results.every((r) => r.ok), count: commands.length, results, validation: options.autoValidate ? this.validateDrawing({ requireNonEmpty: false }) : undefined, summary: this.getSummary(), boundsMm: this.getBounds() };
+    return {
+      ok: results.every((result) => result.ok),
+      count: items.length,
+      results,
+      transaction: tx,
+      rolledBack: false,
+      validation: options.autoValidate ? this.validateDrawing({ requireNonEmpty: false }) : undefined,
+      summary: this.getSummary(),
+      boundsMm: this.getBounds(),
+    };
   },
   callTool(name, args = {}) {
     const tool = normalizeAgentToolName(String(name || "").trim());
-    const map = { create_rect: "rect", create_line: "line", create_text: "text", set_layer: "setLayer", clear_drawing: "clear", fit_all: "fitAll", validate_drawing: "validate", get_summary: "summary", get_entities: "entities", get_state: "state", get_bounds: "bounds" };
+    const map = {
+      create_rect: "rect",
+      create_line: "line",
+      create_text: "text",
+      set_layer: "setLayer",
+      clear_drawing: "clear",
+      fit_all: "fitAll",
+      validate_drawing: "validate",
+      get_summary: "summary",
+      get_entities: "entities",
+      get_state: "state",
+      get_bounds: "bounds",
+      read_resource: "readResource",
+      copy_result: "copyResult",
+      copy_state: "copyState",
+      copy_entities: "copyEntities",
+      copy_summary: "copySummary",
+      describe_tools: "describeTools",
+      list_resources: "listResources",
+    };
     const action = map[tool];
     if (!action) return { ok: false, tool, isError: true, error: { code: "UNKNOWN_TOOL", message: `Unknown tool: ${tool}` } };
     return this.execute({ ...args, action, tool });
   },
-  describeTools() { return { ok: true, protocol: "draftlite-agent-tools", version: "0.2", tools: [{ name: "create_rect", description: "Create a rectangle entity using millimeter input.", inputSchema: { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" }, name: { type: "string" }, fill: { type: "boolean" }, fillColor: { type: "string" }, color: { type: "string" }, layer: { type: "string" } } } }, { name: "create_line" }, { name: "create_text" }, { name: "set_layer" }, { name: "clear_drawing" }, { name: "fit_all" }, { name: "validate_drawing" }, { name: "get_summary" }, { name: "get_entities" }, { name: "get_state" }, { name: "get_bounds" }, { name: "copy_input" }, { name: "copy_result" }, { name: "copy_state" }, { name: "copy_entities" }, { name: "copy_summary" }] }; },
-  listResources() { return { ok: true, resources: [{ uri: "draftlite://state", name: "Current document state" }, { uri: "draftlite://entities", name: "Current drawing entities" }, { uri: "draftlite://summary", name: "Current drawing summary" }, { uri: "draftlite://bounds", name: "Current drawing bounds" }, { uri: "draftlite://validation", name: "Current validation result" }, { uri: "draftlite://tools", name: "Available tool definitions" }] }; },
-  readResource(uri) { const map = { "draftlite://state": this.getState(), "draftlite://entities": this.getEntities(), "draftlite://summary": this.getSummary(), "draftlite://bounds": this.getBounds(), "draftlite://validation": this.validateDrawing({ requireNonEmpty: false }), "draftlite://tools": this.describeTools() }; if (!(uri in map)) return { ok: false, uri, isError: true, error: { code: "UNKNOWN_RESOURCE", message: `Unknown resource: ${uri}` } }; return { ok: true, uri, content: map[uri] }; },
+  describeTools() {
+    return { ok: true, protocol: "draftlite-agent-tools", version: "0.2", tools: describeAgentTools() };
+  },
+  listResources() {
+    return {
+      ok: true,
+      resources: [
+        ...listAgentResources(),
+        { uri: "draftlite://validation", name: "Current validation result", description: "Current drawing validation report." },
+        { uri: "draftlite://tools", name: "Available tool definitions", description: "MCP-style DraftLite tool definitions." },
+      ],
+    };
+  },
+  readResource(uri) {
+    const normalizedUri = typeof uri === "string" ? uri.trim() : "";
+    if (!normalizedUri) {
+      return { ok: false, uri: normalizedUri, isError: true, error: { code: "MISSING_URI", message: "readResource requires payload.uri." } };
+    }
+    if (normalizedUri === "draftlite://validation") {
+      return { ok: true, uri: normalizedUri, content: this.validateDrawing({ requireNonEmpty: false }) };
+    }
+    if (normalizedUri === "draftlite://tools") {
+      return { ok: true, uri: normalizedUri, content: this.describeTools() };
+    }
+    try {
+      return { ok: true, uri: normalizedUri, content: readAgentResource(normalizedUri) };
+    } catch (error) {
+      return { ok: false, uri: normalizedUri, isError: true, error: { code: "UNKNOWN_RESOURCE", message: error && error.message ? error.message : `Unknown resource: ${normalizedUri}` } };
+    }
+  },
 
   clear() {
     return executeAgentCommand({ action: "clear" });
@@ -6974,10 +7516,18 @@ window.DraftLiteAgent = {
   setLayer(command) {
     return executeAgentCommand({ ...(command || {}), action: "setLayer" });
   },
-  copyResult() { return copyAgentText((agentResultOutput && agentResultOutput.textContent) || "", { action: "copyResult" }); },
-  copyState() { return copyAgentText(JSON.stringify(this.getState(), null, 2), { action: "copyState" }); },
-  copyEntities() { return copyAgentText(JSON.stringify(this.getEntities(), null, 2), { action: "copyEntities" }); },
-  copySummary() { return copyAgentText(JSON.stringify(this.getSummary(), null, 2), { action: "copySummary" }); },
+  copyResult() {
+    return copyAgentText((agentResultOutput && agentResultOutput.textContent) || "", { action: "copyResult" });
+  },
+  copyState() {
+    return copyAgentText(JSON.stringify(this.getState(), null, 2), { action: "copyState" });
+  },
+  copyEntities() {
+    return copyAgentText(JSON.stringify(this.getEntities(), null, 2), { action: "copyEntities" });
+  },
+  copySummary() {
+    return copyAgentText(JSON.stringify(this.getSummary(), null, 2), { action: "copySummary" });
+  },
 };
 
 bindDebugBridge();
