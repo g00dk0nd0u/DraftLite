@@ -36,6 +36,7 @@ const toolButtons = {
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
   rotate: document.getElementById("rotateButton"),
+  mirror: document.getElementById("mirrorButton"),
   align: document.getElementById("alignButton"),
   extend: document.getElementById("extendButton"),
   fillet: document.getElementById("filletButton"),
@@ -154,6 +155,7 @@ const uiState = {
   alignDraft: null,
   extendDraft: null,
   filletDraft: null,
+  mirrorDraft: null,
   dimensionDraft: null,
   matchPropertiesSourceId: null,
   selectionWindow: null,
@@ -665,6 +667,13 @@ function cancelAlign(message = "Align cancelled.") {
   uiState.alignDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
+  setStatus(message);
+}
+
+function cancelMirror(message = "Mirror cancelled.") {
+  uiState.mirrorDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
   setStatus(message);
 }
 
@@ -3256,6 +3265,140 @@ function rotatePoint(point, center, angleDeg) {
 function normalizeAngleDeg(angleDeg) {
   const normalized = ((angleDeg % 360) + 360) % 360;
   return roundToUnit(normalized);
+}
+
+function mirrorPointAcrossLine(point, lineP1, lineP2) {
+  const dx = lineP2.x - lineP1.x;
+  const dy = lineP2.y - lineP1.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) {
+    return roundWorldPoint(point);
+  }
+  const px = point.x - lineP1.x;
+  const py = point.y - lineP1.y;
+  const dot = (px * dx + py * dy) / lengthSq;
+  const projX = lineP1.x + dot * dx;
+  const projY = lineP1.y + dot * dy;
+  return roundWorldPoint({
+    x: projX * 2 - point.x,
+    y: projY * 2 - point.y,
+  });
+}
+
+function isVerticalOrHorizontalMirrorAxis(lineP1, lineP2) {
+  return lineP1.x === lineP2.x || lineP1.y === lineP2.y;
+}
+
+function mirrorEntity(entity, lineP1, lineP2) {
+  if (entity.type === "line") {
+    return { ...entity, p1: mirrorPointAcrossLine(entity.p1, lineP1, lineP2), p2: mirrorPointAcrossLine(entity.p2, lineP1, lineP2) };
+  }
+  if (entity.type === "rect") {
+    if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
+      return entity;
+    }
+    const corners = [
+      { x: entity.x, y: entity.y },
+      { x: entity.x + entity.width, y: entity.y },
+      { x: entity.x + entity.width, y: entity.y + entity.height },
+      { x: entity.x, y: entity.y + entity.height },
+    ].map((point) => mirrorPointAcrossLine(point, lineP1, lineP2));
+    const xs = corners.map((point) => point.x);
+    const ys = corners.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return { ...entity, x: minX, y: minY, width: roundToUnit(maxX - minX), height: roundToUnit(maxY - minY), rotation: 0 };
+  }
+  if (entity.type === "circle") {
+    return { ...entity, center: mirrorPointAcrossLine(entity.center, lineP1, lineP2) };
+  }
+  if (entity.type === "arc") {
+    const startPoint = pointFromCenterRadiusAngle(entity.center, entity.radius, entity.startAngleDeg || 0);
+    const endPoint = pointFromCenterRadiusAngle(entity.center, entity.radius, entity.endAngleDeg || 0);
+    const mirroredCenter = mirrorPointAcrossLine(entity.center, lineP1, lineP2);
+    const mirroredStart = mirrorPointAcrossLine(startPoint, lineP1, lineP2);
+    const mirroredEnd = mirrorPointAcrossLine(endPoint, lineP1, lineP2);
+    return {
+      ...entity,
+      center: mirroredCenter,
+      startAngleDeg: normalizeAngleDeg(angleDegFromCenter(mirroredCenter, mirroredStart)),
+      endAngleDeg: normalizeAngleDeg(angleDegFromCenter(mirroredCenter, mirroredEnd)),
+    };
+  }
+  if (entity.type === "filledRegion") {
+    return { ...entity, points: entity.points.map((point) => mirrorPointAcrossLine(point, lineP1, lineP2)) };
+  }
+  if (entity.type === "text") {
+    const mirroredPosition = mirrorPointAcrossLine({ x: entity.x, y: entity.y }, lineP1, lineP2);
+    const rotation = Number.isFinite(entity.rotation) ? entity.rotation : 0;
+    const directionPoint = {
+      x: entity.x + Math.cos((rotation * Math.PI) / 180),
+      y: entity.y + Math.sin((rotation * Math.PI) / 180),
+    };
+    const mirroredDirectionPoint = mirrorPointAcrossLine(directionPoint, lineP1, lineP2);
+    return {
+      ...entity,
+      x: mirroredPosition.x,
+      y: mirroredPosition.y,
+      rotation: normalizeAngleDeg(angleDegFromCenter(mirroredPosition, mirroredDirectionPoint)),
+    };
+  }
+  if (entity.type === "dimension") {
+    return {
+      ...entity,
+      p1: mirrorPointAcrossLine(entity.p1, lineP1, lineP2),
+      p2: mirrorPointAcrossLine(entity.p2, lineP1, lineP2),
+      offsetPoint: mirrorPointAcrossLine(entity.offsetPoint, lineP1, lineP2),
+    };
+  }
+  return entity;
+}
+
+function startMirrorDraft(worldPoint) {
+  const selectedEntities = getSelectedTransformableEntities();
+  if (!selectedEntities.length) {
+    setStatus("Select at least one entity before using Mirror.");
+    return false;
+  }
+  uiState.mirrorDraft = { firstPoint: roundWorldPoint(worldPoint) };
+  setStatus(`Mirror axis first point set at ${formatWorldPoint(uiState.mirrorDraft.firstPoint)}. Pick second point.`);
+  draw();
+  return true;
+}
+
+function applyMirrorDraft(worldPoint) {
+  if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
+    return false;
+  }
+  const firstPoint = uiState.mirrorDraft.firstPoint;
+  const secondPoint = roundWorldPoint(worldPoint);
+  if (firstPoint.x === secondPoint.x && firstPoint.y === secondPoint.y) {
+    setStatus("Mirror axis needs two distinct points.");
+    return false;
+  }
+  const selectedIdSet = new Set(state.selectedEntityIds);
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (!selectedIdSet.has(entity.id) || !canSelectEntity(entity)) {
+      return entity;
+    }
+    return mirrorEntity(entity, firstPoint, secondPoint);
+  });
+  uiState.mirrorDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Mirror applied.");
+  return true;
+}
+
+function handleMirrorToolClick(worldPoint) {
+  if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
+    startMirrorDraft(worldPoint);
+    return;
+  }
+  applyMirrorDraft(worldPoint);
 }
 
 function rotateEntity(entity, center, angleDeg) {
@@ -6601,6 +6744,10 @@ function setActiveTool(tool) {
     setStatus("Extend: pick boundary line");
     return;
   }
+  if (tool === "mirror") {
+    setStatus("Mirror: pick axis first point.");
+    return;
+  }
   setStatus(`${capitalize(tool)} tool active.`);
 }
 
@@ -7134,6 +7281,10 @@ function onKeyDown(event) {
       cancelAlign();
       return;
     }
+    if (uiState.mirrorDraft || uiState.activeTool === "mirror") {
+      cancelMirror();
+      return;
+    }
     if (uiState.extendDraft || uiState.activeTool === "extend") {
       cancelExtend();
       return;
@@ -7357,6 +7508,7 @@ function bindEvents() {
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.rotate.addEventListener("click", () => rotateSelectedEntities(90));
+  toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
@@ -7920,3 +8072,7 @@ window.DraftLiteAgent = {
 };
 
 bindDebugBridge();
+  if (uiState.activeTool === "mirror") {
+    handleMirrorToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
