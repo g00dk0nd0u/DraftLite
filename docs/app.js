@@ -168,6 +168,9 @@ const uiState = {
   panning: false,
   panStartScreen: { x: 0, y: 0 },
   panStartView: { panX: 0, panY: 0 },
+  touchPanDraft: null,
+  pinchDraft: null,
+  touchGestureActive: false,
   lastMiddleClickTime: 0,
   canvasRect: canvas.getBoundingClientRect(),
   dpr: window.devicePixelRatio || 1,
@@ -5816,6 +5819,129 @@ function getScreenPointFromEvent(event) {
   };
 }
 
+function getTouchCenterAndDistance(touchA, touchB) {
+  const center = {
+    x: (touchA.clientX + touchB.clientX) / 2,
+    y: (touchA.clientY + touchB.clientY) / 2,
+  };
+  const distance = Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY);
+  return { center, distance };
+}
+
+function isSidebarInteractiveTouchTarget(target) {
+  if (!target || typeof target.closest !== "function") {
+    return false;
+  }
+  return !!target.closest('.sidebar input, .sidebar textarea, .sidebar button, .sidebar select, .sidebar option, .sidebar label, .sidebar details, .sidebar summary');
+}
+
+function onCanvasTouchStart(event) {
+  if (isSidebarEventTarget(event)) {
+    return;
+  }
+  if (isSidebarInteractiveTouchTarget(event.target)) {
+    return;
+  }
+
+  if (event.touches.length === 1) {
+    const touch = event.touches[0];
+    uiState.touchPanDraft = {
+      startClient: { x: touch.clientX, y: touch.clientY },
+      startView: { panX: state.view.panX, panY: state.view.panY },
+    };
+    uiState.pinchDraft = null;
+    uiState.touchGestureActive = true;
+    document.body.dataset.panning = "true";
+    event.preventDefault();
+    return;
+  }
+
+  if (event.touches.length === 2) {
+    const touchA = event.touches[0];
+    const touchB = event.touches[1];
+    const { center, distance } = getTouchCenterAndDistance(touchA, touchB);
+    const screenPoint = getScreenPointFromEvent({ clientX: center.x, clientY: center.y });
+    uiState.pinchDraft = {
+      startDistance: Math.max(distance, 1),
+      startZoom: state.view.zoom,
+      anchorWorld: screenToWorld(screenPoint),
+    };
+    uiState.touchPanDraft = null;
+    uiState.touchGestureActive = true;
+    delete document.body.dataset.panning;
+    event.preventDefault();
+  }
+}
+
+function onCanvasTouchMove(event) {
+  if (!uiState.touchGestureActive) {
+    return;
+  }
+
+  if (event.touches.length === 1 && uiState.touchPanDraft) {
+    const touch = event.touches[0];
+    state.view.panX = uiState.touchPanDraft.startView.panX + (touch.clientX - uiState.touchPanDraft.startClient.x);
+    state.view.panY = uiState.touchPanDraft.startView.panY + (touch.clientY - uiState.touchPanDraft.startClient.y);
+    event.preventDefault();
+    draw();
+    renderStatusPanel();
+    return;
+  }
+
+  if (event.touches.length === 2) {
+    if (!uiState.pinchDraft) {
+      const touchA = event.touches[0];
+      const touchB = event.touches[1];
+      const start = getTouchCenterAndDistance(touchA, touchB);
+      const startScreenPoint = getScreenPointFromEvent({ clientX: start.center.x, clientY: start.center.y });
+      uiState.pinchDraft = {
+        startDistance: Math.max(start.distance, 1),
+        startZoom: state.view.zoom,
+        anchorWorld: screenToWorld(startScreenPoint),
+      };
+      uiState.touchPanDraft = null;
+    }
+    const touchA = event.touches[0];
+    const touchB = event.touches[1];
+    const { center, distance } = getTouchCenterAndDistance(touchA, touchB);
+    const screenPoint = getScreenPointFromEvent({ clientX: center.x, clientY: center.y });
+    const ratio = distance / Math.max(uiState.pinchDraft.startDistance, 1);
+    state.view.zoom = clampNumber(uiState.pinchDraft.startZoom * ratio, MIN_ZOOM, MAX_ZOOM, state.view.zoom);
+    state.view.panX = screenPoint.x - uiState.pinchDraft.anchorWorld.x * state.view.zoom;
+    state.view.panY = screenPoint.y - uiState.pinchDraft.anchorWorld.y * state.view.zoom;
+    event.preventDefault();
+    draw();
+    renderStatusPanel();
+    return;
+  }
+
+  event.preventDefault();
+}
+
+function onCanvasTouchEnd(event) {
+  if (!uiState.touchGestureActive) {
+    return;
+  }
+
+  if (event.touches.length === 1) {
+    const touch = event.touches[0];
+    uiState.touchPanDraft = {
+      startClient: { x: touch.clientX, y: touch.clientY },
+      startView: { panX: state.view.panX, panY: state.view.panY },
+    };
+    uiState.pinchDraft = null;
+    document.body.dataset.panning = "true";
+    event.preventDefault();
+    return;
+  }
+
+  uiState.touchPanDraft = null;
+  uiState.pinchDraft = null;
+  uiState.touchGestureActive = false;
+  delete document.body.dataset.panning;
+  event.preventDefault();
+}
+
 function onCanvasMouseDown(event) {
   if (event.button === 1) {
     event.preventDefault();
@@ -7032,6 +7158,10 @@ function bindEvents() {
   canvas.addEventListener("mousemove", onPointerMove);
   canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+  canvas.addEventListener("touchstart", onCanvasTouchStart, { passive: false });
+  canvas.addEventListener("touchmove", onCanvasTouchMove, { passive: false });
+  canvas.addEventListener("touchend", onCanvasTouchEnd, { passive: false });
+  canvas.addEventListener("touchcancel", onCanvasTouchEnd, { passive: false });
 
   window.addEventListener("mouseup", onWindowMouseUp);
   window.addEventListener("mousemove", onPointerMove);
