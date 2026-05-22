@@ -169,6 +169,7 @@ const uiState = {
   panStartScreen: { x: 0, y: 0 },
   panStartView: { panX: 0, panY: 0 },
   touchPanDraft: null,
+  touchTapDraft: null,
   pinchDraft: null,
   touchGestureActive: false,
   lastMiddleClickTime: 0,
@@ -5845,13 +5846,20 @@ function onCanvasTouchStart(event) {
 
   if (event.touches.length === 1) {
     const touch = event.touches[0];
+    const screenPoint = getScreenPointFromEvent({ clientX: touch.clientX, clientY: touch.clientY });
+    uiState.touchTapDraft = {
+      startClient: { x: touch.clientX, y: touch.clientY },
+      startWorld: screenToWorld(screenPoint),
+      startTime: Date.now(),
+      moved: false,
+    };
     uiState.touchPanDraft = {
       startClient: { x: touch.clientX, y: touch.clientY },
       startView: { panX: state.view.panX, panY: state.view.panY },
+      active: false,
     };
     uiState.pinchDraft = null;
     uiState.touchGestureActive = true;
-    document.body.dataset.panning = "true";
     event.preventDefault();
     return;
   }
@@ -5866,6 +5874,7 @@ function onCanvasTouchStart(event) {
       startZoom: state.view.zoom,
       anchorWorld: screenToWorld(screenPoint),
     };
+    uiState.touchTapDraft = null;
     uiState.touchPanDraft = null;
     uiState.touchGestureActive = true;
     delete document.body.dataset.panning;
@@ -5880,8 +5889,22 @@ function onCanvasTouchMove(event) {
 
   if (event.touches.length === 1 && uiState.touchPanDraft) {
     const touch = event.touches[0];
-    state.view.panX = uiState.touchPanDraft.startView.panX + (touch.clientX - uiState.touchPanDraft.startClient.x);
-    state.view.panY = uiState.touchPanDraft.startView.panY + (touch.clientY - uiState.touchPanDraft.startClient.y);
+    const deltaX = touch.clientX - uiState.touchPanDraft.startClient.x;
+    const deltaY = touch.clientY - uiState.touchPanDraft.startClient.y;
+    const moveDistance = Math.hypot(deltaX, deltaY);
+    if (uiState.touchTapDraft && moveDistance > 10) {
+      uiState.touchTapDraft.moved = true;
+    }
+    if (!uiState.touchPanDraft.active && moveDistance > 10) {
+      uiState.touchPanDraft.active = true;
+      document.body.dataset.panning = "true";
+    }
+    if (!uiState.touchPanDraft.active) {
+      event.preventDefault();
+      return;
+    }
+    state.view.panX = uiState.touchPanDraft.startView.panX + deltaX;
+    state.view.panY = uiState.touchPanDraft.startView.panY + deltaY;
     event.preventDefault();
     draw();
     renderStatusPanel();
@@ -5899,6 +5922,7 @@ function onCanvasTouchMove(event) {
         startZoom: state.view.zoom,
         anchorWorld: screenToWorld(startScreenPoint),
       };
+      uiState.touchTapDraft = null;
       uiState.touchPanDraft = null;
     }
     const touchA = event.touches[0];
@@ -5928,13 +5952,31 @@ function onCanvasTouchEnd(event) {
     uiState.touchPanDraft = {
       startClient: { x: touch.clientX, y: touch.clientY },
       startView: { panX: state.view.panX, panY: state.view.panY },
+      active: false,
     };
+    uiState.touchTapDraft = null;
     uiState.pinchDraft = null;
-    document.body.dataset.panning = "true";
+    delete document.body.dataset.panning;
     event.preventDefault();
     return;
   }
 
+  const tapDraft = uiState.touchTapDraft;
+  const isTap = !!(
+    tapDraft &&
+    !tapDraft.moved &&
+    Date.now() - tapDraft.startTime <= 500
+  );
+  if (isTap) {
+    const syntheticTapEvent = {
+      altKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+    };
+    handleCanvasPrimaryAction(tapDraft.startWorld, tapDraft.startWorld, syntheticTapEvent);
+  }
+
+  uiState.touchTapDraft = null;
   uiState.touchPanDraft = null;
   uiState.pinchDraft = null;
   uiState.touchGestureActive = false;
@@ -5955,8 +5997,11 @@ function onCanvasMouseDown(event) {
 
   const screenPoint = getScreenPointFromEvent(event);
   const rawWorldPoint = screenToWorld(screenPoint);
-  const worldPoint = resolveConstrainedSnapPoint(rawWorldPoint, event.shiftKey);
+  handleCanvasPrimaryAction(rawWorldPoint, rawWorldPoint, event);
+}
 
+function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
+  const worldPoint = resolveConstrainedSnapPoint(rawSnapWorldPoint, event.shiftKey);
   if (uiState.activeTool === "line") {
     handleLineToolClick(worldPoint);
     return;
@@ -6059,10 +6104,10 @@ function onCanvasMouseDown(event) {
     }
     uiState.selectionWindow = {
       append: event.shiftKey,
-      startScreen: screenPoint,
-      currentScreen: screenPoint,
-      startWorld: screenToWorld(screenPoint),
-      currentWorld: screenToWorld(screenPoint),
+      startScreen: worldToScreen(rawWorldPoint),
+      currentScreen: worldToScreen(rawWorldPoint),
+      startWorld: rawWorldPoint,
+      currentWorld: rawWorldPoint,
     };
     draw();
   }
