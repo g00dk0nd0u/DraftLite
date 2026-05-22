@@ -3267,6 +3267,14 @@ function normalizeAngleDeg(angleDeg) {
   return roundToUnit(normalized);
 }
 
+function pointFromCenterRadiusAngle(center, radius, angleDeg) {
+  const angleRad = (angleDeg * Math.PI) / 180;
+  return {
+    x: roundToUnit(center.x + Math.cos(angleRad) * radius),
+    y: roundToUnit(center.y + Math.sin(angleRad) * radius),
+  };
+}
+
 function mirrorPointAcrossLine(point, lineP1, lineP2) {
   const dx = lineP2.x - lineP1.x;
   const dy = lineP2.y - lineP1.y;
@@ -6320,6 +6328,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     return;
   }
 
+  if (uiState.activeTool === "mirror") {
+    handleMirrorToolClick(worldPoint);
+    return;
+  }
+
   if (uiState.activeTool === "align") {
     handleAlignToolClick(roundWorldPoint(rawWorldPoint));
     return;
@@ -8072,7 +8085,3 @@ window.DraftLiteAgent = {
 };
 
 bindDebugBridge();
-  if (uiState.activeTool === "mirror") {
-    handleMirrorToolClick(roundWorldPoint(rawWorldPoint));
-    return;
-  }
