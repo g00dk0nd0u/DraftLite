@@ -35,6 +35,7 @@ const toolButtons = {
   matchProperties: document.getElementById("matchPropertiesButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
+  rotate: document.getElementById("rotateButton"),
   align: document.getElementById("alignButton"),
   extend: document.getElementById("extendButton"),
   fillet: document.getElementById("filletButton"),
@@ -3238,6 +3239,133 @@ function applyOffsetToEntity(entity, offset) {
       y: roundToUnit(entity.p2.y + offset.dy),
     },
   };
+}
+
+function rotatePoint(point, center, angleDeg) {
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return {
+    x: roundToUnit(center.x + dx * cos - dy * sin),
+    y: roundToUnit(center.y + dx * sin + dy * cos),
+  };
+}
+
+function normalizeAngleDeg(angleDeg) {
+  const normalized = ((angleDeg % 360) + 360) % 360;
+  return roundToUnit(normalized);
+}
+
+function rotateEntity(entity, center, angleDeg) {
+  if (entity.type === "line") {
+    return { ...entity, p1: rotatePoint(entity.p1, center, angleDeg), p2: rotatePoint(entity.p2, center, angleDeg) };
+  }
+  if (entity.type === "rect") {
+    const entityCenter = { x: entity.x + entity.width / 2, y: entity.y + entity.height / 2 };
+    const rotatedCenter = rotatePoint(entityCenter, center, angleDeg);
+    const nextWidth = roundToUnit(entity.height);
+    const nextHeight = roundToUnit(entity.width);
+    return {
+      ...entity,
+      x: roundToUnit(rotatedCenter.x - nextWidth / 2),
+      y: roundToUnit(rotatedCenter.y - nextHeight / 2),
+      width: nextWidth,
+      height: nextHeight,
+      rotation: 0,
+    };
+  }
+  if (entity.type === "circle") {
+    return { ...entity, center: rotatePoint(entity.center, center, angleDeg) };
+  }
+  if (entity.type === "arc") {
+    return {
+      ...entity,
+      center: rotatePoint(entity.center, center, angleDeg),
+      startAngleDeg: normalizeAngleDeg((entity.startAngleDeg || 0) + angleDeg),
+      endAngleDeg: normalizeAngleDeg((entity.endAngleDeg || 0) + angleDeg),
+    };
+  }
+  if (entity.type === "filledRegion") {
+    return { ...entity, points: entity.points.map((point) => rotatePoint(point, center, angleDeg)) };
+  }
+  if (entity.type === "text") {
+    return {
+      ...entity,
+      x: rotatePoint({ x: entity.x, y: entity.y }, center, angleDeg).x,
+      y: rotatePoint({ x: entity.x, y: entity.y }, center, angleDeg).y,
+      rotation: normalizeAngleDeg((entity.rotation || 0) + angleDeg),
+    };
+  }
+  if (entity.type === "dimension") {
+    return {
+      ...entity,
+      p1: rotatePoint(entity.p1, center, angleDeg),
+      p2: rotatePoint(entity.p2, center, angleDeg),
+      offsetPoint: rotatePoint(entity.offsetPoint, center, angleDeg),
+    };
+  }
+  return entity;
+}
+
+function getRotateBoundsForEntity(entity) {
+  if (!entity) {
+    return null;
+  }
+  if (entity.type === "line") {
+    return { minX: Math.min(entity.p1.x, entity.p2.x), minY: Math.min(entity.p1.y, entity.p2.y), maxX: Math.max(entity.p1.x, entity.p2.x), maxY: Math.max(entity.p1.y, entity.p2.y) };
+  }
+  if (entity.type === "rect") {
+    return { minX: entity.x, minY: entity.y, maxX: entity.x + entity.width, maxY: entity.y + entity.height };
+  }
+  if (entity.type === "circle" || entity.type === "arc") {
+    return { minX: entity.center.x - entity.radius, minY: entity.center.y - entity.radius, maxX: entity.center.x + entity.radius, maxY: entity.center.y + entity.radius };
+  }
+  if (entity.type === "filledRegion") {
+    const xs = entity.points.map((point) => point.x);
+    const ys = entity.points.map((point) => point.y);
+    return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  }
+  if (entity.type === "text") {
+    return { minX: entity.x, minY: entity.y, maxX: entity.x, maxY: entity.y };
+  }
+  if (entity.type === "dimension") {
+    const xs = [entity.p1.x, entity.p2.x, entity.offsetPoint.x];
+    const ys = [entity.p1.y, entity.p2.y, entity.offsetPoint.y];
+    return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  }
+  return null;
+}
+
+function rotateSelectedEntities(angleDeg = 90) {
+  const selectedEntities = getSelectedTransformableEntities();
+  if (!selectedEntities.length) {
+    setStatus("Select at least one entity before using Rotate.");
+    return false;
+  }
+  const boundsList = selectedEntities.map(getRotateBoundsForEntity).filter(Boolean);
+  if (!boundsList.length) {
+    setStatus("Rotate failed: selection bounds could not be calculated.");
+    return false;
+  }
+  const center = {
+    x: roundToUnit((Math.min(...boundsList.map((bounds) => bounds.minX)) + Math.max(...boundsList.map((bounds) => bounds.maxX))) / 2),
+    y: roundToUnit((Math.min(...boundsList.map((bounds) => bounds.minY)) + Math.max(...boundsList.map((bounds) => bounds.maxY))) / 2),
+  };
+
+  const selectedIdSet = new Set(selectedEntities.map((entity) => entity.id));
+  pushUndoState();
+  state.entities = state.entities.map((entity) => {
+    if (!selectedIdSet.has(entity.id) || !canSelectEntity(entity)) {
+      return entity;
+    }
+    return rotateEntity(entity, center, angleDeg);
+  });
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Rotated selection 90° clockwise.");
+  return true;
 }
 
 function commitMoveEntityOffset(entityIds, offset) {
@@ -7228,6 +7356,7 @@ function bindEvents() {
   toolButtons.matchProperties.addEventListener("click", () => setActiveTool("matchProperties"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
+  toolButtons.rotate.addEventListener("click", () => rotateSelectedEntities(90));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
