@@ -319,9 +319,7 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.filletDraft)
     || Boolean(uiState.dimensionDraft)
     || Boolean(uiState.matchPropertiesSourceId)
-    || Boolean(uiState.selectionWindow)
-    || Boolean(uiState.snapMarker)
-    || Boolean(uiState.hoverRectEdge);
+    || Boolean(uiState.selectionWindow);
 }
 
 function cancelCurrentOperationAndClearSelection() {
