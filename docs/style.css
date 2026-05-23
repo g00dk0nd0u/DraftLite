@@ -16,9 +16,9 @@
   --accent-soft: rgba(123, 96, 64, 0.12);
   --danger: #8b5a4c;
   --selection: #c2693e;
-  --canvas-bg: #f7f2e9;
-  --canvas-grid-major: rgba(123, 96, 64, 0.12);
-  --canvas-grid-minor: rgba(123, 96, 64, 0.05);
+  --canvas-bg: #f5f1eb;
+  --canvas-grid-major: rgba(90, 70, 45, 0.16);
+  --canvas-grid-minor: rgba(90, 70, 45, 0.07);
   --canvas-axis: rgba(89, 66, 42, 0.2);
   --topbar-bg: rgba(247, 242, 233, 0.92);
   --button-bg: rgba(255, 251, 245, 0.92);
@@ -232,7 +232,7 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 .tool-button[data-shortcut]::after {
   content: attr(data-shortcut);
   position: absolute;
-  top: -4px;
+  top: -16px;
   right: 3px;
   min-width: 14px;
   height: 14px;
