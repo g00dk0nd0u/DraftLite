@@ -2938,6 +2938,19 @@ function applyRectEdgeNumericPreview() {
   return true;
 }
 
+function applyRectEdgeNumericEdit() {
+  if (!uiState.rectEdgeEditDraft || !uiState.rectEdgeEditDraft.numericInputBuffer) {
+    return false;
+  }
+  const previewPoint = getRectEdgeNumericPreviewPoint();
+  if (!previewPoint) {
+    setStatus("Enter a valid rectangle edge distance.");
+    return false;
+  }
+  uiState.rectEdgeEditDraft.currentPoint = previewPoint;
+  return applyRectEdgeEdit();
+}
+
 function applyRectEdgeEdit() {
   const draft = uiState.rectEdgeEditDraft;
   if (!draft) {
@@ -7115,6 +7128,10 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       return;
     }
     if (uiState.rectEdgeEditDraft) {
+      if (uiState.rectEdgeEditDraft.numericInputBuffer) {
+        applyRectEdgeNumericEdit();
+        return;
+      }
       uiState.rectEdgeEditDraft.currentPoint = worldPoint;
       applyRectEdgeEdit();
       return;
@@ -8064,13 +8081,7 @@ function onKeyDown(event) {
 
     if (event.key === "Enter" && uiState.rectEdgeEditDraft.numericInputBuffer) {
       event.preventDefault();
-      const previewPoint = getRectEdgeNumericPreviewPoint();
-      if (!previewPoint) {
-        setStatus("Move the pointer to indicate a rectangle edge direction before pressing Enter.");
-        return;
-      }
-      uiState.rectEdgeEditDraft.currentPoint = previewPoint;
-      applyRectEdgeEdit();
+      applyRectEdgeNumericEdit();
       return;
     }
   }
