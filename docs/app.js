@@ -3064,13 +3064,43 @@ function drawDimensionEntity(entity) {
 }
 
 function drawDimensionDraftPreview(dimensionDraft) {
-  const p1 = roundWorldPoint(dimensionDraft.p1);
-  const p2 = dimensionDraft.step === 1
-    ? roundWorldPoint(uiState.hoverWorld)
-    : roundWorldPoint(dimensionDraft.p2);
-  const offsetPoint = dimensionDraft.step === 1
-    ? p2
-    : roundWorldPoint(uiState.hoverWorld);
+  let p1 = null;
+  let p2 = null;
+  let offsetPoint = null;
+  if (dimensionDraft.mode === "chain") {
+    p1 = roundWorldPoint(dimensionDraft.chainStartPoint);
+    p2 = roundWorldPoint(uiState.hoverWorld);
+    const previewEntity = createDimensionWithPreservedOffset(
+      {
+        id: "draft-dimension-chain",
+        type: "dimension",
+        layerId: state.activeLayerId,
+        p1,
+        p2,
+        offsetPoint: p2,
+        textOverride: "",
+        textHeight: 250,
+        tickSize: 250,
+        color: "",
+        precision: 0,
+      },
+      "p2",
+      p2,
+      dimensionDraft.signedOffset
+    );
+    if (!previewEntity) {
+      return;
+    }
+    offsetPoint = previewEntity.offsetPoint;
+  } else {
+    p1 = roundWorldPoint(dimensionDraft.p1);
+    p2 = dimensionDraft.step === 1
+      ? roundWorldPoint(uiState.hoverWorld)
+      : roundWorldPoint(dimensionDraft.p2);
+    offsetPoint = dimensionDraft.step === 1
+      ? p2
+      : roundWorldPoint(uiState.hoverWorld);
+  }
   if (p1.x === p2.x && p1.y === p2.y) {
     return;
   }
@@ -8114,9 +8144,51 @@ function handleDimensionToolClick(worldPoint) {
     draw();
     return;
   }
+  if (uiState.dimensionDraft.mode === "chain") {
+    const p1 = roundWorldPoint(uiState.dimensionDraft.chainStartPoint);
+    const p2 = roundWorldPoint(worldPoint);
+    const entity = createDimensionWithPreservedOffset(
+      {
+        id: createEntityId(),
+        type: "dimension",
+        layerId: state.activeLayerId,
+        p1,
+        p2,
+        offsetPoint: p2,
+        textOverride: "",
+        textHeight: 250,
+        tickSize: 250,
+        color: "",
+        precision: 0,
+      },
+      "p2",
+      p2,
+      uiState.dimensionDraft.signedOffset
+    );
+    if (!entity) {
+      setStatus("Dimension length must be greater than zero.");
+      return;
+    }
+    pushUndoState();
+    state.entities.push(entity);
+    state.selectedEntityIds = [entity.id];
+    uiState.dimensionDraft.chainStartPoint = roundWorldPoint(entity.p2);
+    syncAfterStateChange();
+    setStatus("Chain dimension created. Pick next point or press Esc to finish.");
+    return;
+  }
   pushUndoState();
   const entity = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:roundWorldPoint(uiState.dimensionDraft.p1), p2:roundWorldPoint(uiState.dimensionDraft.p2), offsetPoint:roundWorldPoint(worldPoint), textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
-  state.entities.push(entity); state.selectedEntityIds=[entity.id]; uiState.dimensionDraft=null; syncAfterStateChange(); setStatus("Aligned Dimension created.");
+  state.entities.push(entity);
+  state.selectedEntityIds=[entity.id];
+  const geometry = getDimensionGeometry(entity);
+  uiState.dimensionDraft = {
+    mode: "chain",
+    chainStartPoint: roundWorldPoint(entity.p2),
+    signedOffset: geometry.signedOffset,
+  };
+  syncAfterStateChange();
+  setStatus("Aligned Dimension created. Pick next chain point or press Esc to finish.");
 }
 
 function startPan(event) {
