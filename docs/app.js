@@ -1739,6 +1739,15 @@ function createMatchedStylePatch(sourceEntity, targetEntity) {
     }
   }
 
+  if (sourceEntity.type === "dimension" && targetEntity.type === "dimension") {
+    patch.layerId = sourceEntity.layerId;
+    patch.color = typeof sourceEntity.color === "string" ? sourceEntity.color : "";
+    patch.textHeight = Math.max(1, Number(sourceEntity.textHeight) || 250);
+    patch.tickSize = Math.max(1, Number(sourceEntity.tickSize) || 250);
+    patch.precision = Math.max(0, Math.min(3, Math.round(Number(sourceEntity.precision) || 0)));
+    patch.extensionGap = getDimensionExtensionGapUnits(sourceEntity);
+  }
+
   return Object.keys(patch).length ? patch : null;
 }
 
