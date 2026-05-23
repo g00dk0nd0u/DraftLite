@@ -216,6 +216,37 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
     transform 140ms ease;
 }
 
+.tool-button[data-shortcut] {
+  position: relative;
+}
+
+.tool-button[data-shortcut]::after {
+  content: attr(data-shortcut);
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 120ms ease;
+}
+
+.tool-button[data-shortcut]:hover::after {
+  opacity: 1;
+}
+
 .panel-actions {
   display: inline-flex;
   align-items: center;

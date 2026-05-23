@@ -75,6 +75,28 @@ const agentModeBanner = document.getElementById("agentModeBanner");
 let agentLastResultText = "";
 let agentLastResultValue = null;
 
+const SHORTCUT_TO_ACTION = {
+  s: () => setActiveTool("select"),
+  l: () => setActiveTool("line"),
+  q: () => setActiveTool("rectangle"),
+  o: () => setActiveTool("circle"),
+  p: () => setActiveTool("arc"),
+  h: () => setActiveTool("filledRegion"),
+  v: () => setActiveTool("move"),
+  c: () => setActiveTool("copy"),
+  r: () => rotateSelectedEntities(90),
+  m: () => setActiveTool("mirror"),
+  a: () => setActiveTool("align"),
+  e: () => setActiveTool("extend"),
+  f: () => setActiveTool("fillet"),
+  b: () => setActiveTool("matchProperties"),
+  g: () => createGroupFromSelection(),
+  u: () => ungroupSelection(),
+  x: () => explodeSelectedRects(),
+  t: () => setActiveTool("text"),
+  d: () => setActiveTool("dimension"),
+};
+
 const ctx = canvas.getContext("2d");
 
 function isAgentModeEnabled() {
@@ -326,6 +348,39 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.dimensionDraft)
     || Boolean(uiState.matchPropertiesSourceId)
     || Boolean(uiState.selectionWindow);
+}
+
+function isTextInputActive() {
+  const activeElement = document.activeElement;
+  if (!activeElement) {
+    return false;
+  }
+  const activeTag = activeElement.tagName;
+  return activeTag === "INPUT"
+    || activeTag === "TEXTAREA"
+    || activeTag === "SELECT"
+    || activeElement.isContentEditable;
+}
+
+function isCommandInProgress() {
+  return Boolean(
+    uiState.lineDraft
+    || uiState.rectangleDraft
+    || uiState.circleDraft
+    || uiState.arcDraft
+    || uiState.filledRegionDraft
+    || uiState.transformDraft
+    || uiState.selectDragDraft
+    || uiState.gripEditDraft
+    || uiState.rectEdgeEditDraft
+    || uiState.alignDraft
+    || uiState.mirrorDraft
+    || uiState.extendDraft
+    || uiState.filletDraft
+    || uiState.dimensionDraft
+    || uiState.matchPropertiesSourceId
+    || uiState.selectionWindow
+  );
 }
 
 function cancelCurrentOperationAndClearSelection() {
@@ -8134,7 +8189,7 @@ function addLayer() {
 
 function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
-  const activeTag = document.activeElement ? document.activeElement.tagName : "";
+  const textInputActive = isTextInputActive();
 
   if (isDeleteLayerDialogOpen()) {
     if (event.key === "Escape") {
@@ -8151,7 +8206,7 @@ function onKeyDown(event) {
   }
 
   if (event.key === "Escape") {
-    if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
+    if (textInputActive) {
       return;
     }
     event.preventDefault();
@@ -8159,7 +8214,7 @@ function onKeyDown(event) {
     return;
   }
 
-  if (uiState.gripEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+  if (uiState.gripEditDraft && !textInputActive) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.gripEditDraft.numericInputBuffer += event.key;
@@ -8199,7 +8254,7 @@ function onKeyDown(event) {
     }
   }
 
-  if (uiState.rectEdgeEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+  if (uiState.rectEdgeEditDraft && !textInputActive) {
     if (/^\d$/.test(event.key) || (event.key === "." && !uiState.rectEdgeEditDraft.numericInputBuffer.includes("."))) {
       event.preventDefault();
       uiState.rectEdgeEditDraft.numericInputBuffer += event.key;
@@ -8234,7 +8289,7 @@ function onKeyDown(event) {
     }
   }
 
-  if (uiState.lineDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+  if (uiState.lineDraft && !textInputActive) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.lineDraft.numericInputBuffer += event.key;
@@ -8271,13 +8326,13 @@ function onKeyDown(event) {
     }
   }
 
-  if (uiState.filledRegionDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA" && event.key === "Enter") {
+  if (uiState.filledRegionDraft && !textInputActive && event.key === "Enter") {
     event.preventDefault();
     finishFilledRegionDraft();
     return;
   }
 
-  if (uiState.transformDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+  if (uiState.transformDraft && !textInputActive) {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
       uiState.transformDraft.numericInputBuffer += event.key;
@@ -8323,8 +8378,23 @@ function onKeyDown(event) {
     }
   }
 
+  if (
+    !textInputActive
+    && !isCommandInProgress()
+    && !event.repeat
+    && !event.altKey
+    && !isMeta
+  ) {
+    const shortcutAction = SHORTCUT_TO_ACTION[event.key.toLowerCase()];
+    if (shortcutAction) {
+      event.preventDefault();
+      shortcutAction();
+      return;
+    }
+  }
+
   if (event.key === "Delete" || event.key === "Backspace") {
-    if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
+    if (textInputActive) {
       return;
     }
     event.preventDefault();
