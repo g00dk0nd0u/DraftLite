@@ -4531,6 +4531,46 @@ function getTextBoundsScreen(entity) {
   return { left, right: left + w, top: base.y - fontPx, bottom: base.y };
 }
 
+function getTextBoundsUnits(entity) {
+  const heightUnits = Math.max(1, entity.height || 250);
+  ctx.save();
+  ctx.font = `${heightUnits}px sans-serif`;
+  const widthUnits = ctx.measureText(entity.text || "").width;
+  ctx.restore();
+
+  let left = 0;
+  let right = widthUnits;
+  if (entity.align === "center") {
+    left = -widthUnits / 2;
+    right = widthUnits / 2;
+  } else if (entity.align === "right") {
+    left = -widthUnits;
+    right = 0;
+  }
+
+  const top = -heightUnits;
+  const bottom = 0;
+  const rotationRad = -(((entity.rotation || 0) * Math.PI) / 180);
+  const cos = Math.cos(rotationRad);
+  const sin = Math.sin(rotationRad);
+  const corners = [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ].map((point) => ({
+    x: entity.x + (point.x * cos - point.y * sin),
+    y: entity.y + (point.x * sin + point.y * cos),
+  }));
+
+  return {
+    minX: Math.min(...corners.map((point) => point.x)),
+    minY: Math.min(...corners.map((point) => point.y)),
+    maxX: Math.max(...corners.map((point) => point.x)),
+    maxY: Math.max(...corners.map((point) => point.y)),
+  };
+}
+
 function distancePointToSegmentScreenPx(point, segmentStart, segmentEnd) {
   const p = worldToScreen(point);
   const a = worldToScreen(segmentStart);
@@ -4730,8 +4770,9 @@ function getDocumentBoundsUnits(entities = state.entities) {
         ys.push(point.y);
       });
     } else if (entity.type === "text") {
-      xs.push(entity.x);
-      ys.push(entity.y - Math.max(1, entity.height || 250), entity.y);
+      const bounds = getTextBoundsUnits(entity);
+      xs.push(bounds.minX, bounds.maxX);
+      ys.push(bounds.minY, bounds.maxY);
     } else if (entity.type === "dimension") {
       const geometry = getDimensionGeometry(entity);
       xs.push(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x);
@@ -4840,8 +4881,9 @@ function getAgentBoundsUnits(entities = state.entities) {
       return;
     }
     if (entity.type === "text") {
-      xs.push(entity.x);
-      ys.push(entity.y - Math.max(1, entity.height || 250), entity.y);
+      const bounds = getTextBoundsUnits(entity);
+      xs.push(bounds.minX, bounds.maxX);
+      ys.push(bounds.minY, bounds.maxY);
       return;
     }
     if (entity.type === "dimension") {
