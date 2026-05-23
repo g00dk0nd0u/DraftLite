@@ -7949,13 +7949,11 @@ function onKeyDown(event) {
     }
 
     if (event.key === "Enter") {
-      event.preventDefault();
       if (uiState.transformDraft.numericInputBuffer) {
+        event.preventDefault();
         createTransformFromNumericInput();
         return;
       }
-      endTransformDraft(`${capitalize(uiState.transformDraft.mode)} command ended.`);
-      return;
     }
   }
 
