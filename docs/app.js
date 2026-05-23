@@ -3572,11 +3572,15 @@ function rotateEntity(entity, center, angleDeg) {
     return { ...entity, points: entity.points.map((point) => rotatePoint(point, center, angleDeg)) };
   }
   if (entity.type === "text") {
+    const visualCenter = getTextWorldCenterUnits(entity);
+    const rotatedVisualCenter = rotatePoint(visualCenter, center, angleDeg);
+    const nextRotation = normalizeAngleDeg((entity.rotation || 0) + angleDeg);
+    const nextCenterOffset = getRotatedTextLocalOffsetUnits(entity, getTextLocalCenterOffsetUnits(entity), nextRotation);
     return {
       ...entity,
-      x: rotatePoint({ x: entity.x, y: entity.y }, center, angleDeg).x,
-      y: rotatePoint({ x: entity.x, y: entity.y }, center, angleDeg).y,
-      rotation: normalizeAngleDeg((entity.rotation || 0) + angleDeg),
+      x: roundToUnit(rotatedVisualCenter.x - nextCenterOffset.x),
+      y: roundToUnit(rotatedVisualCenter.y - nextCenterOffset.y),
+      rotation: nextRotation,
     };
   }
   if (entity.type === "dimension") {
@@ -4568,6 +4572,44 @@ function getTextBoundsUnits(entity) {
     minY: Math.min(...corners.map((point) => point.y)),
     maxX: Math.max(...corners.map((point) => point.x)),
     maxY: Math.max(...corners.map((point) => point.y)),
+  };
+}
+
+function getTextLocalCenterOffsetUnits(entity) {
+  const heightUnits = Math.max(1, entity.height || 250);
+  ctx.save();
+  ctx.font = `${heightUnits}px sans-serif`;
+  const widthUnits = ctx.measureText(entity.text || "").width;
+  ctx.restore();
+
+  let centerX = widthUnits / 2;
+  if (entity.align === "center") {
+    centerX = 0;
+  } else if (entity.align === "right") {
+    centerX = -widthUnits / 2;
+  }
+
+  return {
+    x: centerX,
+    y: -heightUnits / 2,
+  };
+}
+
+function getRotatedTextLocalOffsetUnits(entity, offset, rotationDeg = entity.rotation || 0) {
+  const rotationRad = -((rotationDeg * Math.PI) / 180);
+  const cos = Math.cos(rotationRad);
+  const sin = Math.sin(rotationRad);
+  return {
+    x: offset.x * cos - offset.y * sin,
+    y: offset.x * sin + offset.y * cos,
+  };
+}
+
+function getTextWorldCenterUnits(entity) {
+  const centerOffset = getRotatedTextLocalOffsetUnits(entity, getTextLocalCenterOffsetUnits(entity));
+  return {
+    x: entity.x + centerOffset.x,
+    y: entity.y + centerOffset.y,
   };
 }
 
