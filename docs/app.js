@@ -175,6 +175,7 @@ const uiState = {
   transformDraft: null,
   selectDragDraft: null,
   gripEditDraft: null,
+  dimensionEndpointEditDraft: null,
   rectEdgeEditDraft: null,
   dimensionOffsetEditDraft: null,
   alignDraft: null,
@@ -192,6 +193,7 @@ const uiState = {
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
   hoverGrip: null,
+  hoverDimensionEndpointHandle: null,
   hoverDimensionOffsetHandle: null,
   hoverMoveAnchor: null,
   hoverBorrowedHandle: null,
@@ -313,6 +315,7 @@ function clearTransientState() {
   uiState.transformDraft = null;
   uiState.selectDragDraft = null;
   uiState.gripEditDraft = null;
+  uiState.dimensionEndpointEditDraft = null;
   uiState.rectEdgeEditDraft = null;
   uiState.dimensionOffsetEditDraft = null;
   uiState.alignDraft = null;
@@ -324,6 +327,7 @@ function clearTransientState() {
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
   uiState.hoverGrip = null;
+  uiState.hoverDimensionEndpointHandle = null;
   uiState.hoverDimensionOffsetHandle = null;
   uiState.hoverMoveAnchor = null;
   uiState.hoverBorrowedHandle = null;
@@ -344,6 +348,7 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.transformDraft)
     || Boolean(uiState.selectDragDraft)
     || Boolean(uiState.gripEditDraft)
+    || Boolean(uiState.dimensionEndpointEditDraft)
     || Boolean(uiState.rectEdgeEditDraft)
     || Boolean(uiState.dimensionOffsetEditDraft)
     || Boolean(uiState.alignDraft)
@@ -377,6 +382,7 @@ function isCommandInProgress() {
     || uiState.transformDraft
     || uiState.selectDragDraft
     || uiState.gripEditDraft
+    || uiState.dimensionEndpointEditDraft
     || uiState.rectEdgeEditDraft
     || uiState.dimensionOffsetEditDraft
     || uiState.alignDraft
@@ -2317,6 +2323,9 @@ function draw() {
   if (uiState.gripEditDraft) {
     drawGripEditPreview(uiState.gripEditDraft);
   }
+  if (uiState.dimensionEndpointEditDraft) {
+    drawDimensionEndpointEditPreview(uiState.dimensionEndpointEditDraft);
+  }
   if (uiState.dimensionOffsetEditDraft) {
     drawDimensionOffsetEditPreview(uiState.dimensionOffsetEditDraft);
   }
@@ -2351,9 +2360,23 @@ function draw() {
     if (entity.type !== "dimension" || !state.selectedEntityIds.includes(entity.id)) {
       return;
     }
+    const previewPoints = uiState.dimensionEndpointEditDraft && uiState.dimensionEndpointEditDraft.entityId === entity.id
+      ? {
+        p1: uiState.dimensionEndpointEditDraft.endpoint === "p1" ? uiState.dimensionEndpointEditDraft.currentPoint : entity.p1,
+        p2: uiState.dimensionEndpointEditDraft.endpoint === "p2" ? uiState.dimensionEndpointEditDraft.currentPoint : entity.p2,
+      }
+      : null;
+    drawDimensionEndpointHandles(entity, previewPoints);
     const handlePoint = uiState.dimensionOffsetEditDraft && uiState.dimensionOffsetEditDraft.entityId === entity.id
       ? uiState.dimensionOffsetEditDraft.currentPoint
-      : getDimensionGeometry(entity).offsetHandlePoint;
+      : ((uiState.dimensionEndpointEditDraft && uiState.dimensionEndpointEditDraft.entityId === entity.id)
+        ? getDimensionGeometry(createDimensionWithPreservedOffset(
+          entity,
+          uiState.dimensionEndpointEditDraft.endpoint,
+          uiState.dimensionEndpointEditDraft.currentPoint,
+          uiState.dimensionEndpointEditDraft.signedOffset
+        ) || entity).offsetHandlePoint
+        : getDimensionGeometry(entity).offsetHandlePoint);
     drawDimensionOffsetHandle(entity, handlePoint);
   });
 
@@ -2580,6 +2603,36 @@ function drawSelectedEntityHandles(entity) {
     ctx.arc(screenPoint.x, screenPoint.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  });
+}
+
+function drawDimensionEndpointHandles(entity, previewPoints = null) {
+  if (!entity || entity.type !== "dimension" || !state.selectedEntityIds.includes(entity.id)) {
+    return;
+  }
+  const points = previewPoints || { p1: entity.p1, p2: entity.p2 };
+  const hoveredHandle = uiState.hoverDimensionEndpointHandle;
+  const activeDraft = uiState.dimensionEndpointEditDraft && uiState.dimensionEndpointEditDraft.entityId === entity.id
+    ? uiState.dimensionEndpointEditDraft.endpoint
+    : null;
+  ["p1", "p2"].forEach((endpoint) => {
+    const point = roundWorldPoint(points[endpoint]);
+    const screenPoint = worldToScreen(point);
+    const isActive = activeDraft === endpoint
+      || (hoveredHandle
+        && hoveredHandle.entityId === entity.id
+        && hoveredHandle.endpoint === endpoint
+        && hoveredHandle.point.x === point.x
+        && hoveredHandle.point.y === point.y);
+    ctx.save();
+    ctx.fillStyle = "#fffaf2";
+    ctx.strokeStyle = isActive ? "rgba(194, 105, 62, 0.94)" : "rgba(194, 105, 62, 0.82)";
+    ctx.lineWidth = isActive ? 2.8 : 1.6;
+    ctx.beginPath();
+    ctx.arc(screenPoint.x, screenPoint.y, isActive ? 5.75 : 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   });
 }
 
@@ -2861,6 +2914,33 @@ function getDimensionGeometry(entity) {
   return { o1, o2, extensionStart1, extensionStart2, midpoint, normal: { x: nx, y: ny }, signedOffset, offsetHandlePoint };
 }
 
+function createDimensionWithPreservedOffset(entity, endpoint, nextPoint, signedOffset) {
+  const nextDimension = {
+    ...entity,
+    p1: endpoint === "p1" ? roundWorldPoint(nextPoint) : roundWorldPoint(entity.p1),
+    p2: endpoint === "p2" ? roundWorldPoint(nextPoint) : roundWorldPoint(entity.p2),
+  };
+  const dx = nextDimension.p2.x - nextDimension.p1.x;
+  const dy = nextDimension.p2.y - nextDimension.p1.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) {
+    return null;
+  }
+  const midpoint = {
+    x: roundToUnit((nextDimension.p1.x + nextDimension.p2.x) / 2),
+    y: roundToUnit((nextDimension.p1.y + nextDimension.p2.y) / 2),
+  };
+  const normal = {
+    x: -dy / len,
+    y: dx / len,
+  };
+  nextDimension.offsetPoint = {
+    x: roundToUnit(midpoint.x + normal.x * signedOffset),
+    y: roundToUnit(midpoint.y + normal.y * signedOffset),
+  };
+  return nextDimension;
+}
+
 function getDimensionScreenGeometry(entity) {
   const {
     o1: o1World,
@@ -2875,6 +2955,10 @@ function getDimensionScreenGeometry(entity) {
   const extensionStart2 = worldToScreen(extensionStart2World);
   const o1 = worldToScreen(o1World);
   const o2 = worldToScreen(o2World);
+  const textAngleRadBase = Math.atan2(o2.y - o1.y, o2.x - o1.x);
+  const textAngleRad = Math.cos(textAngleRadBase) < 0
+    ? textAngleRadBase + Math.PI
+    : textAngleRadBase;
   const offsetHandlePoint = worldToScreen(offsetHandlePointWorld);
   const text = getDimensionDisplayText(entity);
   const textPosition = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 - 6 };
@@ -2909,6 +2993,7 @@ function getDimensionScreenGeometry(entity) {
     ],
     text,
     textPosition,
+    textAngleRad,
     textBox,
     fontPx,
   };
@@ -2942,14 +3027,17 @@ function drawDimensionEntity(entity) {
   ctx.setLineDash([]);
   ctx.font = `${geometry.fontPx}px sans-serif`;
   ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
   ctx.fillStyle = textColor;
-  ctx.fillText(geometry.text, geometry.textPosition.x, geometry.textPosition.y);
+  ctx.translate(geometry.textPosition.x, geometry.textPosition.y);
+  ctx.rotate(geometry.textAngleRad);
+  ctx.fillText(geometry.text, 0, 0);
   if (isSelected && !isPreview) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.78)";
     ctx.lineWidth = 1.2;
     ctx.strokeRect(
-      geometry.textBox.left,
-      geometry.textBox.top,
+      geometry.textBox.left - geometry.textPosition.x,
+      geometry.textBox.top - geometry.textPosition.y,
       geometry.textBox.right - geometry.textBox.left,
       geometry.textBox.bottom - geometry.textBox.top
     );
@@ -3075,6 +3163,26 @@ function drawGripEditPreview(gripEditDraft) {
   drawPreviewLineEntity(previewLine);
 }
 
+function drawDimensionEndpointEditPreview(draft) {
+  const entity = getEntityById(draft.entityId);
+  if (!entity || entity.type !== "dimension" || !isLayerVisible(entity.layerId)) {
+    return;
+  }
+  const previewEntity = createDimensionWithPreservedOffset(
+    entity,
+    draft.endpoint,
+    draft.currentPoint,
+    draft.signedOffset
+  );
+  if (!previewEntity) {
+    return;
+  }
+  drawDimensionEntity({
+    ...previewEntity,
+    __isDimensionOffsetPreview: true,
+  });
+}
+
 function drawDimensionOffsetEditPreview(draft) {
   const entity = getEntityById(draft.entityId);
   if (!entity || entity.type !== "dimension" || !isLayerVisible(entity.layerId)) {
@@ -3085,6 +3193,115 @@ function drawDimensionOffsetEditPreview(draft) {
     offsetPoint: roundWorldPoint(draft.currentPoint),
     __isDimensionOffsetPreview: true,
   });
+}
+
+function findDimensionEndpointHandleAtPoint(worldPoint) {
+  const selectedIds = new Set(state.selectedEntityIds);
+  return state.entities
+    .filter((entity) => entity.type === "dimension" && selectedIds.has(entity.id) && canSelectEntity(entity))
+    .slice()
+    .reverse()
+    .flatMap((entity) => ([
+      {
+        entityId: entity.id,
+        endpoint: "p1",
+        point: roundWorldPoint(entity.p1),
+      },
+      {
+        entityId: entity.id,
+        endpoint: "p2",
+        point: roundWorldPoint(entity.p2),
+      },
+    ]))
+    .map((candidate) => ({
+      ...candidate,
+      distancePx: distanceScreenPx(worldPoint, candidate.point),
+    }))
+    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+}
+
+function startDimensionEndpointEdit(handleHit, worldPoint) {
+  const entity = getEntityById(handleHit.entityId);
+  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
+    return false;
+  }
+  const geometry = getDimensionGeometry(entity);
+  state.selectedEntityIds = [entity.id];
+  syncAfterStateChange(false);
+  uiState.dimensionEndpointEditDraft = {
+    entityId: entity.id,
+    endpoint: handleHit.endpoint,
+    startPoint: deepClone(handleHit.point),
+    currentPoint: roundWorldPoint(worldPoint),
+    originalEntity: deepClone(entity),
+    signedOffset: geometry.signedOffset,
+  };
+  setStatus(`Dimension ${handleHit.endpoint.toUpperCase()} edit active. Drag handle or press Esc to cancel.`);
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function updateDimensionEndpointEdit(worldPoint) {
+  if (!uiState.dimensionEndpointEditDraft) {
+    return;
+  }
+  uiState.dimensionEndpointEditDraft.currentPoint = roundWorldPoint(worldPoint);
+  draw();
+  renderStatusPanel();
+}
+
+function cancelDimensionEndpointEdit(message = "Dimension endpoint edit cancelled.") {
+  if (!uiState.dimensionEndpointEditDraft) {
+    return false;
+  }
+  uiState.dimensionEndpointEditDraft = null;
+  draw();
+  renderStatusPanel();
+  setStatus(message);
+  return true;
+}
+
+function applyDimensionEndpointEdit() {
+  const draft = uiState.dimensionEndpointEditDraft;
+  if (!draft) {
+    return false;
+  }
+  const entity = getEntityById(draft.entityId);
+  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
+    uiState.dimensionEndpointEditDraft = null;
+    draw();
+    renderStatusPanel();
+    return false;
+  }
+  const nextPoint = getSnapPoint(draft.currentPoint);
+  const previewEntity = createDimensionWithPreservedOffset(entity, draft.endpoint, nextPoint, draft.signedOffset);
+  if (!previewEntity) {
+    setStatus("Dimension endpoints must not be identical.");
+    uiState.dimensionEndpointEditDraft = null;
+    draw();
+    renderStatusPanel();
+    return false;
+  }
+  if (
+    previewEntity.p1.x === entity.p1.x &&
+    previewEntity.p1.y === entity.p1.y &&
+    previewEntity.p2.x === entity.p2.x &&
+    previewEntity.p2.y === entity.p2.y &&
+    previewEntity.offsetPoint.x === entity.offsetPoint.x &&
+    previewEntity.offsetPoint.y === entity.offsetPoint.y
+  ) {
+    return cancelDimensionEndpointEdit();
+  }
+  pushUndoState();
+  entity.p1 = previewEntity.p1;
+  entity.p2 = previewEntity.p2;
+  entity.offsetPoint = previewEntity.offsetPoint;
+  uiState.dimensionEndpointEditDraft = null;
+  syncAfterStateChange();
+  setStatus("Dimension endpoint updated.");
+  return true;
 }
 
 function getRectEdgeNumericPreviewPoint() {
@@ -7197,6 +7414,7 @@ function onPointerMove(event) {
     uiState.selectDragDraft ||
     uiState.transformDraft ||
     uiState.gripEditDraft ||
+    uiState.dimensionEndpointEditDraft ||
     uiState.rectEdgeEditDraft ||
     uiState.dimensionOffsetEditDraft;
   if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
@@ -7234,6 +7452,10 @@ function onPointerMove(event) {
     renderStatusPanel();
     return;
   }
+  if (uiState.dimensionEndpointEditDraft) {
+    updateDimensionEndpointEdit(snappedWorld);
+    return;
+  }
   if (uiState.dimensionOffsetEditDraft) {
     updateDimensionOffsetEdit(snappedWorld);
     return;
@@ -7266,45 +7488,58 @@ function onPointerMove(event) {
     !uiState.lineDraft &&
     !uiState.rectangleDraft &&
     !uiState.gripEditDraft &&
+    !uiState.dimensionEndpointEditDraft &&
     !uiState.dimensionOffsetEditDraft &&
     !uiState.rectEdgeEditDraft
   ) {
     const roundedWorldPoint = roundWorldPoint(worldPoint);
-    const dimensionOffsetHandleHit = findDimensionOffsetHandleAtPoint(roundedWorldPoint);
-    if (dimensionOffsetHandleHit) {
-      uiState.hoverDimensionOffsetHandle = dimensionOffsetHandleHit;
+    const dimensionEndpointHandleHit = findDimensionEndpointHandleAtPoint(roundedWorldPoint);
+    if (dimensionEndpointHandleHit) {
+      uiState.hoverDimensionEndpointHandle = dimensionEndpointHandleHit;
+      uiState.hoverDimensionOffsetHandle = null;
       uiState.hoverGrip = null;
       uiState.hoverMoveAnchor = null;
       uiState.hoverBorrowedHandle = null;
       uiState.hoverRectEdge = null;
       document.body.style.cursor = "move";
     } else {
-      uiState.hoverDimensionOffsetHandle = null;
-      const gripHit = findEditableGripAtPoint(roundedWorldPoint);
-      if (gripHit) {
-        uiState.hoverGrip = gripHit;
+      uiState.hoverDimensionEndpointHandle = null;
+      const dimensionOffsetHandleHit = findDimensionOffsetHandleAtPoint(roundedWorldPoint);
+      if (dimensionOffsetHandleHit) {
+        uiState.hoverDimensionOffsetHandle = dimensionOffsetHandleHit;
+        uiState.hoverGrip = null;
         uiState.hoverMoveAnchor = null;
         uiState.hoverBorrowedHandle = null;
         uiState.hoverRectEdge = null;
         document.body.style.cursor = "move";
       } else {
-        uiState.hoverGrip = null;
-        const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
-        if (moveAnchorHit) {
-          uiState.hoverMoveAnchor = moveAnchorHit;
+        uiState.hoverDimensionOffsetHandle = null;
+        const gripHit = findEditableGripAtPoint(roundedWorldPoint);
+        if (gripHit) {
+          uiState.hoverGrip = gripHit;
+          uiState.hoverMoveAnchor = null;
           uiState.hoverBorrowedHandle = null;
           uiState.hoverRectEdge = null;
           document.body.style.cursor = "move";
         } else {
-          uiState.hoverMoveAnchor = null;
-          uiState.hoverBorrowedHandle = findBorrowedMoveBaseHandleAtPoint(roundedWorldPoint, {
-            excludeEntityIds: state.selectedEntityIds,
-          });
-          if (uiState.hoverBorrowedHandle) {
+          uiState.hoverGrip = null;
+          const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
+          if (moveAnchorHit) {
+            uiState.hoverMoveAnchor = moveAnchorHit;
+            uiState.hoverBorrowedHandle = null;
             uiState.hoverRectEdge = null;
             document.body.style.cursor = "move";
           } else {
-            uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+            uiState.hoverMoveAnchor = null;
+            uiState.hoverBorrowedHandle = findBorrowedMoveBaseHandleAtPoint(roundedWorldPoint, {
+              excludeEntityIds: state.selectedEntityIds,
+            });
+            if (uiState.hoverBorrowedHandle) {
+              uiState.hoverRectEdge = null;
+              document.body.style.cursor = "move";
+            } else {
+              uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+            }
           }
         }
       }
@@ -7313,10 +7548,11 @@ function onPointerMove(event) {
       document.body.style.cursor = (uiState.hoverRectEdge.edge === "left" || uiState.hoverRectEdge.edge === "right")
         ? "ew-resize"
         : "ns-resize";
-    } else if (!uiState.hoverDimensionOffsetHandle && !uiState.hoverGrip && !uiState.hoverMoveAnchor && !uiState.hoverBorrowedHandle) {
+    } else if (!uiState.hoverDimensionEndpointHandle && !uiState.hoverDimensionOffsetHandle && !uiState.hoverGrip && !uiState.hoverMoveAnchor && !uiState.hoverBorrowedHandle) {
       document.body.style.cursor = "";
     }
   } else {
+    uiState.hoverDimensionEndpointHandle = null;
     uiState.hoverDimensionOffsetHandle = null;
     uiState.hoverGrip = null;
     uiState.hoverMoveAnchor = null;
@@ -7596,6 +7832,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   }
 
   if (uiState.activeTool === "select") {
+    const dimensionEndpointHandleHit = findDimensionEndpointHandleAtPoint(roundWorldPoint(rawWorldPoint));
+    if (dimensionEndpointHandleHit) {
+      startDimensionEndpointEdit(dimensionEndpointHandleHit, worldPoint);
+      return;
+    }
     const dimensionOffsetHandleHit = findDimensionOffsetHandleAtPoint(roundWorldPoint(rawWorldPoint));
     if (dimensionOffsetHandleHit) {
       startDimensionOffsetEdit(dimensionOffsetHandleHit, worldPoint);
@@ -7894,6 +8135,7 @@ function onWindowMouseUp(event) {
     uiState.selectDragDraft ||
     uiState.transformDraft ||
     uiState.gripEditDraft ||
+    uiState.dimensionEndpointEditDraft ||
     uiState.rectEdgeEditDraft ||
     uiState.dimensionOffsetEditDraft;
   if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
@@ -7928,6 +8170,10 @@ function onWindowMouseUp(event) {
 
   if (uiState.selectDragDraft) {
     applySelectDrag();
+    return;
+  }
+  if (uiState.dimensionEndpointEditDraft) {
+    applyDimensionEndpointEdit();
     return;
   }
   if (uiState.dimensionOffsetEditDraft) {
@@ -8505,6 +8751,12 @@ function onKeyDown(event) {
   if (event.key === "Shift") {
     uiState.isShiftPressed = true;
     refreshPointerConstraint(true);
+  }
+
+  if (event.key === "Escape" && uiState.dimensionEndpointEditDraft && !textInputActive) {
+    event.preventDefault();
+    cancelDimensionEndpointEdit();
+    return;
   }
 
   if (event.key === "Escape" && uiState.dimensionOffsetEditDraft && !textInputActive) {
