@@ -174,15 +174,13 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 .ribbon-page.is-active { display: flex; }
 
 .toolbar-group {
-  display: inline-grid;
-  grid-template-columns: max-content;
-  grid-template-rows: auto auto;
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-  align-items: start;
-  gap: 3px;
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
   flex: 0 0 auto;
-  padding: 1px 4px 2px;
+  padding: 18px 4px 3px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -190,9 +188,11 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 }
 
 .toolbar-group-label {
-  grid-column: 1 / -1;
+  position: absolute;
+  top: 1px;
+  left: 4px;
   display: block;
-  margin-bottom: 2px;
+  margin: 0;
   padding: 0;
   color: var(--muted);
   font-size: 0.65rem;
@@ -209,12 +209,13 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
   background: var(--button-bg);
   color: var(--text);
   border-radius: 4px;
-  min-height: 24px;
-  padding: 0 6px;
+  min-height: 30px;
+  padding: 3px 8px;
   font-size: 0.70rem;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  line-height: 1.1;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -231,8 +232,8 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 .tool-button[data-shortcut]::after {
   content: attr(data-shortcut);
   position: absolute;
-  top: -6px;
-  right: -5px;
+  top: 2px;
+  right: 3px;
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -247,7 +248,7 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
   text-align: center;
   opacity: 0;
   pointer-events: none;
-  z-index: 5;
+  z-index: 30;
   transition: opacity 120ms ease;
 }
 
@@ -634,10 +635,15 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 }
 
 .tool-icon {
-  font-size: 1.8em;
+  font-size: 1.7em;
   line-height: 1;
-  min-width: 1.35em;
+  min-width: 1.3em;
   text-align: center;
+}
+
+#exportDxfButton .tool-icon {
+  font-size: 1em;
+  min-width: auto;
 }
 .theme-toggle {
   min-width: 84px;
