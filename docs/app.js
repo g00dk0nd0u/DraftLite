@@ -4536,6 +4536,27 @@ function getRectEdges(entity) {
   ];
 }
 
+function findRectCornerAtPoint(worldPoint) {
+  const selectedRectIds = new Set(state.selectedEntityIds);
+  return state.entities
+    .filter((entity) => entity.type === "rect" && selectedRectIds.has(entity.id) && canSelectEntity(entity))
+    .slice()
+    .reverse()
+    .flatMap((entity) => ([
+      { corner: "topLeft", point: { x: entity.x, y: entity.y } },
+      { corner: "topRight", point: { x: entity.x + entity.width, y: entity.y } },
+      { corner: "bottomRight", point: { x: entity.x + entity.width, y: entity.y + entity.height } },
+      { corner: "bottomLeft", point: { x: entity.x, y: entity.y + entity.height } },
+    ].map((cornerHit) => ({
+      entityId: entity.id,
+      corner: cornerHit.corner,
+      point: cornerHit.point,
+      distancePx: distanceScreenPx(worldPoint, cornerHit.point),
+    }))))
+    .filter((cornerHit) => cornerHit.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+}
+
 function findRectEdgeAtPoint(worldPoint) {
   return state.entities
     .filter((entity) => entity.type === "rect" && canSelectEntity(entity))
@@ -6747,6 +6768,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     const gripHit = findEditableGripAtPoint(worldPoint);
     if (gripHit) {
       startGripEdit(gripHit, worldPoint);
+      return;
+    }
+    const rectCornerHit = findRectCornerAtPoint(roundWorldPoint(rawWorldPoint));
+    if (rectCornerHit) {
+      startSelectDragWithMode(rawWorldPoint, event.altKey || event.ctrlKey ? "copy" : "move");
       return;
     }
     const rectEdgeHit = findRectEdgeAtPoint(roundWorldPoint(rawWorldPoint));
