@@ -3618,6 +3618,7 @@ function applyRectEdgeEdit() {
   entity.width = nextRect.width;
   entity.height = nextRect.height;
   uiState.rectEdgeEditDraft = null;
+  state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus("Rectangle resized.");
   return true;
