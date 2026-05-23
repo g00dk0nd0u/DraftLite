@@ -2961,9 +2961,24 @@ function getDimensionScreenGeometry(entity) {
     : textAngleRadBase;
   const offsetHandlePoint = worldToScreen(offsetHandlePointWorld);
   const text = getDimensionDisplayText(entity);
-  const textPosition = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 - 6 };
   const fontPx = Math.max(10, (entity.textHeight || 250) * state.view.zoom);
   const tickRadiusPx = getDimensionTickRadiusPx(entity);
+  const dimensionMidpoint = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 };
+  const measuredMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  const lineDx = o2.x - o1.x;
+  const lineDy = o2.y - o1.y;
+  const lineLen = Math.hypot(lineDx, lineDy) || 1;
+  const baseNormal = { x: -lineDy / lineLen, y: lineDx / lineLen };
+  const awayVector = {
+    x: dimensionMidpoint.x - measuredMidpoint.x,
+    y: dimensionMidpoint.y - measuredMidpoint.y,
+  };
+  const normalSign = (awayVector.x * baseNormal.x + awayVector.y * baseNormal.y) >= 0 ? 1 : -1;
+  const textOffsetPx = Math.max(8, fontPx * 0.55);
+  const textPosition = {
+    x: dimensionMidpoint.x + baseNormal.x * normalSign * textOffsetPx,
+    y: dimensionMidpoint.y + baseNormal.y * normalSign * textOffsetPx,
+  };
 
   ctx.save();
   ctx.font = `${fontPx}px sans-serif`;
@@ -2973,8 +2988,8 @@ function getDimensionScreenGeometry(entity) {
   const textBox = {
     left: textPosition.x - textWidth / 2 - 8,
     right: textPosition.x + textWidth / 2 + 8,
-    top: textPosition.y - fontPx - 6,
-    bottom: textPosition.y + 6,
+    top: textPosition.y - fontPx / 2 - 6,
+    bottom: textPosition.y + fontPx / 2 + 6,
   };
 
   return {
