@@ -232,7 +232,7 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 .tool-button[data-shortcut]::after {
   content: attr(data-shortcut);
   position: absolute;
-  top: -28px;
+  top: -14px;
   right: 3px;
   min-width: 14px;
   height: 14px;
