@@ -275,7 +275,7 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft) {
+  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.mirrorDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
@@ -288,6 +288,7 @@ function clearTransientState() {
   uiState.gripEditDraft = null;
   uiState.rectEdgeEditDraft = null;
   uiState.alignDraft = null;
+  uiState.mirrorDraft = null;
   uiState.extendDraft = null;
   uiState.filletDraft = null;
   uiState.dimensionDraft = null;
@@ -2423,21 +2424,26 @@ function drawTextEntity(entity) {
   const base = worldToScreen({ x: entity.x, y: entity.y });
   const color = normalizeColor(entity.color || layer.color);
   const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
+  const rotationDeg = entity.rotation || 0;
+  const rotationRad = degreesToRadians(rotationDeg);
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
   ctx.font = `${fontPx}px sans-serif`;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = entity.align || "left";
   ctx.fillStyle = color;
-  ctx.fillText(entity.text, base.x, base.y);
+  ctx.translate(base.x, base.y);
+  if (rotationDeg) {
+    ctx.rotate(-rotationRad);
+  }
+  ctx.fillText(entity.text, 0, 0);
   if (isSelected) {
     const w = ctx.measureText(entity.text).width;
-    const h = fontPx;
-    const left = entity.align === "center" ? base.x - w / 2 : (entity.align === "right" ? base.x - w : base.x);
-    const top = base.y - h;
+    const left = entity.align === "center" ? -w / 2 : (entity.align === "right" ? -w : 0);
+    const top = -fontPx;
     ctx.strokeStyle = "#c2693e";
     ctx.lineWidth = 1.3;
-    ctx.strokeRect(left - 4, top - 4, w + 8, h + 8);
+    ctx.strokeRect(left - 4, top - 4, w + 8, fontPx + 8);
   }
   ctx.restore();
 }
@@ -4723,6 +4729,13 @@ function getDocumentBoundsUnits(entities = state.entities) {
         xs.push(point.x);
         ys.push(point.y);
       });
+    } else if (entity.type === "text") {
+      xs.push(entity.x);
+      ys.push(entity.y - Math.max(1, entity.height || 250), entity.y);
+    } else if (entity.type === "dimension") {
+      const geometry = getDimensionGeometry(entity);
+      xs.push(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x);
+      ys.push(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y);
     }
   });
   if (!xs.length || !ys.length) {
