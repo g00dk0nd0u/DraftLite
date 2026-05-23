@@ -2865,11 +2865,23 @@ function getRectEdgeNumericPreviewPoint() {
 }
 
 function getRectEdgeEditActiveStatus(draft) {
-  return `Rectangle ${draft.edge} edge edit active. Pick new edge position, type distance, or press Esc.`;
+  return `Rectangle Edge Edit | ${draft.edge} edge | Pick new edge position, type distance, or Esc: cancel`;
 }
 
 function getRectEdgeNumericStatus(draft) {
-  return `Rectangle ${draft.edge} edge numeric edit: ${draft.numericInputBuffer} mm. Press Enter to apply or Esc to cancel.`;
+  return `Rectangle Edge Edit | ${draft.edge} edge | ${draft.numericInputBuffer} mm | Enter: apply | Esc: cancel`;
+}
+
+function updateRectEdgeEditStatus() {
+  if (!uiState.rectEdgeEditDraft) {
+    return;
+  }
+  setStatus(
+    uiState.rectEdgeEditDraft.numericInputBuffer
+      ? getRectEdgeNumericStatus(uiState.rectEdgeEditDraft)
+      : getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft)
+  );
+  renderStatusPanel();
 }
 
 function getResizedRectFromAnchorPoint(draft, anchorPoint) {
@@ -2905,9 +2917,8 @@ function applyRectEdgeNumericPreview() {
     return false;
   }
   uiState.rectEdgeEditDraft.currentPoint = previewPoint;
-  setStatus(getRectEdgeNumericStatus(uiState.rectEdgeEditDraft));
+  updateRectEdgeEditStatus();
   draw();
-  renderStatusPanel();
   return true;
 }
 
@@ -2967,6 +2978,30 @@ function drawDynamicInput() {
       },
       { emphasized: Boolean(uiState.gripEditDraft.numericInputBuffer) }
     );
+    return;
+  }
+
+  if (uiState.rectEdgeEditDraft) {
+    const labelPoint = {
+      x: (uiState.rectEdgeEditDraft.startPoint.x + uiState.rectEdgeEditDraft.currentPoint.x) / 2,
+      y: (uiState.rectEdgeEditDraft.startPoint.y + uiState.rectEdgeEditDraft.currentPoint.y) / 2,
+    };
+    const text = uiState.rectEdgeEditDraft.numericInputBuffer || formatDistanceMmFromPoints(
+      uiState.rectEdgeEditDraft.startPoint,
+      uiState.rectEdgeEditDraft.currentPoint
+    );
+    drawDynamicInputLabel(
+      text,
+      labelPoint,
+      { emphasized: Boolean(uiState.rectEdgeEditDraft.numericInputBuffer) }
+    );
+    if (uiState.rectEdgeEditDraft.numericInputBuffer) {
+      drawDynamicInputLabel(
+        "Enter: apply | Esc: cancel",
+        labelPoint,
+        { emphasized: false, offsetY: 10 }
+      );
+    }
     return;
   }
 
@@ -7096,9 +7131,8 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
           currentPoint: worldPoint,
           numericInputBuffer: "",
         };
-        setStatus(getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft));
+        updateRectEdgeEditStatus();
         draw();
-        renderStatusPanel();
         return;
       }
     }
@@ -7987,6 +8021,9 @@ function onKeyDown(event) {
       event.preventDefault();
       uiState.rectEdgeEditDraft.numericInputBuffer += event.key;
       applyRectEdgeNumericPreview();
+      updateRectEdgeEditStatus();
+      draw();
+      renderStatusPanel();
       return;
     }
 
@@ -7996,9 +8033,10 @@ function onKeyDown(event) {
         uiState.rectEdgeEditDraft.numericInputBuffer = uiState.rectEdgeEditDraft.numericInputBuffer.slice(0, -1);
         if (!uiState.rectEdgeEditDraft.numericInputBuffer) {
           uiState.rectEdgeEditDraft.currentPoint = uiState.hoverWorld;
-          setStatus(getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft));
+          updateRectEdgeEditStatus();
         } else {
           applyRectEdgeNumericPreview();
+          updateRectEdgeEditStatus();
         }
         draw();
         renderStatusPanel();
