@@ -101,18 +101,22 @@
           <div id="canvasViewport" class="canvas-viewport" data-testid="canvas-viewport">
             <canvas id="draftCanvas" aria-label="DraftLite canvas" data-testid="draft-canvas"></canvas>
             <div id="scaleBar" class="scale-bar" aria-hidden="true">
-              <div class="scale-bar-track">
-                <span class="scale-bar-cap scale-bar-cap-left"></span>
-                <span id="scaleBarSegmentA" class="scale-bar-line"></span>
-                <span class="scale-bar-cap scale-bar-cap-middle"></span>
-                <span id="scaleBarSegmentB" class="scale-bar-line"></span>
-                <span class="scale-bar-cap scale-bar-cap-right"></span>
+              <div id="scaleBarTrack" class="scale-bar-track">
+                <div class="scale-bar-lines">
+                  <span class="scale-bar-line"></span>
+                  <span class="scale-bar-line"></span>
+                  <span class="scale-bar-line"></span>
+                  <span class="scale-bar-line"></span>
+                  <span class="scale-bar-line"></span>
+                </div>
+                <span class="scale-bar-cap scale-bar-cap-0"></span>
+                <span class="scale-bar-cap scale-bar-cap-1"></span>
+                <span class="scale-bar-cap scale-bar-cap-2"></span>
+                <span class="scale-bar-cap scale-bar-cap-3"></span>
+                <span class="scale-bar-cap scale-bar-cap-4"></span>
+                <span class="scale-bar-cap scale-bar-cap-5"></span>
               </div>
-              <div class="scale-bar-labels">
-                <span id="scaleBarLabelStart">0</span>
-                <span id="scaleBarLabelMid">500mm</span>
-                <span id="scaleBarLabelEnd">1m</span>
-              </div>
+              <div id="scaleBarLabels" class="scale-bar-labels"></div>
             </div>
           </div>
         </section>

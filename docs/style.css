@@ -387,43 +387,66 @@ summary:focus-visible {
 }
 
 .scale-bar-track {
-  display: flex;
-  align-items: flex-end;
+  position: relative;
+  width: 210px;
   height: 10px;
 }
 
-.scale-bar-line,
-.scale-bar-cap {
-  display: block;
-  flex: 0 0 auto;
-  background: var(--scale-bar-line);
+.scale-bar-lines {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  align-items: flex-end;
 }
 
 .scale-bar-line {
+  display: block;
+  flex: 0 0 auto;
   width: 42px;
   height: 2px;
+  background: var(--scale-bar-line);
 }
 
 .scale-bar-cap {
+  position: absolute;
+  bottom: 0;
   width: 2px;
   height: 8px;
+  background: var(--scale-bar-line);
+  transform: translateX(-50%);
+}
+
+.scale-bar-cap-0 { left: 0%; }
+.scale-bar-cap-1 { left: 20%; }
+.scale-bar-cap-2 { left: 40%; }
+.scale-bar-cap-3 { left: 60%; }
+.scale-bar-cap-4 { left: 80%; }
+.scale-bar-cap-5 { left: 100%; }
+
+.scale-bar-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.scale-bar-label.is-start {
+  left: 0;
+  transform: none;
+}
+
+.scale-bar-label.is-end {
+  right: 0;
+  left: auto;
+  transform: none;
 }
 
 .scale-bar-labels {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: start;
+  position: relative;
+  height: 12px;
   color: var(--scale-bar-label);
   font: 9px/1.1 "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
   letter-spacing: 0.01em;
-}
-
-.scale-bar-labels span:nth-child(2) {
-  justify-self: center;
-}
-
-.scale-bar-labels span:nth-child(3) {
-  justify-self: end;
 }
 
 #draftCanvas {

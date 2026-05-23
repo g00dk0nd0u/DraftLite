@@ -25,11 +25,9 @@ const zoomReadout = document.getElementById("zoomReadout");
 const statusReadout = document.getElementById("statusReadout");
 const loadJsonInput = document.getElementById("loadJsonInput");
 const scaleBar = document.getElementById("scaleBar");
-const scaleBarSegmentA = document.getElementById("scaleBarSegmentA");
-const scaleBarSegmentB = document.getElementById("scaleBarSegmentB");
-const scaleBarLabelStart = document.getElementById("scaleBarLabelStart");
-const scaleBarLabelMid = document.getElementById("scaleBarLabelMid");
-const scaleBarLabelEnd = document.getElementById("scaleBarLabelEnd");
+const scaleBarTrack = document.getElementById("scaleBarTrack");
+const scaleBarLabels = document.getElementById("scaleBarLabels");
+const scaleBarLines = Array.from(document.querySelectorAll(".scale-bar-line"));
 
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
@@ -632,9 +630,9 @@ function formatScaleLabel(mm) {
 
 function getNiceScaleSegmentUnit() {
   const pxPerMm = state.view.zoom * (1 / UNIT_MM);
-  const minTotalPx = 70;
-  const maxTotalPx = 140;
-  const targetTotalPx = 104;
+  const minTotalPx = 140;
+  const maxTotalPx = 220;
+  const targetTotalPx = 180;
   const niceBases = [1, 2, 5];
   let bestUnit = 100;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -643,7 +641,7 @@ function getNiceScaleSegmentUnit() {
     const factor = 10 ** exponent;
     for (const base of niceBases) {
       const unitMm = base * factor;
-      const totalPx = unitMm * pxPerMm * 2;
+      const totalPx = unitMm * pxPerMm * 5;
       const inRange = totalPx >= minTotalPx && totalPx <= maxTotalPx;
       const score = inRange
         ? Math.abs(totalPx - targetTotalPx)
@@ -658,26 +656,45 @@ function getNiceScaleSegmentUnit() {
   return bestUnit;
 }
 
+function renderScaleBarLabels(segmentMm, totalWidthPx) {
+  if (!scaleBarLabels) {
+    return;
+  }
+  scaleBarLabels.innerHTML = "";
+
+  const showAllLabels = totalWidthPx >= 175;
+  const labelSteps = showAllLabels ? [0, 1, 2, 3, 4, 5] : [0, 2, 5];
+  labelSteps.forEach((step) => {
+    const label = document.createElement("span");
+    label.className = "scale-bar-label";
+    if (step === 0) {
+      label.classList.add("is-start");
+    } else if (step === 5) {
+      label.classList.add("is-end");
+    } else {
+      label.style.left = `${(step / 5) * 100}%`;
+    }
+    label.textContent = step === 0 ? "0" : formatScaleLabel(segmentMm * step);
+    scaleBarLabels.appendChild(label);
+  });
+}
+
 function updateScaleBar() {
-  if (!scaleBar || !scaleBarSegmentA || !scaleBarSegmentB) {
+  if (!scaleBar || !scaleBarTrack || !scaleBarLabels || !scaleBarLines.length) {
     return;
   }
 
+  const segmentCount = 5;
   const segmentMm = getNiceScaleSegmentUnit();
   const segmentPx = Math.max(18, mmToUnits(segmentMm) * state.view.zoom);
-  const totalWidthPx = segmentPx * 2 + 6;
+  const totalWidthPx = segmentPx * segmentCount;
 
-  scaleBarSegmentA.style.width = `${segmentPx}px`;
-  scaleBarSegmentB.style.width = `${segmentPx}px`;
-  if (scaleBarLabelStart) {
-    scaleBarLabelStart.textContent = "0";
-  }
-  if (scaleBarLabelMid) {
-    scaleBarLabelMid.textContent = formatScaleLabel(segmentMm);
-  }
-  if (scaleBarLabelEnd) {
-    scaleBarLabelEnd.textContent = formatScaleLabel(segmentMm * 2);
-  }
+  scaleBarTrack.style.width = `${totalWidthPx}px`;
+  scaleBarLabels.style.width = `${totalWidthPx}px`;
+  scaleBarLines.forEach((line) => {
+    line.style.width = `${segmentPx}px`;
+  });
+  renderScaleBarLabels(segmentMm, totalWidthPx);
 
   let rightPx = window.innerWidth <= 640 ? 12 : 18;
   const bottomPx = window.innerWidth <= 640 ? 12 : 18;
