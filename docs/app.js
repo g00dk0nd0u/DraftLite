@@ -3609,7 +3609,7 @@ function getRotateBoundsForEntity(entity) {
     return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
   }
   if (entity.type === "text") {
-    return { minX: entity.x, minY: entity.y, maxX: entity.x, maxY: entity.y };
+    return getTextBoundsUnits(entity);
   }
   if (entity.type === "dimension") {
     const xs = [entity.p1.x, entity.p2.x, entity.offsetPoint.x];
