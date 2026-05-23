@@ -168,7 +168,7 @@ const uiState = {
   transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
-  hoverRectCorner: null,
+  hoverMoveAnchor: null,
   hoverRectEdge: null,
   deleteLayerDialogLayerId: null,
   panning: false,
@@ -296,7 +296,7 @@ function clearTransientState() {
   uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
-  uiState.hoverRectCorner = null;
+  uiState.hoverMoveAnchor = null;
   uiState.hoverRectEdge = null;
   document.body.style.cursor = "";
   clearLinePreviewTimer();
@@ -572,6 +572,34 @@ function getRectSnapPoints(entity) {
   ].map((c) => ({ ...c, point: roundWorldPoint(c.point) }));
 }
 
+function getRectMoveAnchorPoints(entity) {
+  return getRectSnapPoints(entity).filter((candidate) => candidate.kind !== "center");
+}
+
+function getSelectedEntityHandles(entity) {
+  if (!entity) {
+    return [];
+  }
+  if (entity.type === "rect") {
+    return getRectMoveAnchorPoints(entity).map((candidate) => ({
+      entityId: entity.id,
+      type: candidate.kind === "midpoint" ? "rectMidpoint" : "rectCorner",
+      point: candidate.point,
+    }));
+  }
+  if (entity.type === "circle") {
+    return [{ entityId: entity.id, type: "circleCenter", point: roundWorldPoint(entity.center) }];
+  }
+  if (entity.type === "filledRegion") {
+    return entity.points.map((point) => ({
+      entityId: entity.id,
+      type: "filledRegionVertex",
+      point: roundWorldPoint(point),
+    }));
+  }
+  return [];
+}
+
 function collectSnapCandidates(worldPoint) {
   const candidates = state.entities
     .filter((entity) => isLayerVisible(entity.layerId))
@@ -697,15 +725,10 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
         }));
       }
       if (entity.type === "rect") {
-        return [
-          { x: entity.x, y: entity.y },
-          { x: entity.x + entity.width, y: entity.y },
-          { x: entity.x + entity.width, y: entity.y + entity.height },
-          { x: entity.x, y: entity.y + entity.height },
-        ].map((point) => ({
+        return getRectMoveAnchorPoints(entity).map((candidate) => ({
           entityId: entity.id,
-          point: roundWorldPoint(point),
-          distancePx: distanceScreenPx(worldPoint, point),
+          point: candidate.point,
+          distancePx: distanceScreenPx(worldPoint, candidate.point),
         }));
       }
       if (entity.type === "circle") {
@@ -714,21 +737,6 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
           point: roundWorldPoint(entity.center),
           distancePx: distanceScreenPx(worldPoint, entity.center),
         }];
-      }
-      if (entity.type === "arc") {
-        const startPoint = {
-          x: roundToUnit(entity.center.x + Math.cos((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
-          y: roundToUnit(entity.center.y + Math.sin((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
-        };
-        const endPoint = {
-          x: roundToUnit(entity.center.x + Math.cos((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
-          y: roundToUnit(entity.center.y + Math.sin((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
-        };
-        return [entity.center, startPoint, endPoint].map((point) => ({
-          entityId: entity.id,
-          point: roundWorldPoint(point),
-          distancePx: distanceScreenPx(worldPoint, point),
-        }));
       }
       if (entity.type === "filledRegion") {
         return entity.points.map((point) => ({
@@ -2410,13 +2418,40 @@ function drawDraftFilledRegion(draft) {
   ctx.restore();
 }
 
+function drawSelectedEntityHandles(entity) {
+  if (!state.selectedEntityIds.includes(entity.id)) {
+    return;
+  }
+  const handles = getSelectedEntityHandles(entity);
+  if (!handles.length) {
+    return;
+  }
+  const activeHandle = uiState.hoverMoveAnchor && uiState.hoverMoveAnchor.entityId === entity.id
+    ? uiState.hoverMoveAnchor
+    : null;
+  const edgeHovered = uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id;
+
+  handles.forEach((handle) => {
+    const screenPoint = worldToScreen(handle.point);
+    const isActive = activeHandle
+      && activeHandle.type === handle.type
+      && activeHandle.point.x === handle.point.x
+      && activeHandle.point.y === handle.point.y;
+    const radius = isActive ? 6.5 : edgeHovered ? 3 : 4;
+    ctx.fillStyle = isActive ? "#fffaf2" : edgeHovered ? "rgba(255, 250, 242, 0.72)" : "#fffaf2";
+    ctx.strokeStyle = isActive ? "rgba(194, 105, 62, 0.92)" : edgeHovered ? "rgba(194, 105, 62, 0.45)" : "#c2693e";
+    ctx.lineWidth = isActive ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.arc(screenPoint.x, screenPoint.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
 function drawRectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer) return;
   const isSelected = state.selectedEntityIds.includes(entity.id);
-  const hoveredCorner = uiState.hoverRectCorner && uiState.hoverRectCorner.entityId === entity.id
-    ? uiState.hoverRectCorner
-    : null;
   const p1 = worldToScreen({ x: entity.x, y: entity.y });
   const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
   const w = p2.x - p1.x;
@@ -2436,16 +2471,7 @@ function drawRectEntity(entity) {
   ctx.strokeStyle = getEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.strokeRect(p1.x, p1.y, w, h);
-  if (hoveredCorner) {
-    const marker = worldToScreen(hoveredCorner.point);
-    ctx.fillStyle = "#fffaf2";
-    ctx.strokeStyle = "rgba(194, 105, 62, 0.92)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(marker.x, marker.y, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  } else if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
+  if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
     if (hoveredEdge) {
       const start = worldToScreen(hoveredEdge.p1);
@@ -2458,11 +2484,7 @@ function drawRectEntity(entity) {
       ctx.stroke();
     }
   }
-  if (isSelected) {
-    ctx.fillStyle = "#fffaf2";
-    ctx.strokeStyle = "#c2693e";
-    getRectSnapPoints(entity).filter((g)=>g.kind!=="center").forEach((g)=>{ const s=worldToScreen(g.point); ctx.beginPath(); ctx.arc(s.x,s.y,4,0,Math.PI*2); ctx.fill(); ctx.stroke();});
-  }
+  drawSelectedEntityHandles(entity);
   ctx.restore();
 }
 
@@ -2485,6 +2507,7 @@ function drawCircleEntity(entity) {
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
   ctx.stroke();
+  drawSelectedEntityHandles(entity);
   ctx.restore();
 }
 
@@ -2537,6 +2560,7 @@ function drawFilledRegionEntity(entity) {
   ctx.strokeStyle = getEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.stroke();
+  drawSelectedEntityHandles(entity);
   ctx.restore();
 }
 
@@ -4646,54 +4670,13 @@ function getRectEdges(entity) {
   ];
 }
 
-function findRectCornerAtPoint(worldPoint) {
-  const selectedRectIds = new Set(state.selectedEntityIds);
-  return state.entities
-    .filter((entity) => entity.type === "rect" && selectedRectIds.has(entity.id) && canSelectEntity(entity))
-    .slice()
-    .reverse()
-    .flatMap((entity) => ([
-      { corner: "topLeft", point: { x: entity.x, y: entity.y } },
-      { corner: "topRight", point: { x: entity.x + entity.width, y: entity.y } },
-      { corner: "bottomRight", point: { x: entity.x + entity.width, y: entity.y + entity.height } },
-      { corner: "bottomLeft", point: { x: entity.x, y: entity.y + entity.height } },
-    ].map((cornerHit) => ({
-      entityId: entity.id,
-      corner: cornerHit.corner,
-      point: cornerHit.point,
-      distancePx: distanceScreenPx(worldPoint, cornerHit.point),
-    }))))
-    .filter((cornerHit) => cornerHit.distancePx <= state.settings.snapTolerancePx)
-    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
-}
-
 function findSelectedMoveAnchorAtPoint(worldPoint) {
   const selectedIds = new Set(state.selectedEntityIds);
   return state.entities
     .filter((entity) => selectedIds.has(entity.id) && canSelectEntity(entity))
     .slice()
     .reverse()
-    .flatMap((entity) => {
-      if (entity.type === "rect") {
-        return [
-          { entityId: entity.id, type: "rectCorner", point: { x: entity.x, y: entity.y } },
-          { entityId: entity.id, type: "rectCorner", point: { x: entity.x + entity.width, y: entity.y } },
-          { entityId: entity.id, type: "rectCorner", point: { x: entity.x + entity.width, y: entity.y + entity.height } },
-          { entityId: entity.id, type: "rectCorner", point: { x: entity.x, y: entity.y + entity.height } },
-        ];
-      }
-      if (entity.type === "circle") {
-        return [{ entityId: entity.id, type: "circleCenter", point: roundWorldPoint(entity.center) }];
-      }
-      if (entity.type === "filledRegion") {
-        return entity.points.map((point) => ({
-          entityId: entity.id,
-          type: "filledRegionVertex",
-          point: roundWorldPoint(point),
-        }));
-      }
-      return [];
-    })
+    .flatMap((entity) => getSelectedEntityHandles(entity))
     .map((candidate) => ({
       ...candidate,
       distancePx: distanceScreenPx(worldPoint, candidate.point),
@@ -4708,6 +4691,11 @@ function findRectEdgeAtPoint(worldPoint) {
     .slice()
     .reverse()
     .map((entity) => {
+      const handleHit = getRectMoveAnchorPoints(entity)
+        .some((candidate) => distanceScreenPx(worldPoint, candidate.point) <= state.settings.snapTolerancePx);
+      if (handleHit) {
+        return null;
+      }
       const edgeHit = getRectEdges(entity)
         .find((edgeDef) => distancePointToSegmentScreenPx(worldPoint, edgeDef.p1, edgeDef.p2) <= state.settings.snapTolerancePx);
       return edgeHit ? { entityId: entity.id, edge: edgeHit.edge } : null;
@@ -6626,24 +6614,24 @@ function onPointerMove(event) {
     !uiState.rectEdgeEditDraft
   ) {
     const roundedWorldPoint = roundWorldPoint(worldPoint);
-    const cornerHit = findRectCornerAtPoint(roundedWorldPoint);
-    if (cornerHit) {
-      uiState.hoverRectCorner = cornerHit;
+    const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
+    if (moveAnchorHit) {
+      uiState.hoverMoveAnchor = moveAnchorHit;
       uiState.hoverRectEdge = null;
       document.body.style.cursor = "move";
     } else {
-      uiState.hoverRectCorner = null;
+      uiState.hoverMoveAnchor = null;
       uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
     }
     if (uiState.hoverRectEdge) {
       document.body.style.cursor = (uiState.hoverRectEdge.edge === "left" || uiState.hoverRectEdge.edge === "right")
         ? "ew-resize"
         : "ns-resize";
-    } else if (!cornerHit) {
+    } else if (!moveAnchorHit) {
       document.body.style.cursor = "";
     }
   } else {
-    uiState.hoverRectCorner = null;
+    uiState.hoverMoveAnchor = null;
     uiState.hoverRectEdge = null;
     document.body.style.cursor = "";
   }
