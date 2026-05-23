@@ -14,6 +14,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 
 - Continuous Line drawing
 - Rectangle tool (creates one rectangular region object)
+- Circle / Arc / Filled Region
 - Selection
 - Window / Crossing selection
 - Shift additive selection
@@ -27,10 +28,14 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Fillet keeps the clicked side of each line and moves the opposite endpoints to the intersection
 - Fillet highlights the first picked line while waiting for the second pick
 - AutoCAD-like Move / Copy
+- Rotate selected entities
+- Mirror selected entities by two-point axis
 - Grip edit for selected line endpoints
 - AutoCAD-like endpoint stretch behavior
+- Group / Ungroup for reusable drawing parts
 - Delete
 - Pan/Zoom
+- Mobile touch support: tap drafting, one-finger pan, two-finger pinch zoom
 - Ortho default ON
 - Layers
 - Endpoint / Midpoint snap
@@ -49,6 +54,7 @@ A lightweight browser-based 2D drafting sketch tool for architectural details an
 - Light/Dark theme toggle (persisted)
 - Simplified properties panel
 - Rectangle supports Fill Color
+- Agent IO group export for AI-assisted drafting
 
 ## Current MVP scope
 
@@ -90,13 +96,18 @@ Included in this first pass:
 - `Rectangle` uses first corner -> opposite corner and creates one rectangle region object
 - `Move` uses `base point -> second point` and finishes after one confirmed move
 - `Copy` keeps the same base point and supports continuous copy placement until `Esc` or empty `Enter`
+- `Rotate` applies clockwise 90-degree rotation to selected entities
+- `Mirror` uses two picked points as the mirror axis
 - `Extend` uses `boundary line -> target line` and, in the first implementation, extends only `line` entities
 - Ortho is ON by default, and holding `Shift` temporarily enables free-angle input
 - `Select` uses left-to-right `Window selection` and right-to-left `Crossing selection`
 - `Shift + click` and `Shift + selection window` add to the current selection
+- `Group` / `Ungroup` keeps entities as normal entities while adding reusable metadata
+- Clicking a grouped entity selects the whole group
 - Clicking a selected line endpoint grip in `Select` starts endpoint grip edit
 - Clicking and dragging a selected entity body in `Select` starts free drag move for the whole current selection
 - Holding `Option` on macOS or `Ctrl` on Windows when starting that `Select` drag switches it to one-shot drag copy while keeping the source entities
+- Group-aware copy preserves complete groups
 - Grip edit follows an AutoCAD-like endpoint stretch interaction
 - `Select` drag move ignores OSNAP / grid snap / ortho and rounds the committed result back to integer units
 - In `Move`, holding `Option` on macOS or `Ctrl` on Windows while picking the base point starts copy mode from the Move command
@@ -106,6 +117,24 @@ Included in this first pass:
 - `Move` / `Copy` dynamic input is shown near the lower-right of the cursor
 - `Line` / `Grip edit` dynamic input is shown near the edited segment
 - Numeric input is entered in `mm`, then converted to `0.1 mm` integer units for internal geometry
+- On touch devices, tap performs drawing/select actions, one-finger drag pans, and two-finger pinch zooms
+
+## Group and AI reuse
+
+DraftLite supports lightweight Group / Ungroup operations.
+
+Groups are stored in `state.groups` and are not separate entity types. They are intended as semantic reusable drawing parts for future AI-assisted drafting, such as stair sections, room clusters, furniture layouts, core layouts, and detail components.
+
+Agent IO can inspect groups with:
+
+- `get_groups`
+- `get_selected_groups`
+- `export_selected_groups`
+- `copy_selected_groups`
+- `read_resource` with `draftlite://groups`
+- `read_resource` with `draftlite://selected-groups`
+
+Group export returns bounds, entity count, entity types, metadata, and grouped entities.
 
 ## File layout
 
@@ -117,8 +146,6 @@ Included in this first pass:
 
 ## Roadmap
 
-- Aligned Dimension
-- Text
 - Trim
 - Rotational Align
 - Multi-target Align
@@ -155,6 +182,20 @@ DraftLiteDebug.createMinimalDxfFixture();
 
 - `DraftLiteDebug` is intended for development support only. It does not change normal behavior unless you explicitly call a helper such as `clearDocument()` or `loadFixture()`.
 - If `window.DraftLiteDebug` is not directly visible from the browser execution context, use the DOM CustomEvent bridge instead.
+
+## Agent IO quick commands
+
+Example commands:
+
+- `tools`
+- `resources`
+- `get_summary`
+- `get_groups`
+- `get_selected_groups`
+- `copy_selected_groups`
+- `read_resource draftlite://groups`
+- `read_resource draftlite://selected-groups`
+
 - Bridge example:
 
 ```js

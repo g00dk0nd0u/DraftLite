@@ -62,6 +62,14 @@
 - Confirming with `Enter` must match the currently displayed preview position.
 - `Move` and `Copy` Dynamic Input should be shown at the lower-right of the cursor.
 - `Line` and `Grip edit` Dynamic Input should be shown near the edited segment.
+- `Group` / `Ungroup` are immediate Modify actions.
+- Clicking one entity in a group should select the whole group.
+- Group selection should work with window/crossing selection.
+- Select drag copy and Copy tool should preserve complete groups when copied.
+- Mobile touch behavior:
+  - one-finger tap = drafting/select action
+  - one-finger drag = pan
+  - two-finger pinch = zoom
 
 ## Geometry And Coordinate Rules
 
@@ -84,6 +92,17 @@
 - Filled Region is a first-class `type:"filledRegion"` entity.
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
 - Dimension entity `type:"dimension"` is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.
+- Rotate is a Modify tool for selected entities.
+- Mirror is a two-point axis Modify tool.
+- Group is not a new entity type.
+- Groups are stored in `state.groups`.
+- `groups[].entityIds` is the source of truth.
+- `selectedEntityIds` remains normal entity IDs.
+- Group is intended as the minimum reusable semantic unit for AI-assisted drafting.
+- Use Group for stairs, room clusters, furniture layouts, core layouts, detail components, and other meaningful drawing parts.
+- Save/load must preserve groups and remain compatible with older JSON without groups.
+- Copying a complete group should create a new group for copied entities.
+- Delete and cleanup must remove missing entity IDs from groups.
 - Use Explode only when rectangle outlines need to be converted into 4 `line` entities.
 - Do not convert rectangles into line entities during normal editing.
 - Filled Region should not duplicate the first point as the last point in stored state.
@@ -175,3 +194,14 @@ Do not include long explanations unless the user asks.
 - This is MCP-shaped browser API for GitHub Pages, not a real MCP server.
 - Keep both legacy action format and MCP-style `tool`/`arguments` format.
 - No destructive API changes; preserve compatibility for debug helpers, hidden bridge, JSON, and DXF.
+- Agent IO exposes group data for AI reuse.
+- Supported group tools:
+  - `get_groups`
+  - `get_selected_groups`
+  - `export_selected_groups`
+  - `copy_selected_groups`
+- Supported group resources:
+  - `draftlite://groups`
+  - `draftlite://selected-groups`
+- Group export should include bounds, entity count, entity types, metadata, and grouped entities.
+- Group data is the bridge from raw drafting entities to reusable semantic parts for AI-assisted drafting.
