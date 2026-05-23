@@ -2835,7 +2835,7 @@ function getRectEdgeNumericPreviewPoint() {
     return null;
   }
 
-  const lengthMm = Number.parseInt(draft.numericInputBuffer, 10);
+  const lengthMm = Number.parseFloat(draft.numericInputBuffer);
   if (!draft.numericInputBuffer || !Number.isFinite(lengthMm) || lengthMm <= 0) {
     return null;
   }
@@ -2845,25 +2845,31 @@ function getRectEdgeNumericPreviewPoint() {
     return null;
   }
 
+  const axis = draft.edge === "left" || draft.edge === "right" ? "x" : "y";
+  const defaultSign = draft.edge === "right" || draft.edge === "bottom" ? 1 : -1;
+  const currentDelta = draft.currentPoint[axis] - draft.startPoint[axis];
+  const hoverDelta = uiState.hoverWorld[axis] - draft.startPoint[axis];
+  const direction = Math.sign(currentDelta) || Math.sign(hoverDelta) || defaultSign;
+
   if (draft.edge === "left" || draft.edge === "right") {
-    const direction = Math.sign(uiState.hoverWorld.x - draft.startPoint.x) || Math.sign(draft.currentPoint.x - draft.startPoint.x);
-    if (direction === 0) {
-      return null;
-    }
     return {
       x: roundToGridUnit(draft.startPoint.x + direction * deltaUnits),
       y: draft.startPoint.y,
     };
   }
 
-  const direction = Math.sign(uiState.hoverWorld.y - draft.startPoint.y) || Math.sign(draft.currentPoint.y - draft.startPoint.y);
-  if (direction === 0) {
-    return null;
-  }
   return {
     x: draft.startPoint.x,
     y: roundToGridUnit(draft.startPoint.y + direction * deltaUnits),
   };
+}
+
+function getRectEdgeEditActiveStatus(draft) {
+  return `Rectangle ${draft.edge} edge edit active. Pick new edge position, type distance, or press Esc.`;
+}
+
+function getRectEdgeNumericStatus(draft) {
+  return `Rectangle ${draft.edge} edge numeric edit: ${draft.numericInputBuffer} mm. Press Enter to apply or Esc to cancel.`;
 }
 
 function getResizedRectFromAnchorPoint(draft, anchorPoint) {
@@ -2899,6 +2905,7 @@ function applyRectEdgeNumericPreview() {
     return false;
   }
   uiState.rectEdgeEditDraft.currentPoint = previewPoint;
+  setStatus(getRectEdgeNumericStatus(uiState.rectEdgeEditDraft));
   draw();
   renderStatusPanel();
   return true;
@@ -6730,6 +6737,10 @@ function onPointerMove(event) {
     return;
   }
   if (uiState.rectEdgeEditDraft) {
+    if (uiState.rectEdgeEditDraft.numericInputBuffer) {
+      applyRectEdgeNumericPreview();
+      return;
+    }
     uiState.rectEdgeEditDraft.currentPoint = snappedWorld;
     draw();
     renderStatusPanel();
@@ -7085,7 +7096,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
           currentPoint: worldPoint,
           numericInputBuffer: "",
         };
-        setStatus(`Rectangle ${rectEdgeHit.edge} edge edit started. Pick new edge position, type distance, or press Esc.`);
+        setStatus(getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft));
         draw();
         renderStatusPanel();
         return;
@@ -7972,11 +7983,10 @@ function onKeyDown(event) {
   }
 
   if (uiState.rectEdgeEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
-    if (/^\d$/.test(event.key)) {
+    if (/^\d$/.test(event.key) || (event.key === "." && !uiState.rectEdgeEditDraft.numericInputBuffer.includes("."))) {
       event.preventDefault();
       uiState.rectEdgeEditDraft.numericInputBuffer += event.key;
       applyRectEdgeNumericPreview();
-      draw();
       return;
     }
 
@@ -7986,10 +7996,12 @@ function onKeyDown(event) {
         uiState.rectEdgeEditDraft.numericInputBuffer = uiState.rectEdgeEditDraft.numericInputBuffer.slice(0, -1);
         if (!uiState.rectEdgeEditDraft.numericInputBuffer) {
           uiState.rectEdgeEditDraft.currentPoint = uiState.hoverWorld;
+          setStatus(getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft));
         } else {
           applyRectEdgeNumericPreview();
         }
         draw();
+        renderStatusPanel();
         return;
       }
     }
