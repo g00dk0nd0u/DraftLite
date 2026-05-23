@@ -1696,46 +1696,6 @@ function handleMatchPropertiesToolClick(worldPoint) {
   setStatus("Properties matched.");
 }
 
-function renderRectEdgeEditProperties() {
-  const draft = uiState.rectEdgeEditDraft;
-  if (!draft) {
-    return;
-  }
-
-  const createSection = (title) => {
-    const section = document.createElement("section");
-    section.className = "prop-section";
-    const heading = document.createElement("h4");
-    heading.className = "prop-section-title";
-    heading.textContent = title;
-    const grid = document.createElement("div");
-    grid.className = "prop-grid";
-    section.append(heading, grid);
-    propertiesPanel.appendChild(section);
-    return grid;
-  };
-
-  const addPropertyRow = (grid, labelText, value) => {
-    const label = document.createElement("label");
-    label.className = "prop-label";
-    label.textContent = labelText;
-    const valueWrap = document.createElement("div");
-    valueWrap.className = "prop-value";
-    const text = document.createElement("span");
-    text.className = "prop-static";
-    text.textContent = value;
-    valueWrap.appendChild(text);
-    grid.append(label, valueWrap);
-  };
-
-  const grid = createSection("Properties");
-  addPropertyRow(grid, "Mode", "Rectangle Edge Edit");
-  addPropertyRow(grid, "Edge", `${draft.edge} edge`);
-  addPropertyRow(grid, "Distance", `${draft.numericInputBuffer || "_"} mm`);
-  addPropertyRow(grid, "Unit", "mm");
-  addPropertyRow(grid, "Help", "Type distance, Enter apply, Backspace edit, Esc cancel");
-}
-
 function renderPropertiesPanel() {
   propertiesPanel.innerHTML = "";
 
@@ -1786,11 +1746,6 @@ function renderPropertiesPanel() {
     text.textContent = value;
     return text;
   };
-
-  if (uiState.rectEdgeEditDraft) {
-    renderRectEdgeEditProperties();
-    return;
-  }
 
   if (!state.selectedEntityIds.length) {
     const empty = document.createElement("p");
@@ -1885,6 +1840,10 @@ function renderPropertiesPanel() {
     return;
   }
   if (entity.type === "rect") {
+    const previewRect = uiState.rectEdgeEditDraft && uiState.rectEdgeEditDraft.entityId === entity.id
+      ? getResizedRectFromAnchorPoint(uiState.rectEdgeEditDraft, uiState.rectEdgeEditDraft.currentPoint)
+      : null;
+    const rectDisplay = previewRect || entity;
     const generalGrid = appendSection("General");
     const nameInput = document.createElement("input");
     nameInput.type = "text";
@@ -1897,6 +1856,17 @@ function renderPropertiesPanel() {
     addPropertyRow(generalGrid, "Type", createReadOnlyText("Rectangle"));
     addPropertyRow(generalGrid, "Name", nameInput);
     addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Rectangle layer updated."));
+    if (previewRect) {
+      addPropertyRow(
+        generalGrid,
+        "Edit",
+        createReadOnlyText(
+          uiState.rectEdgeEditDraft.numericInputBuffer
+            ? `Editing ${uiState.rectEdgeEditDraft.edge} edge: ${uiState.rectEdgeEditDraft.numericInputBuffer} mm`
+            : `Editing ${uiState.rectEdgeEditDraft.edge} edge`
+        )
+      );
+    }
 
     const geometryGrid = appendSection("Geometry");
     const fields = [
@@ -1907,7 +1877,7 @@ function renderPropertiesPanel() {
     fields.forEach(([label, key]) => {
       const input = document.createElement("input");
       input.type = "number";
-      input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(entity[key]));
+      input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(rectDisplay[key]));
       if (key === "rotation") {
         input.disabled = true;
       }
