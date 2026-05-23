@@ -2422,6 +2422,10 @@ function drawSelectedEntityHandles(entity) {
   if (!state.selectedEntityIds.includes(entity.id)) {
     return;
   }
+  const edgeHovered = uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id;
+  if (edgeHovered) {
+    return;
+  }
   const handles = getSelectedEntityHandles(entity);
   if (!handles.length) {
     return;
@@ -2429,7 +2433,6 @@ function drawSelectedEntityHandles(entity) {
   const activeHandle = uiState.hoverMoveAnchor && uiState.hoverMoveAnchor.entityId === entity.id
     ? uiState.hoverMoveAnchor
     : null;
-  const edgeHovered = uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id;
 
   handles.forEach((handle) => {
     const screenPoint = worldToScreen(handle.point);
@@ -2437,9 +2440,9 @@ function drawSelectedEntityHandles(entity) {
       && activeHandle.type === handle.type
       && activeHandle.point.x === handle.point.x
       && activeHandle.point.y === handle.point.y;
-    const radius = isActive ? 6.5 : edgeHovered ? 3 : 4;
-    ctx.fillStyle = isActive ? "#fffaf2" : edgeHovered ? "rgba(255, 250, 242, 0.72)" : "#fffaf2";
-    ctx.strokeStyle = isActive ? "rgba(194, 105, 62, 0.92)" : edgeHovered ? "rgba(194, 105, 62, 0.45)" : "#c2693e";
+    const radius = isActive ? 6.5 : 4;
+    ctx.fillStyle = "#fffaf2";
+    ctx.strokeStyle = isActive ? "rgba(194, 105, 62, 0.92)" : "#c2693e";
     ctx.lineWidth = isActive ? 3 : 1.5;
     ctx.beginPath();
     ctx.arc(screenPoint.x, screenPoint.y, radius, 0, Math.PI * 2);
@@ -2452,6 +2455,7 @@ function drawRectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer) return;
   const isSelected = state.selectedEntityIds.includes(entity.id);
+  const edgeHovered = uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id;
   const p1 = worldToScreen({ x: entity.x, y: entity.y });
   const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
   const w = p2.x - p1.x;
@@ -2463,7 +2467,7 @@ function drawRectEntity(entity) {
     ctx.fillStyle = getEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     ctx.fillRect(p1.x, p1.y, w, h);
   }
-  if (isSelected) {
+  if (isSelected && !edgeHovered) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.28)";
     ctx.lineWidth = 10;
     ctx.strokeRect(p1.x, p1.y, w, h);
@@ -2471,7 +2475,7 @@ function drawRectEntity(entity) {
   ctx.strokeStyle = getEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.strokeRect(p1.x, p1.y, w, h);
-  if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
+  if (edgeHovered) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
     if (hoveredEdge) {
       const start = worldToScreen(hoveredEdge.p1);
@@ -6588,7 +6592,17 @@ function onPointerMove(event) {
     return;
   }
   if (uiState.rectEdgeEditDraft) {
-    uiState.rectEdgeEditDraft.currentPoint = snappedWorld;
+    uiState.rectEdgeEditDraft.currentScreen = screenPoint;
+    if (!uiState.rectEdgeEditDraft.hasMoved) {
+      const dx = screenPoint.x - uiState.rectEdgeEditDraft.startScreen.x;
+      const dy = screenPoint.y - uiState.rectEdgeEditDraft.startScreen.y;
+      if (Math.hypot(dx, dy) >= CLICK_SELECT_THRESHOLD_PX) {
+        uiState.rectEdgeEditDraft.hasMoved = true;
+      }
+    }
+    if (uiState.rectEdgeEditDraft.hasMoved) {
+      uiState.rectEdgeEditDraft.currentPoint = snappedWorld;
+    }
     draw();
     renderStatusPanel();
     return;
@@ -6936,6 +6950,9 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
           originalRect: { x: rectEntity.x, y: rectEntity.y, width: rectEntity.width, height: rectEntity.height },
           startPoint: worldPoint,
           currentPoint: worldPoint,
+          startScreen: worldToScreen(worldPoint),
+          currentScreen: worldToScreen(worldPoint),
+          hasMoved: false,
         };
         setStatus(`Rectangle ${rectEdgeHit.edge} edge resize started.`);
         syncAfterStateChange();
@@ -7206,6 +7223,13 @@ function onWindowMouseUp(event) {
   }
   if (uiState.rectEdgeEditDraft) {
     const draft = uiState.rectEdgeEditDraft;
+    if (!draft.hasMoved) {
+      uiState.rectEdgeEditDraft = null;
+      draw();
+      renderStatusPanel();
+      setStatus("Ready.");
+      return;
+    }
     const entity = getEntityById(draft.entityId);
     if (entity && entity.type === "rect" && canSelectEntity(entity)) {
       const nextRect = getResizedRectFromDraft(draft, draft.currentPoint);
