@@ -16,6 +16,7 @@ const THEME_STORAGE_KEY = "draftlite.theme";
 
 const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
+const sidebar = document.querySelector(".sidebar");
 const layerList = document.getElementById("layerList");
 const propertiesPanel = document.getElementById("propertiesPanel");
 const toolReadout = document.getElementById("toolReadout");
@@ -23,6 +24,12 @@ const pointerReadout = document.getElementById("pointerReadout");
 const zoomReadout = document.getElementById("zoomReadout");
 const statusReadout = document.getElementById("statusReadout");
 const loadJsonInput = document.getElementById("loadJsonInput");
+const scaleBar = document.getElementById("scaleBar");
+const scaleBarSegmentA = document.getElementById("scaleBarSegmentA");
+const scaleBarSegmentB = document.getElementById("scaleBarSegmentB");
+const scaleBarLabelStart = document.getElementById("scaleBarLabelStart");
+const scaleBarLabelMid = document.getElementById("scaleBarLabelMid");
+const scaleBarLabelEnd = document.getElementById("scaleBarLabelEnd");
 
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
@@ -602,6 +609,92 @@ function screenToWorld(point) {
     x: (point.x - state.view.panX) / state.view.zoom,
     y: (point.y - state.view.panY) / state.view.zoom,
   };
+}
+
+function getCssVar(name, fallback) {
+  const value = window.getComputedStyle(document.body).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function trimTrailingZeros(value) {
+  return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
+function formatScaleLabel(mm) {
+  if (mm >= 1000000) {
+    return `${trimTrailingZeros((mm / 1000000).toFixed(2))}km`;
+  }
+  if (mm >= 1000) {
+    return `${trimTrailingZeros((mm / 1000).toFixed(2))}m`;
+  }
+  return `${Math.round(mm)}mm`;
+}
+
+function getNiceScaleSegmentUnit() {
+  const pxPerMm = state.view.zoom * (1 / UNIT_MM);
+  const minTotalPx = 70;
+  const maxTotalPx = 140;
+  const targetTotalPx = 104;
+  const niceBases = [1, 2, 5];
+  let bestUnit = 100;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let exponent = 2; exponent <= 9; exponent += 1) {
+    const factor = 10 ** exponent;
+    for (const base of niceBases) {
+      const unitMm = base * factor;
+      const totalPx = unitMm * pxPerMm * 2;
+      const inRange = totalPx >= minTotalPx && totalPx <= maxTotalPx;
+      const score = inRange
+        ? Math.abs(totalPx - targetTotalPx)
+        : Math.abs(totalPx - targetTotalPx) + 1000;
+      if (score < bestScore) {
+        bestScore = score;
+        bestUnit = unitMm;
+      }
+    }
+  }
+
+  return bestUnit;
+}
+
+function updateScaleBar() {
+  if (!scaleBar || !scaleBarSegmentA || !scaleBarSegmentB) {
+    return;
+  }
+
+  const segmentMm = getNiceScaleSegmentUnit();
+  const segmentPx = Math.max(18, mmToUnits(segmentMm) * state.view.zoom);
+  const totalWidthPx = segmentPx * 2 + 6;
+
+  scaleBarSegmentA.style.width = `${segmentPx}px`;
+  scaleBarSegmentB.style.width = `${segmentPx}px`;
+  if (scaleBarLabelStart) {
+    scaleBarLabelStart.textContent = "0";
+  }
+  if (scaleBarLabelMid) {
+    scaleBarLabelMid.textContent = formatScaleLabel(segmentMm);
+  }
+  if (scaleBarLabelEnd) {
+    scaleBarLabelEnd.textContent = formatScaleLabel(segmentMm * 2);
+  }
+
+  let rightPx = window.innerWidth <= 640 ? 12 : 18;
+  const bottomPx = window.innerWidth <= 640 ? 12 : 18;
+  if (sidebar && viewport) {
+    const viewportRect = viewport.getBoundingClientRect();
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const scaleTop = viewportRect.bottom - bottomPx - 28;
+    const scaleBottom = viewportRect.bottom - bottomPx;
+    const overlapsVertically = sidebarRect.top < scaleBottom && sidebarRect.bottom > scaleTop;
+    if (overlapsVertically) {
+      const neededRight = Math.max(18, viewportRect.right - sidebarRect.left + 14);
+      rightPx = Math.min(Math.max(rightPx, neededRight), Math.max(18, viewportRect.width - totalWidthPx - 18));
+    }
+  }
+
+  scaleBar.style.right = `${rightPx}px`;
+  scaleBar.style.bottom = `${bottomPx}px`;
 }
 
 function distanceScreenPx(a, b) {
@@ -2296,8 +2389,8 @@ function draw() {
   const height = uiState.canvasRect.height;
 
   ctx.clearRect(0, 0, width, height);
-  drawGrid(width, height);
-  drawWorldAxes(width, height);
+  drawGrid();
+  drawAxes(width, height);
 
   state.entities.forEach((entity) => {
     if (!isLayerVisible(entity.layerId)) {
@@ -2416,45 +2509,22 @@ function draw() {
   }
 
   drawDynamicInput();
+  updateScaleBar();
 
   zoomReadout.textContent = `Zoom: ${Math.round(state.view.zoom * 100)}%`;
 }
 
-function drawGrid(width, height) {
-  if (!state.settings.showGrid) return;
-  const zoom = state.view.zoom;
-  const showFineGrid = zoom >= 0.004;
-  const showMajorGrid = zoom >= 0.001;
-  if (!showMajorGrid) {
-    return;
-  }
-  const worldTopLeft = screenToWorld({ x: 0, y: 0 });
-  const worldBottomRight = screenToWorld({ x: width, y: height });
-  const gridStep = showFineGrid ? GRID_MAJOR_UNIT : GRID_MAJOR_UNIT * 4;
-  const startX = Math.floor(worldTopLeft.x / gridStep) * gridStep;
-  const endX = Math.ceil(worldBottomRight.x / gridStep) * gridStep;
-  const startY = Math.floor(worldTopLeft.y / gridStep) * gridStep;
-  const endY = Math.ceil(worldBottomRight.y / gridStep) * gridStep;
-  const step = showFineGrid && zoom * GRID_MAJOR_UNIT < 14 ? GRID_MAJOR_UNIT * 2 : gridStep;
-  const dotRadius = document.body.dataset.theme === "dark" ? 1.2 : 1.0;
-  ctx.save();
-  ctx.fillStyle = document.body.dataset.theme === "dark" ? "rgba(186,197,214,0.28)" : "rgba(123, 96, 64, 0.20)";
-  for (let x = startX; x <= endX; x += step) {
-    for (let y = startY; y <= endY; y += step) {
-      const screen = worldToScreen({ x, y });
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
+function drawGrid() {
+  return undefined;
 }
 
-function drawWorldAxes(width, height) {
+function drawAxes(width, height) {
   const origin = worldToScreen({ x: 0, y: 0 });
   ctx.save();
-  ctx.strokeStyle = "rgba(89, 66, 42, 0.2)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = getCssVar("--canvas-axis", "rgba(70, 52, 30, 0.28)");
+  ctx.fillStyle = getCssVar("--canvas-origin", "rgba(70, 52, 30, 0.45)");
+  ctx.lineWidth = 0.8;
+  ctx.setLineDash([6, 5]);
 
   if (origin.x >= 0 && origin.x <= width) {
     ctx.beginPath();
@@ -2468,6 +2538,13 @@ function drawWorldAxes(width, height) {
     ctx.moveTo(0, origin.y);
     ctx.lineTo(width, origin.y);
     ctx.stroke();
+  }
+
+  if (origin.x >= -3 && origin.x <= width + 3 && origin.y >= -3 && origin.y <= height + 3) {
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, 2.8, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }

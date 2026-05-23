@@ -19,7 +19,10 @@
   --canvas-bg: #e4ddd0;
   --canvas-grid-major: rgba(82, 62, 38, 0.16);
   --canvas-grid-minor: rgba(82, 62, 38, 0.055);
-  --canvas-axis: rgba(70, 52, 30, 0.2);
+  --canvas-axis: rgba(70, 52, 30, 0.28);
+  --canvas-origin: rgba(70, 52, 30, 0.45);
+  --scale-bar-line: rgba(70, 52, 30, 0.52);
+  --scale-bar-label: rgba(60, 44, 26, 0.58);
   --topbar-bg: rgba(238, 233, 224, 0.93);
   --button-bg: rgba(248, 244, 237, 0.93);
   --button-hover-bg: rgba(238, 233, 224, 0.93);
@@ -53,7 +56,10 @@ body[data-theme="dark"] {
   --canvas-bg: #2c3138;
   --canvas-grid-major: rgba(144, 169, 201, 0.12);
   --canvas-grid-minor: rgba(144, 169, 201, 0.05);
-  --canvas-axis: rgba(186, 197, 214, 0.24);
+  --canvas-axis: rgba(186, 197, 214, 0.34);
+  --canvas-origin: rgba(186, 197, 214, 0.54);
+  --scale-bar-line: rgba(197, 209, 224, 0.58);
+  --scale-bar-label: rgba(216, 225, 236, 0.66);
   --topbar-bg: rgba(35, 39, 44, 0.94);
   --button-bg: rgba(58, 63, 70, 0.94);
   --button-hover-bg: #454b54;
@@ -366,6 +372,58 @@ summary:focus-visible {
   background:
     var(--canvas-overlay),
     var(--canvas-bg);
+}
+
+.scale-bar {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.scale-bar-track {
+  display: flex;
+  align-items: flex-end;
+  height: 10px;
+}
+
+.scale-bar-line,
+.scale-bar-cap {
+  display: block;
+  flex: 0 0 auto;
+  background: var(--scale-bar-line);
+}
+
+.scale-bar-line {
+  width: 42px;
+  height: 2px;
+}
+
+.scale-bar-cap {
+  width: 2px;
+  height: 8px;
+}
+
+.scale-bar-labels {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  color: var(--scale-bar-label);
+  font: 9px/1.1 "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+  letter-spacing: 0.01em;
+}
+
+.scale-bar-labels span:nth-child(2) {
+  justify-self: center;
+}
+
+.scale-bar-labels span:nth-child(3) {
+  justify-self: end;
 }
 
 #draftCanvas {
@@ -769,6 +827,11 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   .panel-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .scale-bar {
+    right: 12px;
+    bottom: 12px;
   }
 }
 
