@@ -684,6 +684,85 @@ function getSnapPoint(worldPoint) {
   return roundWorldPoint(worldPoint);
 }
 
+function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
+  const excludedIds = new Set(excludeEntityIds);
+  return state.entities
+    .filter((entity) => isLayerVisible(entity.layerId) && !excludedIds.has(entity.id))
+    .flatMap((entity) => {
+      if (entity.type === "line") {
+        return [entity.p1, entity.p2].map((point) => ({
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      if (entity.type === "rect") {
+        return [
+          { x: entity.x, y: entity.y },
+          { x: entity.x + entity.width, y: entity.y },
+          { x: entity.x + entity.width, y: entity.y + entity.height },
+          { x: entity.x, y: entity.y + entity.height },
+        ].map((point) => ({
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      if (entity.type === "circle") {
+        return [{
+          entityId: entity.id,
+          point: roundWorldPoint(entity.center),
+          distancePx: distanceScreenPx(worldPoint, entity.center),
+        }];
+      }
+      if (entity.type === "arc") {
+        const startPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.startAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        const endPoint = {
+          x: roundToUnit(entity.center.x + Math.cos((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+          y: roundToUnit(entity.center.y + Math.sin((entity.endAngleDeg || 0) * Math.PI / 180) * entity.radius),
+        };
+        return [entity.center, startPoint, endPoint].map((point) => ({
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      if (entity.type === "filledRegion") {
+        return entity.points.map((point) => ({
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      if (entity.type === "dimension") {
+        return [entity.p1, entity.p2, entity.offsetPoint].map((point) => ({
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      return [];
+    });
+}
+
+function getAnchorSnapPoint(worldPoint, excludeEntityIds = []) {
+  const candidates = collectAnchorSnapCandidates(worldPoint, excludeEntityIds)
+    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx);
+  if (candidates.length) {
+    uiState.snapMarker = {
+      kind: "endpoint",
+      point: roundWorldPoint(candidates[0].point),
+    };
+    return roundWorldPoint(candidates[0].point);
+  }
+  uiState.snapMarker = null;
+  return null;
+}
+
 function applyOrthoConstraint(startPoint, worldPoint, orthoEnabled) {
   if (!orthoEnabled || !startPoint) {
     return worldPoint;
@@ -3791,16 +3870,25 @@ function updateSelectDragStatus(message) {
   renderStatusPanel();
 }
 
-function startSelectDragWithMode(worldPoint, mode = "move") {
+function startSelectDragWithMode(worldPoint, mode = "move", options = {}) {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
     return false;
   }
 
+  const hasSnapAnchorPoint = Boolean(options.snapAnchorPoint);
+  const startPoint = hasSnapAnchorPoint
+    ? roundWorldPoint(options.snapAnchorPoint)
+    : resolveFreeDragPoint(worldPoint);
+
   uiState.selectDragDraft = {
     mode,
-    startPoint: resolveFreeDragPoint(worldPoint),
-    currentPoint: resolveFreeDragPoint(worldPoint),
+    startPoint,
+    currentPoint: startPoint,
+    snapAnchorPoint: hasSnapAnchorPoint ? roundWorldPoint(options.snapAnchorPoint) : null,
+    pointerStartPoint: hasSnapAnchorPoint
+      ? roundWorldPoint(options.pointerStartPoint || worldPoint)
+      : roundWorldPoint(worldPoint),
     entityIds: selectedEntities.map((entity) => entity.id),
     entities: deepClone(selectedEntities),
   };
@@ -3816,7 +3904,15 @@ function updateSelectDrag(worldPoint) {
   if (!uiState.selectDragDraft) {
     return;
   }
-  uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint);
+  if (uiState.selectDragDraft.snapAnchorPoint) {
+    const freeAnchorPoint = roundWorldPoint({
+      x: uiState.selectDragDraft.snapAnchorPoint.x + (worldPoint.x - uiState.selectDragDraft.pointerStartPoint.x),
+      y: uiState.selectDragDraft.snapAnchorPoint.y + (worldPoint.y - uiState.selectDragDraft.pointerStartPoint.y),
+    });
+    uiState.selectDragDraft.currentPoint = getAnchorSnapPoint(freeAnchorPoint, uiState.selectDragDraft.entityIds) || freeAnchorPoint;
+  } else {
+    uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint);
+  }
   updateSelectDragStatus(`Drag ${uiState.selectDragDraft.mode} active.`);
   draw();
 }
@@ -4568,6 +4664,41 @@ function findRectCornerAtPoint(worldPoint) {
       distancePx: distanceScreenPx(worldPoint, cornerHit.point),
     }))))
     .filter((cornerHit) => cornerHit.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+}
+
+function findSelectedMoveAnchorAtPoint(worldPoint) {
+  const selectedIds = new Set(state.selectedEntityIds);
+  return state.entities
+    .filter((entity) => selectedIds.has(entity.id) && canSelectEntity(entity))
+    .slice()
+    .reverse()
+    .flatMap((entity) => {
+      if (entity.type === "rect") {
+        return [
+          { entityId: entity.id, type: "rectCorner", point: { x: entity.x, y: entity.y } },
+          { entityId: entity.id, type: "rectCorner", point: { x: entity.x + entity.width, y: entity.y } },
+          { entityId: entity.id, type: "rectCorner", point: { x: entity.x + entity.width, y: entity.y + entity.height } },
+          { entityId: entity.id, type: "rectCorner", point: { x: entity.x, y: entity.y + entity.height } },
+        ];
+      }
+      if (entity.type === "circle") {
+        return [{ entityId: entity.id, type: "circleCenter", point: roundWorldPoint(entity.center) }];
+      }
+      if (entity.type === "filledRegion") {
+        return entity.points.map((point) => ({
+          entityId: entity.id,
+          type: "filledRegionVertex",
+          point: roundWorldPoint(point),
+        }));
+      }
+      return [];
+    })
+    .map((candidate) => ({
+      ...candidate,
+      distancePx: distanceScreenPx(worldPoint, candidate.point),
+    }))
+    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
     .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
 }
 
@@ -6794,9 +6925,16 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       startGripEdit(gripHit, worldPoint);
       return;
     }
-    const rectCornerHit = findRectCornerAtPoint(roundWorldPoint(rawWorldPoint));
-    if (rectCornerHit) {
-      startSelectDragWithMode(rawWorldPoint, event.altKey || event.ctrlKey ? "copy" : "move");
+    const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundWorldPoint(rawWorldPoint));
+    if (moveAnchorHit) {
+      startSelectDragWithMode(
+        rawWorldPoint,
+        event.altKey || event.ctrlKey ? "copy" : "move",
+        {
+          snapAnchorPoint: moveAnchorHit.point,
+          pointerStartPoint: rawWorldPoint,
+        }
+      );
       return;
     }
     const rectEdgeHit = findRectEdgeAtPoint(roundWorldPoint(rawWorldPoint));
