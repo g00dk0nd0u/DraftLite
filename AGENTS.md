@@ -60,6 +60,34 @@
 - Select drag move must not use OSNAP, grid snap, or ortho during the drag preview; commit back to integer units only.
 - Numeric input preview for `Line`, `Move`, `Copy`, and `Grip edit` must use a `250ms` delayed preview.
 - Confirming with `Enter` must match the currently displayed preview position.
+
+### Draft/Edit Priority
+
+- Draft/edit operations must follow this priority:
+  - Numeric input > Snap point > Raw pointer / click position
+- If `numericInputBuffer` exists, numeric input always wins.
+- A canvas click during numeric input must confirm the numeric value.
+- It must not overwrite the active draft point with the clicked pointer position.
+- If no numeric input exists, pointer/click confirmation should use snap-aware coordinates where the operation expects snapping.
+- Raw pointer coordinates should be used only for intentional free-drag behavior.
+- This rule applies consistently to `Line`, `Move`, `Copy`, `Grip edit`, `Rectangle edge edit`, and future handle-based edits.
+
+### Hover-to-Edit / Borrowed Base Point
+
+- A clearly highlighted hover handle may start editing without a prior selection click.
+- Selected handles always have priority over unselected handles.
+- An unselected handle must never override a selected handle within snap/hover tolerance.
+- If nothing is selected, clicking an unselected handle may select that entity and start the relevant edit.
+- If objects are already selected, clicking an unselected point handle uses that point as a borrowed base point for moving/copying the current selection.
+- The borrowed object must remain unselected and unmoved.
+- Rectangle side edges remain resize zones, not borrowed base points.
+- Borrowed base handles may include:
+  - line endpoints
+  - rectangle corners
+  - rectangle edge midpoints
+  - circle centers
+  - filledRegion / polygon vertices
+
 - `Move` and `Copy` Dynamic Input should be shown at the lower-right of the cursor.
 - `Line` and `Grip edit` Dynamic Input should be shown near the edited segment.
 - `Group` / `Ungroup` are immediate Modify actions.
