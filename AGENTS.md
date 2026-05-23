@@ -120,6 +120,46 @@
 - Filled Region is a first-class `type:"filledRegion"` entity.
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
 - Dimension entity `type:"dimension"` is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.
+
+### Dimension Rules
+
+- Dimension entities use:
+  - `p1` and `p2` as measured points.
+  - `offsetPoint` as the displayed dimension line location.
+  - `extensionGap` as the visual gap from measured points to the start of extension lines.
+- `p1` / `p2` editing changes the measured points and updates the displayed dimension value.
+- Editing `p1` / `p2` must preserve the existing signed offset distance as much as possible.
+- The offset handle edits only the displayed dimension line offset.
+- The offset handle must not change `p1` or `p2`.
+- `Extension Gap mm` changes only the visible start gap of extension lines.
+- `Extension Gap mm` must not move `p1`, `p2`, or `offsetPoint`.
+- Dimension text must remain parallel to the dimension direction.
+- Horizontal dimension text appears above the dimension line.
+- Vertical dimension text appears to the left of the dimension line.
+- Dimension geometry uses the layer color:
+  - dimension line
+  - extension lines
+  - dot ticks
+- `Text Color` applies only to the dimension text.
+- Tick markers are small filled dots, not diagonal tick marks.
+- Continuous chain dimension drawing continues after the first dimension:
+  - first dimension uses `p1 -> p2 -> offset`
+  - following dimensions use `previous p2 -> next clicked point`
+  - the same signed offset is reused
+  - `Esc` ends the dimension command.
+- Match Properties between dimensions copies dimension style only:
+  - layer
+  - Text Color
+  - text height
+  - tick size
+  - precision
+  - extension gap
+- Match Properties must not copy dimension geometry:
+  - `p1`
+  - `p2`
+  - `offsetPoint`
+  - measured value
+  - `textOverride`
 - Rotate is a Modify tool for selected entities.
 - Mirror is a two-point axis Modify tool.
 - Group is not a new entity type.
