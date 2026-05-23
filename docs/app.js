@@ -2205,7 +2205,7 @@ function renderPropertiesPanel() {
       entity.color = colorInput.value;
       syncAfterStateChange();
     });
-    addPropertyRow(appearanceGrid, "Color", colorInput);
+    addPropertyRow(appearanceGrid, "Text Color", colorInput);
     return;
   }
 
@@ -2353,7 +2353,7 @@ function draw() {
     }
     const handlePoint = uiState.dimensionOffsetEditDraft && uiState.dimensionOffsetEditDraft.entityId === entity.id
       ? uiState.dimensionOffsetEditDraft.currentPoint
-      : entity.offsetPoint;
+      : getDimensionGeometry(entity).offsetHandlePoint;
     drawDimensionOffsetHandle(entity, handlePoint);
   });
 
@@ -2587,7 +2587,7 @@ function drawDimensionOffsetHandle(entity, pointOverride = null) {
   if (!entity || entity.type !== "dimension" || !state.selectedEntityIds.includes(entity.id)) {
     return;
   }
-  const handlePoint = roundWorldPoint(pointOverride || entity.offsetPoint);
+  const handlePoint = roundWorldPoint(pointOverride || getDimensionGeometry(entity).offsetHandlePoint);
   const screenPoint = worldToScreen(handlePoint);
   const hoveredHandle = uiState.hoverDimensionOffsetHandle;
   const activeDraft = uiState.dimensionOffsetEditDraft && uiState.dimensionOffsetEditDraft.entityId === entity.id;
@@ -2812,8 +2812,9 @@ function getDimensionDisplayText(entity) {
   return dist.toFixed(entity.precision ?? 0);
 }
 
-function getDimensionGeometryColor() {
-  return document.body.dataset.theme === "dark" ? "#d7dbe0" : "#1f2328";
+function getDimensionGeometryColor(entity) {
+  const layer = getLayerById(entity.layerId);
+  return normalizeColor(layer?.color || "#2e3135");
 }
 
 function getDimensionTextColor(entity) {
@@ -2837,10 +2838,19 @@ function getDimensionGeometry(entity) {
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len;
   const ny = dx / len;
+  const midpoint = {
+    x: roundToUnit((entity.p1.x + entity.p2.x) / 2),
+    y: roundToUnit((entity.p1.y + entity.p2.y) / 2),
+  };
   const d1 = (entity.offsetPoint.x - entity.p1.x) * nx + (entity.offsetPoint.y - entity.p1.y) * ny;
   const d2 = (entity.offsetPoint.x - entity.p2.x) * nx + (entity.offsetPoint.y - entity.p2.y) * ny;
+  const signedOffset = (d1 + d2) / 2;
   const o1 = { x: roundToUnit(entity.p1.x + nx * d1), y: roundToUnit(entity.p1.y + ny * d1) };
   const o2 = { x: roundToUnit(entity.p2.x + nx * d2), y: roundToUnit(entity.p2.y + ny * d2) };
+  const offsetHandlePoint = {
+    x: roundToUnit(midpoint.x + nx * signedOffset),
+    y: roundToUnit(midpoint.y + ny * signedOffset),
+  };
   const gap = getDimensionExtensionGapUnits(entity);
   const extensionStart1 = Math.abs(d1) <= gap
     ? roundWorldPoint(entity.p1)
@@ -2848,7 +2858,7 @@ function getDimensionGeometry(entity) {
   const extensionStart2 = Math.abs(d2) <= gap
     ? roundWorldPoint(entity.p2)
     : { x: roundToUnit(entity.p2.x + nx * Math.sign(d2) * gap), y: roundToUnit(entity.p2.y + ny * Math.sign(d2) * gap) };
-  return { o1, o2, extensionStart1, extensionStart2 };
+  return { o1, o2, extensionStart1, extensionStart2, midpoint, normal: { x: nx, y: ny }, signedOffset, offsetHandlePoint };
 }
 
 function getDimensionScreenGeometry(entity) {
@@ -2857,6 +2867,7 @@ function getDimensionScreenGeometry(entity) {
     o2: o2World,
     extensionStart1: extensionStart1World,
     extensionStart2: extensionStart2World,
+    offsetHandlePoint: offsetHandlePointWorld,
   } = getDimensionGeometry(entity);
   const p1 = worldToScreen(entity.p1);
   const p2 = worldToScreen(entity.p2);
@@ -2864,6 +2875,7 @@ function getDimensionScreenGeometry(entity) {
   const extensionStart2 = worldToScreen(extensionStart2World);
   const o1 = worldToScreen(o1World);
   const o2 = worldToScreen(o2World);
+  const offsetHandlePoint = worldToScreen(offsetHandlePointWorld);
   const text = getDimensionDisplayText(entity);
   const textPosition = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 - 6 };
   const fontPx = Math.max(10, (entity.textHeight || 250) * state.view.zoom);
@@ -2888,6 +2900,7 @@ function getDimensionScreenGeometry(entity) {
     extensionStart2,
     o1,
     o2,
+    offsetHandlePoint,
     extensionLines: [[extensionStart1, o1], [extensionStart2, o2]],
     dimensionLine: [o1, o2],
     tickDots: [
@@ -2906,7 +2919,7 @@ function drawDimensionEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const geometry = getDimensionScreenGeometry(entity);
   const isPreview = Boolean(entity.__isDimensionOffsetPreview);
-  const geometryColor = isPreview ? "rgba(194, 105, 62, 0.9)" : getDimensionGeometryColor();
+  const geometryColor = isPreview ? "rgba(194, 105, 62, 0.9)" : getDimensionGeometryColor(entity);
   const textColor = isPreview ? "rgba(194, 105, 62, 0.95)" : getDimensionTextColor(entity);
   const lineWidth = isPreview ? 1.5 : 1;
   ctx.save();
@@ -3225,10 +3238,11 @@ function getDimensionOffsetHandle(entity) {
   if (!entity || entity.type !== "dimension") {
     return null;
   }
+  const geometry = getDimensionGeometry(entity);
   return {
     entityId: entity.id,
     type: "dimensionOffset",
-    point: roundWorldPoint(entity.offsetPoint),
+    point: roundWorldPoint(geometry.offsetHandlePoint),
   };
 }
 
@@ -3253,13 +3267,16 @@ function startDimensionOffsetEdit(handleHit, worldPoint) {
   if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
     return false;
   }
+  const geometry = getDimensionGeometry(entity);
   state.selectedEntityIds = [entity.id];
   syncAfterStateChange(false);
   uiState.dimensionOffsetEditDraft = {
     entityId: entity.id,
     startPoint: deepClone(handleHit.point),
-    currentPoint: roundWorldPoint(worldPoint),
+    currentPoint: roundWorldPoint(handleHit.point),
     originalOffsetPoint: deepClone(entity.offsetPoint),
+    midpoint: deepClone(geometry.midpoint),
+    normal: deepClone(geometry.normal),
   };
   setStatus("Dimension offset edit active. Drag handle or press Esc to cancel.");
   draw();
@@ -3271,7 +3288,16 @@ function updateDimensionOffsetEdit(worldPoint) {
   if (!uiState.dimensionOffsetEditDraft) {
     return;
   }
-  uiState.dimensionOffsetEditDraft.currentPoint = roundWorldPoint(worldPoint);
+  const { midpoint, normal } = uiState.dimensionOffsetEditDraft;
+  const pointerDelta = {
+    x: worldPoint.x - midpoint.x,
+    y: worldPoint.y - midpoint.y,
+  };
+  const signedOffset = pointerDelta.x * normal.x + pointerDelta.y * normal.y;
+  uiState.dimensionOffsetEditDraft.currentPoint = {
+    x: roundToUnit(midpoint.x + normal.x * signedOffset),
+    y: roundToUnit(midpoint.y + normal.y * signedOffset),
+  };
   draw();
   renderStatusPanel();
 }
@@ -3299,7 +3325,7 @@ function applyDimensionOffsetEdit() {
     renderStatusPanel();
     return false;
   }
-  const nextOffsetPoint = getSnapPoint(draft.currentPoint);
+  const nextOffsetPoint = roundWorldPoint(draft.currentPoint);
   if (
     nextOffsetPoint.x === draft.originalOffsetPoint.x &&
     nextOffsetPoint.y === draft.originalOffsetPoint.y
