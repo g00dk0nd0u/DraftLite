@@ -31,9 +31,11 @@ EXCLUDED_FILENAMES = {
 }
 
 EXCLUDED_SUFFIXES = {
+    ".bak",
     ".log",
     ".pyc",
     ".pyo",
+    ".tmp",
     ".zip",
 }
 
