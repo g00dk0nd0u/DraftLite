@@ -408,6 +408,36 @@ function exportSelectedGroupsForAgent() {
   return { groups };
 }
 
+function getSelectedGroupSummaries() {
+  return exportSelectedGroupsForAgent().groups;
+}
+
+function duplicateGroupsForCopiedEntities(sourceEntities, idMap) {
+  const sourceIds = sourceEntities.map((entity) => entity.id);
+  const sourceIdSet = new Set(sourceIds);
+  const copiedGroups = state.groups
+    .filter((group) => group.entityIds.every((id) => sourceIdSet.has(id)))
+    .map((group) => {
+      const entityIds = group.entityIds.map((id) => idMap.get(id)).filter(Boolean);
+      if (entityIds.length < 2) {
+        return null;
+      }
+      const now = new Date().toISOString();
+      return {
+        ...group,
+        id: createGroupId(),
+        name: `Group ${state.nextGroupNumber - 1}`,
+        entityIds,
+        createdAt: now,
+        updatedAt: now,
+      };
+    })
+    .filter(Boolean);
+  if (copiedGroups.length) {
+    state.groups.push(...copiedGroups);
+  }
+}
+
 function unitsToMm(units) {
   return units * UNIT_MM;
 }
@@ -3659,13 +3689,7 @@ function applyTransformDraft() {
     const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
     const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
-    const sourceIds = sourceEntities.map((e) => e.id);
-    state.groups.forEach((group) => {
-      if (sourceIds.every((id) => group.entityIds.includes(id))) {
-        const now = new Date().toISOString();
-        state.groups.push({ ...group, id: createGroupId(), name: `Group ${state.nextGroupNumber - 1}`, entityIds: sourceIds.map((id) => idMap.get(id)).filter(Boolean), createdAt: now, updatedAt: now });
-      }
-    });
+    duplicateGroupsForCopiedEntities(sourceEntities, idMap);
   }
 
   if (transformDraft.mode === "move") {
@@ -3738,8 +3762,9 @@ function applySelectDrag() {
   pushUndoState();
   if (selectDragDraft.mode === "copy") {
     const sourceEntities = selectDragDraft.entities.filter((entity) => canSelectEntity(entity));
-    const { copied: newEntities } = createCopiedEntities(sourceEntities, offset);
+    const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
+    duplicateGroupsForCopiedEntities(sourceEntities, idMap);
   } else {
     commitMoveEntityOffset(selectDragDraft.entityIds, offset);
   }
@@ -4827,6 +4852,7 @@ function getAgentSummary() {
   const baseSummary = getCurrentDocumentSummary();
   const boundsUnits = getAgentBoundsUnits();
   const activeLayer = getLayerById(state.activeLayerId);
+  const selectedGroupCount = getSelectedGroupSummaries().length;
   return {
     ...baseSummary,
     entityCount: state.entities.length,
@@ -4838,6 +4864,9 @@ function getAgentSummary() {
     filledRegionCount: state.entities.filter((entity) => entity.type === "filledRegion").length,
     dimensionCount: state.entities.filter((entity) => entity.type === "dimension").length,
     layerCount: state.layers.length,
+    groupCount: state.groups.length,
+    selectedGroupCount,
+    selectedEntityCount: state.selectedEntityIds.length,
     activeLayerId: state.activeLayerId,
     activeLayerName: activeLayer ? activeLayer.name : null,
     boundsUnits,
@@ -4877,12 +4906,30 @@ function getAgentResourceBounds() {
   };
 }
 
+function getAgentResourceGroups() {
+  return {
+    uri: "draftlite://groups",
+    name: "Draft groups",
+    description: "Group metadata and grouped entities for AI reuse.",
+  };
+}
+
+function getAgentResourceSelectedGroups() {
+  return {
+    uri: "draftlite://selected-groups",
+    name: "Selected groups",
+    description: "Currently selected groups and their entities for AI reuse.",
+  };
+}
+
 function listAgentResources() {
   return [
     getAgentResourceSummary(),
     getAgentResourceEntities(),
     getAgentResourceState(),
     getAgentResourceBounds(),
+    getAgentResourceGroups(),
+    getAgentResourceSelectedGroups(),
   ];
 }
 
@@ -4902,6 +4949,12 @@ function readAgentResource(uri) {
   }
   if (normalizedUri === "draftlite://bounds") {
     return boundsUnitsToMm(getAgentBoundsUnits());
+  }
+  if (normalizedUri === "draftlite://groups") {
+    return state.groups.map((group) => getGroupSummary(group.id)).filter(Boolean);
+  }
+  if (normalizedUri === "draftlite://selected-groups") {
+    return exportSelectedGroupsForAgent();
   }
   throw new Error(`Unknown resource uri: ${normalizedUri}`);
 }
@@ -5000,6 +5053,26 @@ function describeAgentTools() {
       additionalProperties: false,
     }),
     createAgentSchemaTool("get_bounds", "Return current drawing bounds in mm.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("get_groups", "Return all groups in the current drawing.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("get_selected_groups", "Return currently selected groups in the current drawing.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("export_selected_groups", "Return selected groups as AI reuse JSON.", {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    }),
+    createAgentSchemaTool("copy_selected_groups", "Copy selected groups as AI reuse JSON to the clipboard and return it.", {
       type: "object",
       properties: {},
       additionalProperties: false,
@@ -5279,6 +5352,12 @@ function normalizeAgentAction(action) {
     getState: "state",
     bounds: "bounds",
     getBounds: "bounds",
+    groups: "groups",
+    getGroups: "groups",
+    selectedGroups: "selectedGroups",
+    getSelectedGroups: "selectedGroups",
+    exportSelectedGroups: "selectedGroups",
+    copySelectedGroups: "copySelectedGroups",
     copyState: "copyState",
     copyEntities: "copyEntities",
     copySummary: "copySummary",
@@ -5294,6 +5373,10 @@ function normalizeAgentAction(action) {
     get_entities: "entities",
     get_state: "state",
     get_bounds: "bounds",
+    get_groups: "groups",
+    get_selected_groups: "selectedGroups",
+    export_selected_groups: "selectedGroups",
+    copy_selected_groups: "copySelectedGroups",
     read_resource: "readResource",
     copy_state: "copyState",
     copy_entities: "copyEntities",
@@ -5498,6 +5581,20 @@ function applyAgentCommand(command) {
     });
   }
 
+  if (action === "groups") {
+    return createAgentSuccess(action, {
+      groups: state.groups.map((group) => getGroupSummary(group.id)).filter(Boolean),
+    });
+  }
+
+  if (action === "selectedGroups") {
+    return createAgentSuccess(action, exportSelectedGroupsForAgent());
+  }
+
+  if (action === "copySelectedGroups") {
+    return copyAgentPayload(action, exportSelectedGroupsForAgent(), "Selected groups");
+  }
+
   if (action === "copyState") {
     return copyAgentPayload(action, snapshotState(), "State");
   }
@@ -5674,12 +5771,18 @@ function normalizeAgentToolName(tool) {
     getState: "get_state",
     bounds: "get_bounds",
     getBounds: "get_bounds",
+    groups: "get_groups",
+    getGroups: "get_groups",
+    selectedGroups: "get_selected_groups",
+    getSelectedGroups: "get_selected_groups",
+    exportSelectedGroups: "export_selected_groups",
     readResource: "read_resource",
     resource: "read_resource",
     copyResult: "copy_result",
     copyState: "copy_state",
     copyEntities: "copy_entities",
     copySummary: "copy_summary",
+    copySelectedGroups: "copy_selected_groups",
     tools: "describe_tools",
     resources: "list_resources",
   };
@@ -8005,7 +8108,7 @@ window.DraftLiteAgent = {
     }
     if (Array.isArray(payload.commands)) return this.executeMany(payload.commands, payload);
     const action = normalizeAgentAction(typeof payload.action === "string" ? payload.action.trim() : "");
-    const readOnlyActions = ["validate", "summary", "entities", "state", "bounds", "describeTools", "listResources", "readResource", "copyInput", "copyResult", "copyState", "copyEntities", "copySummary"];
+    const readOnlyActions = ["validate", "summary", "entities", "state", "bounds", "groups", "selectedGroups", "describeTools", "listResources", "readResource", "copyInput", "copyResult", "copyState", "copyEntities", "copySummary", "copySelectedGroups"];
     if (action === "describeTools") return this.describeTools();
     if (action === "listResources") return this.listResources();
     if (action === "readResource") {
@@ -8021,10 +8124,13 @@ window.DraftLiteAgent = {
     if (action === "entities") return { ok: true, action, structuredContent: this.getEntities() };
     if (action === "state") return { ok: true, action, structuredContent: this.getState() };
     if (action === "bounds") return { ok: true, action, structuredContent: this.getBounds() };
+    if (action === "groups") return { ok: true, action, structuredContent: this.getGroups() };
+    if (action === "selectedGroups") return { ok: true, action, structuredContent: this.getSelectedGroups() };
     if (action === "validate") return { ok: true, action, structuredContent: this.validateDrawing({ requireNonEmpty: true }) };
     if (action === "copyState") return this.copyState();
     if (action === "copyEntities") return this.copyEntities();
     if (action === "copySummary") return this.copySummary();
+    if (action === "copySelectedGroups") return this.copySelectedGroups();
     if (action === "copyInput") return { ok: false, isError: true, error: { code: "USE_UI_COMMAND", message: "copyInput is UI-only command." } };
     if (action === "copyResult") return this.copyResult();
     const run = executeAgentCommand({ ...payload, action });
@@ -8094,11 +8200,15 @@ window.DraftLiteAgent = {
       get_entities: "entities",
       get_state: "state",
       get_bounds: "bounds",
+      get_groups: "groups",
+      get_selected_groups: "selectedGroups",
+      export_selected_groups: "selectedGroups",
       read_resource: "readResource",
       copy_result: "copyResult",
       copy_state: "copyState",
       copy_entities: "copyEntities",
       copy_summary: "copySummary",
+      copy_selected_groups: "copySelectedGroups",
       describe_tools: "describeTools",
       list_resources: "listResources",
     };
@@ -8161,6 +8271,14 @@ window.DraftLiteAgent = {
     return boundsUnitsToMm(getAgentBoundsUnits());
   },
 
+  getGroups() {
+    return state.groups.map((group) => getGroupSummary(group.id)).filter(Boolean);
+  },
+
+  getSelectedGroups() {
+    return exportSelectedGroupsForAgent();
+  },
+
   validateDrawing(options = {}) {
     return validateDrawingState(options);
   },
@@ -8191,6 +8309,9 @@ window.DraftLiteAgent = {
   },
   copySummary() {
     return copyAgentText(JSON.stringify(this.getSummary(), null, 2), { action: "copySummary" });
+  },
+  copySelectedGroups() {
+    return copyAgentText(JSON.stringify(this.getSelectedGroups(), null, 2), { action: "copySelectedGroups" });
   },
 };
 
