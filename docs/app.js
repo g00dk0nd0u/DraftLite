@@ -35,6 +35,8 @@ const toolButtons = {
   matchProperties: document.getElementById("matchPropertiesButton"),
   move: document.getElementById("moveButton"),
   copy: document.getElementById("copyButton"),
+  group: document.getElementById("groupButton"),
+  ungroup: document.getElementById("ungroupButton"),
   rotate: document.getElementById("rotateButton"),
   mirror: document.getElementById("mirrorButton"),
   align: document.getElementById("alignButton"),
@@ -197,6 +199,7 @@ function createInitialState() {
     ],
     activeLayerId: "layer-1",
     selectedEntityIds: [],
+    groups: [],
     view: {
       zoom: DEFAULT_ZOOM,
       panX: 0,
@@ -212,6 +215,7 @@ function createInitialState() {
     },
     nextEntityNumber: 1,
     nextLayerNumber: 2,
+    nextGroupNumber: 1,
   };
 }
 
@@ -328,6 +332,80 @@ function createLayerId() {
   const id = `layer-${state.nextLayerNumber}`;
   state.nextLayerNumber += 1;
   return id;
+}
+
+
+function createGroupId() {
+  const id = `group-${state.nextGroupNumber}`;
+  state.nextGroupNumber += 1;
+  return id;
+}
+
+function getGroupById(groupId) {
+  return state.groups.find((group) => group.id === groupId) || null;
+}
+
+function getGroupsForEntity(entityId) {
+  return state.groups.filter((group) => group.entityIds.includes(entityId));
+}
+
+function getGroupedEntityIds(entityId) {
+  const ids = new Set([entityId]);
+  getGroupsForEntity(entityId).forEach((group) => group.entityIds.forEach((id) => ids.add(id)));
+  return [...ids];
+}
+
+function expandSelectionWithGroups(entityIds) {
+  const expanded = new Set(entityIds);
+  entityIds.forEach((id) => getGroupedEntityIds(id).forEach((memberId) => expanded.add(memberId)));
+  return [...expanded].filter((id) => state.entities.some((entity) => entity.id === id));
+}
+
+function cleanupGroups() {
+  const entityIdSet = new Set(state.entities.map((entity) => entity.id));
+  state.groups = state.groups
+    .map((group) => ({ ...group, entityIds: group.entityIds.filter((id) => entityIdSet.has(id)), updatedAt: new Date().toISOString() }))
+    .filter((group) => group.entityIds.length > 1);
+}
+
+function createGroupFromSelection() {
+  const entityIds = expandSelectionWithGroups(state.selectedEntityIds);
+  if (entityIds.length < 2) { setStatus("Select at least two entities to create a group."); return false; }
+  pushUndoState();
+  const now = new Date().toISOString();
+  const group = { id: createGroupId(), name: `Group ${state.nextGroupNumber - 1}`, category: "", description: "", entityIds: [...new Set(entityIds)], tags: [], metadata: {}, createdAt: now, updatedAt: now };
+  state.groups.push(group);
+  state.selectedEntityIds = [...group.entityIds];
+  syncAfterStateChange();
+  setStatus(`${group.name} created.`);
+  return true;
+}
+
+function ungroupSelection() {
+  if (!state.selectedEntityIds.length) { setStatus("Nothing selected."); return false; }
+  const selectedSet = new Set(expandSelectionWithGroups(state.selectedEntityIds));
+  const targetGroupIds = state.groups.filter((group) => group.entityIds.some((id) => selectedSet.has(id))).map((group) => group.id);
+  if (!targetGroupIds.length) { setStatus("No groups found in selection."); return false; }
+  pushUndoState();
+  state.groups = state.groups.filter((group) => !targetGroupIds.includes(group.id));
+  syncAfterStateChange();
+  setStatus(`${targetGroupIds.length} group${targetGroupIds.length===1?"":"s"} removed.`);
+  return true;
+}
+
+function getGroupSummary(groupId) {
+  const group = getGroupById(groupId);
+  if (!group) return null;
+  const entities = group.entityIds.map(getEntityById).filter(Boolean);
+  const xs=[]; const ys=[];
+  entities.forEach((entity)=>{ const b=getRotateBoundsForEntity(entity); if (b){ xs.push(b.minX,b.maxX); ys.push(b.minY,b.maxY);} });
+  return { id: group.id, name: group.name, category: group.category || "", description: group.description || "", boundsMm: xs.length?{ minX: unitsToMm(Math.min(...xs)), minY: unitsToMm(Math.min(...ys)), maxX: unitsToMm(Math.max(...xs)), maxY: unitsToMm(Math.max(...ys)) }: {}, entityCount: entities.length, entityTypes: [...new Set(entities.map((e)=>e.type))], entities: deepClone(entities) };
+}
+
+function exportSelectedGroupsForAgent() {
+  const selected = new Set(expandSelectionWithGroups(state.selectedEntityIds));
+  const groups = state.groups.filter((group) => group.entityIds.some((id) => selected.has(id))).map((group) => getGroupSummary(group.id)).filter(Boolean);
+  return { groups };
 }
 
 function unitsToMm(units) {
@@ -934,6 +1012,19 @@ function normalizeDocument(raw) {
     ? source.selectedEntityIds.filter((id) => normalizedEntities.some((entity) => entity.id === id))
     : [];
 
+  const entityIds = new Set(normalizedEntities.map((entity) => entity.id));
+  const normalizedGroups = Array.isArray(source && source.groups)
+    ? source.groups
+      .map((group, index) => {
+        const id = typeof group.id === "string" && group.id ? group.id : `group-${index + 1}`;
+        const entityIdsInGroup = Array.isArray(group.entityIds) ? [...new Set(group.entityIds.filter((eid) => entityIds.has(eid)))] : [];
+        if (entityIdsInGroup.length < 2) return null;
+        const now = new Date().toISOString();
+        return { id, name: typeof group.name === "string" && group.name ? group.name : `Group ${index + 1}`, category: typeof group.category === "string" ? group.category : "", description: typeof group.description === "string" ? group.description : "", entityIds: entityIdsInGroup, tags: Array.isArray(group.tags) ? [...group.tags] : [], metadata: group && typeof group.metadata === "object" && !Array.isArray(group.metadata) ? deepClone(group.metadata) : {}, createdAt: typeof group.createdAt === "string" ? group.createdAt : now, updatedAt: typeof group.updatedAt === "string" ? group.updatedAt : now };
+      })
+      .filter(Boolean)
+    : [];
+
   const activeLayerId = layerIds.has(source && source.activeLayerId)
     ? source.activeLayerId
     : normalizedLayers[0].id;
@@ -956,6 +1047,7 @@ function normalizeDocument(raw) {
     layers: normalizedLayers.length ? normalizedLayers : base.layers,
     activeLayerId,
     selectedEntityIds,
+    groups: normalizedGroups,
     view: {
       zoom: clampNumber(
         legacyUnits && source && source.view && Number.isFinite(Number(source.view.zoom))
@@ -978,6 +1070,7 @@ function normalizeDocument(raw) {
     },
     nextEntityNumber: Math.max(maxEntityNumber + 1, Number(source && source.nextEntityNumber) || 1),
     nextLayerNumber: Math.max(maxLayerNumber + 1, Number(source && source.nextLayerNumber) || 2),
+    nextGroupNumber: Math.max(normalizedGroups.reduce((max, group) => { const m=/group-(\d+)/.exec(group.id); return m?Math.max(max, Number(m[1])):max; },0) + 1, Number(source && source.nextGroupNumber) || 1),
   };
 }
 
@@ -1058,6 +1151,7 @@ function syncToolButtons() {
 }
 
 function syncAfterStateChange(autosave = true) {
+  cleanupGroups();
   ensureActiveLayer();
   resizeCanvas();
   draw();
@@ -3532,10 +3626,13 @@ function commitMoveEntityOffset(entityIds, offset) {
 }
 
 function createCopiedEntities(sourceEntities, offset) {
-  return sourceEntities.map((entity) => ({
-    ...applyOffsetToEntity(deepClone(entity), offset),
-    id: createEntityId(),
-  }));
+  const idMap = new Map();
+  const copied = sourceEntities.map((entity) => {
+    const id = createEntityId();
+    idMap.set(entity.id, id);
+    return { ...applyOffsetToEntity(deepClone(entity), offset), id };
+  });
+  return { copied, idMap };
 }
 
 function applyTransformDraft() {
@@ -3560,8 +3657,15 @@ function applyTransformDraft() {
     commitMoveEntityOffset(transformDraft.entityIds, offset);
   } else if (transformDraft.mode === "copy") {
     const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
-    const newEntities = createCopiedEntities(sourceEntities, offset);
+    const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
+    const sourceIds = sourceEntities.map((e) => e.id);
+    state.groups.forEach((group) => {
+      if (sourceIds.every((id) => group.entityIds.includes(id))) {
+        const now = new Date().toISOString();
+        state.groups.push({ ...group, id: createGroupId(), name: `Group ${state.nextGroupNumber - 1}`, entityIds: sourceIds.map((id) => idMap.get(id)).filter(Boolean), createdAt: now, updatedAt: now });
+      }
+    });
   }
 
   if (transformDraft.mode === "move") {
@@ -3634,10 +3738,7 @@ function applySelectDrag() {
   pushUndoState();
   if (selectDragDraft.mode === "copy") {
     const sourceEntities = selectDragDraft.entities.filter((entity) => canSelectEntity(entity));
-    const newEntities = sourceEntities.map((entity) => ({
-      ...applyOffsetToEntity(deepClone(entity), offset),
-      id: createEntityId(),
-    }));
+    const { copied: newEntities } = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
   } else {
     commitMoveEntityOffset(selectDragDraft.entityIds, offset);
@@ -3692,6 +3793,7 @@ function deleteSelectedEntities() {
 
   pushUndoState();
   state.entities = state.entities.filter((entity) => !deletableIds.includes(entity.id));
+  cleanupGroups();
   state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus(`${deletableIds.length} entit${deletableIds.length === 1 ? "y" : "ies"} deleted.`);
@@ -4088,11 +4190,16 @@ function selectEntityAtPoint(worldPoint, append = false) {
 
   const hit = selectable.find((entity) => hitTestEntity(entity, worldPoint));
   if (!append) {
-    state.selectedEntityIds = hit ? [hit.id] : [];
+    state.selectedEntityIds = hit ? expandSelectionWithGroups([hit.id]) : [];
   } else if (hit) {
-    state.selectedEntityIds = state.selectedEntityIds.includes(hit.id)
-      ? state.selectedEntityIds.filter((entityId) => entityId !== hit.id)
-      : [...state.selectedEntityIds, hit.id];
+    const hitGroupIds = getGroupsForEntity(hit.id).map((group) => group.id);
+    const hitIds = expandSelectionWithGroups([hit.id]);
+    const hasAll = hitIds.every((id) => state.selectedEntityIds.includes(id));
+    if (hasAll) {
+      state.selectedEntityIds = state.selectedEntityIds.filter((entityId) => !hitIds.includes(entityId));
+    } else {
+      state.selectedEntityIds = [...new Set([...state.selectedEntityIds, ...hitIds])];
+    }
   }
   syncAfterStateChange();
   setStatus(
@@ -4245,9 +4352,10 @@ function selectEntitiesByWindow(selectionWindow) {
     })
     .map((entity) => entity.id);
 
+  const expandedSelected = expandSelectionWithGroups(selectedIds);
   state.selectedEntityIds = selectionWindow.append
-    ? [...new Set([...state.selectedEntityIds, ...selectedIds])]
-    : selectedIds;
+    ? [...new Set([...state.selectedEntityIds, ...expandedSelected])]
+    : expandedSelected;
   syncAfterStateChange();
   setStatus(
     state.selectedEntityIds.length
@@ -7520,6 +7628,8 @@ function bindEvents() {
   toolButtons.matchProperties.addEventListener("click", () => setActiveTool("matchProperties"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
+  toolButtons.group.addEventListener("click", createGroupFromSelection);
+  toolButtons.ungroup.addEventListener("click", ungroupSelection);
   toolButtons.rotate.addEventListener("click", () => rotateSelectedEntities(90));
   toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
