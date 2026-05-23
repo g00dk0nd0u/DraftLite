@@ -302,6 +302,48 @@ function clearTransientState() {
   clearTransformPreviewTimer();
 }
 
+function hasCancelableCommandOrDraft() {
+  return uiState.activeTool !== "select"
+    || Boolean(uiState.lineDraft)
+    || Boolean(uiState.rectangleDraft)
+    || Boolean(uiState.circleDraft)
+    || Boolean(uiState.arcDraft)
+    || Boolean(uiState.filledRegionDraft)
+    || Boolean(uiState.transformDraft)
+    || Boolean(uiState.selectDragDraft)
+    || Boolean(uiState.gripEditDraft)
+    || Boolean(uiState.rectEdgeEditDraft)
+    || Boolean(uiState.alignDraft)
+    || Boolean(uiState.mirrorDraft)
+    || Boolean(uiState.extendDraft)
+    || Boolean(uiState.filletDraft)
+    || Boolean(uiState.dimensionDraft)
+    || Boolean(uiState.matchPropertiesSourceId)
+    || Boolean(uiState.selectionWindow)
+    || Boolean(uiState.snapMarker)
+    || Boolean(uiState.hoverRectEdge);
+}
+
+function cancelCurrentOperationAndClearSelection() {
+  const hadCommandOrDraft = hasCancelableCommandOrDraft();
+  const hadSelection = state.selectedEntityIds.length > 0;
+
+  clearTransientState();
+  uiState.activeTool = "select";
+  state.selectedEntityIds = [];
+  syncAfterStateChange(false);
+
+  if (hadCommandOrDraft) {
+    setStatus("Cancelled and selection cleared.");
+    return;
+  }
+  if (hadSelection) {
+    setStatus("Selection cleared.");
+    return;
+  }
+  setStatus("Ready.");
+}
+
 function clearLinePreviewTimer() {
   if (uiState.linePreviewTimer) {
     window.clearTimeout(uiState.linePreviewTimer);
@@ -7579,109 +7621,12 @@ function onKeyDown(event) {
   }
 
   if (event.key === "Escape") {
-    if (uiState.selectDragDraft) {
-      cancelSelectDrag(`Drag ${uiState.selectDragDraft.mode} cancelled.`);
+    if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
       return;
     }
-    if (uiState.gripEditDraft) {
-      if (uiState.gripEditDraft.numericInputBuffer) {
-        clearGripPreviewTimer();
-        uiState.gripEditDraft.numericInputBuffer = "";
-        uiState.gripEditDraft.currentPoint = uiState.hoverWorld;
-        updateGripEditStatus("Grip edit active.");
-        draw();
-        return;
-      }
-      cancelGripEdit();
-      return;
-    }
-    if (uiState.rectEdgeEditDraft) {
-      uiState.rectEdgeEditDraft = null;
-      setStatus("Rectangle edge resize cancelled.");
-      draw();
-      renderStatusPanel();
-      return;
-    }
-    if (uiState.transformDraft) {
-      if (uiState.transformDraft.numericInputBuffer) {
-        clearTransformPreviewTimer();
-        uiState.transformDraft.numericInputBuffer = "";
-        uiState.transformDraft.currentPoint = uiState.hoverWorld;
-        updateTransformDraftStatus(
-          `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
-            uiState.transformDraft.startPoint
-          )}.`
-        );
-        draw();
-        return;
-      }
-      endTransformDraft(`${capitalize(uiState.transformDraft.mode)} cancelled.`);
-      return;
-    }
-    if (uiState.lineDraft) {
-      if (uiState.lineDraft.numericInputBuffer) {
-        clearLinePreviewTimer();
-        uiState.lineDraft.numericInputBuffer = "";
-        uiState.lineDraft.previewPoint = null;
-        updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
-        draw();
-        return;
-      }
-      endLineDraft("Line command cancelled.");
-      return;
-    }
-    if (uiState.rectangleDraft || uiState.activeTool === "rectangle") {
-      cancelRectangle();
-      return;
-    }
-    if (uiState.circleDraft || uiState.activeTool === "circle") {
-      uiState.circleDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Circle cancelled.");
-      return;
-    }
-    if (uiState.arcDraft || uiState.activeTool === "arc") {
-      uiState.arcDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Arc cancelled.");
-      return;
-    }
-    if (uiState.filledRegionDraft || uiState.activeTool === "filledRegion") {
-      uiState.filledRegionDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Filled Region cancelled.");
-      return;
-    }
-    if (uiState.alignDraft || uiState.activeTool === "align") {
-      cancelAlign();
-      return;
-    }
-    if (uiState.mirrorDraft || uiState.activeTool === "mirror") {
-      cancelMirror();
-      return;
-    }
-    if (uiState.extendDraft || uiState.activeTool === "extend") {
-      cancelExtend();
-      return;
-    }
-    if (uiState.filletDraft || uiState.activeTool === "fillet") {
-      cancelFillet();
-      return;
-    }
-    if (uiState.matchPropertiesSourceId || uiState.activeTool === "matchProperties") {
-      cancelMatchProperties();
-      return;
-    }
-    if (uiState.dimensionDraft || uiState.activeTool === "dimension") {
-      uiState.dimensionDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Aligned Dimension cancelled.");
-      return;
-    }
+    event.preventDefault();
+    cancelCurrentOperationAndClearSelection();
+    return;
   }
 
   if (uiState.gripEditDraft && activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
