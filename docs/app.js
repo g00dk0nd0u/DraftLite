@@ -1696,6 +1696,46 @@ function handleMatchPropertiesToolClick(worldPoint) {
   setStatus("Properties matched.");
 }
 
+function renderRectEdgeEditProperties() {
+  const draft = uiState.rectEdgeEditDraft;
+  if (!draft) {
+    return;
+  }
+
+  const createSection = (title) => {
+    const section = document.createElement("section");
+    section.className = "prop-section";
+    const heading = document.createElement("h4");
+    heading.className = "prop-section-title";
+    heading.textContent = title;
+    const grid = document.createElement("div");
+    grid.className = "prop-grid";
+    section.append(heading, grid);
+    propertiesPanel.appendChild(section);
+    return grid;
+  };
+
+  const addPropertyRow = (grid, labelText, value) => {
+    const label = document.createElement("label");
+    label.className = "prop-label";
+    label.textContent = labelText;
+    const valueWrap = document.createElement("div");
+    valueWrap.className = "prop-value";
+    const text = document.createElement("span");
+    text.className = "prop-static";
+    text.textContent = value;
+    valueWrap.appendChild(text);
+    grid.append(label, valueWrap);
+  };
+
+  const grid = createSection("Properties");
+  addPropertyRow(grid, "Mode", "Rectangle Edge Edit");
+  addPropertyRow(grid, "Edge", `${draft.edge} edge`);
+  addPropertyRow(grid, "Distance", `${draft.numericInputBuffer || "_"} mm`);
+  addPropertyRow(grid, "Unit", "mm");
+  addPropertyRow(grid, "Help", "Type distance, Enter apply, Backspace edit, Esc cancel");
+}
+
 function renderPropertiesPanel() {
   propertiesPanel.innerHTML = "";
 
@@ -1746,6 +1786,11 @@ function renderPropertiesPanel() {
     text.textContent = value;
     return text;
   };
+
+  if (uiState.rectEdgeEditDraft) {
+    renderRectEdgeEditProperties();
+    return;
+  }
 
   if (!state.selectedEntityIds.length) {
     const empty = document.createElement("p");
@@ -2881,6 +2926,7 @@ function updateRectEdgeEditStatus() {
       ? getRectEdgeNumericStatus(uiState.rectEdgeEditDraft)
       : getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft)
   );
+  renderPropertiesPanel();
   renderStatusPanel();
 }
 
@@ -2931,6 +2977,7 @@ function applyRectEdgeEdit() {
   if (!entity || entity.type !== "rect" || !canSelectEntity(entity)) {
     uiState.rectEdgeEditDraft = null;
     draw();
+    renderPropertiesPanel();
     renderStatusPanel();
     return false;
   }
@@ -2944,6 +2991,7 @@ function applyRectEdgeEdit() {
   ) {
     uiState.rectEdgeEditDraft = null;
     draw();
+    renderPropertiesPanel();
     renderStatusPanel();
     setStatus("Rectangle edge edit cancelled.");
     return false;
