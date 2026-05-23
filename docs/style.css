@@ -22,7 +22,7 @@
   --canvas-axis: rgba(70, 52, 30, 0.2);
   --topbar-bg: rgba(238, 233, 224, 0.93);
   --button-bg: rgba(248, 244, 237, 0.93);
-  --button-hover-bg: #f9f5ee;
+  --button-hover-bg: rgba(238, 233, 224, 0.93);
   --field-bg: #f9f5ee;
   --field-text: #1e1c19;
   --field-border: rgba(71, 55, 39, 0.28);
