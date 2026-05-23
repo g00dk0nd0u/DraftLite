@@ -2425,7 +2425,7 @@ function drawTextEntity(entity) {
   const color = normalizeColor(entity.color || layer.color);
   const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
   const rotationDeg = entity.rotation || 0;
-  const rotationRad = degreesToRadians(rotationDeg);
+  const rotationRad = (rotationDeg * Math.PI) / 180;
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
   ctx.font = `${fontPx}px sans-serif`;
