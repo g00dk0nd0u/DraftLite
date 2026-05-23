@@ -4342,6 +4342,7 @@ function applyGripEdit() {
     };
   });
   uiState.gripEditDraft = null;
+  state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus("Grip edit applied.");
   return true;
@@ -4949,6 +4950,7 @@ function applySelectDrag() {
     state.selectedEntityIds = newEntities.map((entity) => entity.id);
   } else {
     commitMoveEntityOffset(selectDragDraft.entityIds, offset);
+    state.selectedEntityIds = [];
   }
   uiState.selectDragDraft = null;
   syncAfterStateChange();
