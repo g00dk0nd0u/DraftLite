@@ -9,6 +9,7 @@ const GRID_MAJOR_UNIT = mmToUnits(GRID_MAJOR_MM);
 const DEFAULT_ZOOM = 0.024;
 const MIN_ZOOM = 0.00008;
 const MAX_ZOOM = 50;
+const DEFAULT_DIMENSION_EXTENSION_GAP_UNITS = 90;
 const DOUBLE_CLICK_MS = 320;
 const CLICK_SELECT_THRESHOLD_PX = 4;
 const THEME_STORAGE_KEY = "draftlite.theme";
@@ -1237,6 +1238,7 @@ function normalizeEntity(entity, options = {}) {
   }
 
   if (entity.type === "dimension") {
+    const rawExtensionGap = Number(entity.extensionGap);
     return {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "dimension",
@@ -1247,6 +1249,7 @@ function normalizeEntity(entity, options = {}) {
       textOverride: typeof entity.textOverride === "string" ? entity.textOverride : "",
       textHeight: Math.max(1, normalizeUnitValue(entity.textHeight ?? 250, legacyUnits)),
       tickSize: Math.max(1, normalizeUnitValue(entity.tickSize ?? 250, legacyUnits)),
+      extensionGap: Number.isFinite(rawExtensionGap) ? Math.max(0, rawExtensionGap) : undefined,
       precision: Math.max(0, Math.min(3, Math.round(Number(entity.precision) || 0))),
       ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
@@ -2897,9 +2900,10 @@ function getDimensionTickRadiusPx(entity) {
 }
 
 function getDimensionExtensionGapUnits(entity) {
-  const fallbackGap = 90;
-  const normalizedGap = normalizeUnitValue(entity.extensionGap ?? fallbackGap, UNIT_MM);
-  return Math.max(0, normalizedGap);
+  if (Number.isFinite(entity.extensionGap)) {
+    return Math.max(0, entity.extensionGap);
+  }
+  return DEFAULT_DIMENSION_EXTENSION_GAP_UNITS;
 }
 
 function getDimensionGeometry(entity) {
