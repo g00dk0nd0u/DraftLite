@@ -168,6 +168,7 @@ const uiState = {
   transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
+  hoverRectCorner: null,
   hoverRectEdge: null,
   deleteLayerDialogLayerId: null,
   panning: false,
@@ -295,6 +296,7 @@ function clearTransientState() {
   uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  uiState.hoverRectCorner = null;
   uiState.hoverRectEdge = null;
   document.body.style.cursor = "";
   clearLinePreviewTimer();
@@ -2333,6 +2335,9 @@ function drawRectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer) return;
   const isSelected = state.selectedEntityIds.includes(entity.id);
+  const hoveredCorner = uiState.hoverRectCorner && uiState.hoverRectCorner.entityId === entity.id
+    ? uiState.hoverRectCorner
+    : null;
   const p1 = worldToScreen({ x: entity.x, y: entity.y });
   const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
   const w = p2.x - p1.x;
@@ -2352,7 +2357,16 @@ function drawRectEntity(entity) {
   ctx.strokeStyle = getEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.strokeRect(p1.x, p1.y, w, h);
-  if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
+  if (hoveredCorner) {
+    const marker = worldToScreen(hoveredCorner.point);
+    ctx.fillStyle = "#fffaf2";
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.92)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(marker.x, marker.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
     if (hoveredEdge) {
       const start = worldToScreen(hoveredEdge.p1);
@@ -6480,15 +6494,25 @@ function onPointerMove(event) {
     !uiState.gripEditDraft &&
     !uiState.rectEdgeEditDraft
   ) {
-    uiState.hoverRectEdge = findRectEdgeAtPoint(roundWorldPoint(worldPoint));
+    const roundedWorldPoint = roundWorldPoint(worldPoint);
+    const cornerHit = findRectCornerAtPoint(roundedWorldPoint);
+    if (cornerHit) {
+      uiState.hoverRectCorner = cornerHit;
+      uiState.hoverRectEdge = null;
+      document.body.style.cursor = "move";
+    } else {
+      uiState.hoverRectCorner = null;
+      uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+    }
     if (uiState.hoverRectEdge) {
       document.body.style.cursor = (uiState.hoverRectEdge.edge === "left" || uiState.hoverRectEdge.edge === "right")
         ? "ew-resize"
         : "ns-resize";
-    } else {
+    } else if (!cornerHit) {
       document.body.style.cursor = "";
     }
   } else {
+    uiState.hoverRectCorner = null;
     uiState.hoverRectEdge = null;
     document.body.style.cursor = "";
   }
