@@ -3825,6 +3825,7 @@ function applySelectDrag() {
     const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
     state.entities.push(...newEntities);
     duplicateGroupsForCopiedEntities(sourceEntities, idMap);
+    state.selectedEntityIds = newEntities.map((entity) => entity.id);
   } else {
     commitMoveEntityOffset(selectDragDraft.entityIds, offset);
   }
