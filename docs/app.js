@@ -3484,6 +3484,10 @@ function createLineFromNumericInput() {
   return true;
 }
 
+function applyLineNumericEdit() {
+  return createLineFromNumericInput();
+}
+
 function applyLineNumericPreview() {
   if (!uiState.lineDraft || !uiState.lineDraft.numericInputBuffer) {
     return false;
@@ -3568,6 +3572,10 @@ function createTransformFromNumericInput() {
   };
   applyTransformDraft();
   return true;
+}
+
+function applyTransformNumericEdit() {
+  return createTransformFromNumericInput();
 }
 
 function applyTransformNumericPreview() {
@@ -3749,6 +3757,10 @@ function createGripEditFromNumericInput() {
     ),
   };
   return applyGripEdit();
+}
+
+function applyGripNumericEdit() {
+  return createGripEditFromNumericInput();
 }
 
 function applyGripNumericPreview() {
@@ -4272,14 +4284,14 @@ function startSelectDragWithMode(worldPoint, mode = "move", options = {}) {
   return true;
 }
 
-function updateSelectDrag(worldPoint) {
+function updateSelectDrag(worldPoint, snappedWorldPoint = worldPoint) {
   if (!uiState.selectDragDraft) {
     return;
   }
   if (uiState.selectDragDraft.snapAnchorPoint) {
     const freeAnchorPoint = roundWorldPoint({
-      x: uiState.selectDragDraft.snapAnchorPoint.x + (worldPoint.x - uiState.selectDragDraft.pointerStartPoint.x),
-      y: uiState.selectDragDraft.snapAnchorPoint.y + (worldPoint.y - uiState.selectDragDraft.pointerStartPoint.y),
+      x: uiState.selectDragDraft.snapAnchorPoint.x + (snappedWorldPoint.x - uiState.selectDragDraft.pointerStartPoint.x),
+      y: uiState.selectDragDraft.snapAnchorPoint.y + (snappedWorldPoint.y - uiState.selectDragDraft.pointerStartPoint.y),
     });
     uiState.selectDragDraft.currentPoint = getAnchorSnapPoint(freeAnchorPoint, uiState.selectDragDraft.entityIds) || freeAnchorPoint;
   } else {
@@ -6960,7 +6972,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.selectDragDraft) {
-    updateSelectDrag(worldPoint);
+    updateSelectDrag(worldPoint, snappedWorld);
     renderStatusPanel();
     return;
   }
@@ -7291,6 +7303,10 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       startTransformDraft(worldPoint, mode);
       return;
     }
+    if (uiState.transformDraft.numericInputBuffer) {
+      applyTransformNumericEdit();
+      return;
+    }
     uiState.transformDraft.currentPoint = worldPoint;
     applyTransformDraft();
     return;
@@ -7318,6 +7334,10 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
 
   if (uiState.activeTool === "select") {
     if (uiState.gripEditDraft) {
+      if (uiState.gripEditDraft.numericInputBuffer) {
+        applyGripNumericEdit();
+        return;
+      }
       uiState.gripEditDraft.currentPoint = worldPoint;
       applyGripEdit();
       return;
@@ -7403,6 +7423,11 @@ function handleLineToolClick(worldPoint) {
       return;
     }
     beginLineDraft(worldPoint);
+    return;
+  }
+
+  if (uiState.lineDraft.numericInputBuffer) {
+    applyLineNumericEdit();
     return;
   }
 
@@ -8246,7 +8271,7 @@ function onKeyDown(event) {
     if (event.key === "Enter") {
       event.preventDefault();
       if (uiState.gripEditDraft.numericInputBuffer) {
-        createGripEditFromNumericInput();
+        applyGripNumericEdit();
         return;
       }
       applyGripEdit();
@@ -8318,7 +8343,7 @@ function onKeyDown(event) {
     if (event.key === "Enter") {
       event.preventDefault();
       if (uiState.lineDraft.numericInputBuffer) {
-        createLineFromNumericInput();
+        applyLineNumericEdit();
         return;
       }
       endLineDraft("Line command ended.");
@@ -8372,7 +8397,7 @@ function onKeyDown(event) {
     if (event.key === "Enter") {
       if (uiState.transformDraft.numericInputBuffer) {
         event.preventDefault();
-        createTransformFromNumericInput();
+        applyTransformNumericEdit();
         return;
       }
     }
