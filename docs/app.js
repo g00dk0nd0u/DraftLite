@@ -987,7 +987,7 @@ function normalizeEntity(entity, options = {}) {
     if (!textValue.trim()) {
       return null;
     }
-    return {
+    const normalizedTextEntity = {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "text",
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
@@ -997,8 +997,13 @@ function normalizeEntity(entity, options = {}) {
       height: Math.max(1, normalizeUnitValue(entity.height ?? 250, legacyUnits)),
       rotation: Number(entity.rotation) || 0,
       align: ["left", "center", "right"].includes(entity.align) ? entity.align : "left",
+      textAnchor: "center",
       ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
+    if (entity.textAnchor === "center") {
+      return normalizedTextEntity;
+    }
+    return migrateLegacyTextEntityToCenter(normalizedTextEntity);
   }
 
   if (entity.type === "dimension") {
@@ -2423,7 +2428,10 @@ function drawTextEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const base = worldToScreen({ x: entity.x, y: entity.y });
   const color = normalizeColor(entity.color || layer.color);
-  const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
+  const metricsUnits = getTextMetricsUnits(entity);
+  const drawOffsetUnits = getTextDrawOffsetUnits(entity, metricsUnits);
+  const localBoxUnits = getTextLocalBoxUnits(entity, metricsUnits);
+  const fontPx = Math.max(10, Math.abs(metricsUnits.heightUnits * state.view.zoom));
   const rotationDeg = entity.rotation || 0;
   const rotationRad = (rotationDeg * Math.PI) / 180;
   ctx.save();
@@ -2436,14 +2444,19 @@ function drawTextEntity(entity) {
   if (rotationDeg) {
     ctx.rotate(-rotationRad);
   }
-  ctx.fillText(entity.text, 0, 0);
+  ctx.fillText(
+    entity.text,
+    drawOffsetUnits.x * state.view.zoom,
+    drawOffsetUnits.y * state.view.zoom,
+  );
   if (isSelected) {
-    const w = ctx.measureText(entity.text).width;
-    const left = entity.align === "center" ? -w / 2 : (entity.align === "right" ? -w : 0);
-    const top = -fontPx;
     ctx.strokeStyle = "#c2693e";
     ctx.lineWidth = 1.3;
-    ctx.strokeRect(left - 4, top - 4, w + 8, fontPx + 8);
+    const left = localBoxUnits.left * state.view.zoom;
+    const top = localBoxUnits.top * state.view.zoom;
+    const width = (localBoxUnits.right - localBoxUnits.left) * state.view.zoom;
+    const height = (localBoxUnits.bottom - localBoxUnits.top) * state.view.zoom;
+    ctx.strokeRect(left - 4, top - 4, width + 8, height + 8);
   }
   ctx.restore();
 }
@@ -3572,15 +3585,12 @@ function rotateEntity(entity, center, angleDeg) {
     return { ...entity, points: entity.points.map((point) => rotatePoint(point, center, angleDeg)) };
   }
   if (entity.type === "text") {
-    const visualCenter = getTextWorldCenterUnits(entity);
-    const rotatedVisualCenter = rotatePoint(visualCenter, center, angleDeg);
-    const nextRotation = normalizeAngleDeg((entity.rotation || 0) + angleDeg);
-    const nextCenterOffset = getRotatedTextLocalOffsetUnits(entity, getTextLocalCenterOffsetUnits(entity), nextRotation);
+    const rotatedCenter = rotatePoint({ x: entity.x, y: entity.y }, center, angleDeg);
     return {
       ...entity,
-      x: roundToUnit(rotatedVisualCenter.x - nextCenterOffset.x),
-      y: roundToUnit(rotatedVisualCenter.y - nextCenterOffset.y),
-      rotation: nextRotation,
+      x: rotatedCenter.x,
+      y: rotatedCenter.y,
+      rotation: normalizeAngleDeg((entity.rotation || 0) + angleDeg),
     };
   }
   if (entity.type === "dimension") {
@@ -4453,9 +4463,8 @@ function hitTestEntity(entity, worldPoint) {
     return hitTestFilledRegionEntity(entity, worldPoint);
   }
   if (entity.type === "text") {
-    const p = worldToScreen(worldPoint);
-    const box = getTextBoundsScreen(entity);
-    return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
+    const box = getTextBoundsUnits(entity);
+    return worldPoint.x >= box.minX && worldPoint.x <= box.maxX && worldPoint.y >= box.minY && worldPoint.y <= box.maxY;
   }
   if (entity.type === "dimension") {
     const point = worldToScreen(worldPoint);
@@ -4525,77 +4534,43 @@ function getResizedRectFromDraft(draft, worldPoint) {
 }
 
 function getTextBoundsScreen(entity) {
-  const base = worldToScreen({ x: entity.x, y: entity.y });
-  const fontPx = Math.max(10, Math.abs(entity.height * state.view.zoom));
-  ctx.save();
-  ctx.font = `${fontPx}px sans-serif`;
-  const w = ctx.measureText(entity.text || "").width;
-  ctx.restore();
-  const left = entity.align === "center" ? base.x - w / 2 : (entity.align === "right" ? base.x - w : base.x);
-  return { left, right: left + w, top: base.y - fontPx, bottom: base.y };
+  return getTextBoundsScreenFromUnits(getTextBoundsUnits(entity));
 }
 
-function getTextBoundsUnits(entity) {
+function getTextMetricsUnits(entity) {
   const heightUnits = Math.max(1, entity.height || 250);
   ctx.save();
   ctx.font = `${heightUnits}px sans-serif`;
   const widthUnits = ctx.measureText(entity.text || "").width;
   ctx.restore();
+  return { widthUnits, heightUnits };
+}
 
-  let left = 0;
-  let right = widthUnits;
-  if (entity.align === "center") {
-    left = -widthUnits / 2;
-    right = widthUnits / 2;
-  } else if (entity.align === "right") {
-    left = -widthUnits;
-    right = 0;
-  }
-
-  const top = -heightUnits;
-  const bottom = 0;
-  const rotationRad = -(((entity.rotation || 0) * Math.PI) / 180);
-  const cos = Math.cos(rotationRad);
-  const sin = Math.sin(rotationRad);
-  const corners = [
-    { x: left, y: top },
-    { x: right, y: top },
-    { x: right, y: bottom },
-    { x: left, y: bottom },
-  ].map((point) => ({
-    x: entity.x + (point.x * cos - point.y * sin),
-    y: entity.y + (point.x * sin + point.y * cos),
-  }));
-
+function getTextLocalBoxUnits(entity, metrics = getTextMetricsUnits(entity)) {
+  const { widthUnits, heightUnits } = metrics;
   return {
-    minX: Math.min(...corners.map((point) => point.x)),
-    minY: Math.min(...corners.map((point) => point.y)),
-    maxX: Math.max(...corners.map((point) => point.x)),
-    maxY: Math.max(...corners.map((point) => point.y)),
+    left: -widthUnits / 2,
+    right: widthUnits / 2,
+    top: -heightUnits / 2,
+    bottom: heightUnits / 2,
   };
 }
 
-function getTextLocalCenterOffsetUnits(entity) {
-  const heightUnits = Math.max(1, entity.height || 250);
-  ctx.save();
-  ctx.font = `${heightUnits}px sans-serif`;
-  const widthUnits = ctx.measureText(entity.text || "").width;
-  ctx.restore();
-
-  let centerX = widthUnits / 2;
+function getTextDrawOffsetUnits(entity, metrics = getTextMetricsUnits(entity)) {
+  const { widthUnits, heightUnits } = metrics;
+  let x = -widthUnits / 2;
   if (entity.align === "center") {
-    centerX = 0;
+    x = 0;
   } else if (entity.align === "right") {
-    centerX = -widthUnits / 2;
+    x = widthUnits / 2;
   }
-
   return {
-    x: centerX,
-    y: -heightUnits / 2,
+    x,
+    y: heightUnits / 2,
   };
 }
 
-function getRotatedTextLocalOffsetUnits(entity, offset, rotationDeg = entity.rotation || 0) {
+function getRotatedTextLocalOffsetUnits(offset, rotationDeg = 0) {
   const rotationRad = -((rotationDeg * Math.PI) / 180);
   const cos = Math.cos(rotationRad);
   const sin = Math.sin(rotationRad);
@@ -4605,11 +4580,75 @@ function getRotatedTextLocalOffsetUnits(entity, offset, rotationDeg = entity.rot
   };
 }
 
-function getTextWorldCenterUnits(entity) {
-  const centerOffset = getRotatedTextLocalOffsetUnits(entity, getTextLocalCenterOffsetUnits(entity));
+function getTextBoundsUnits(entity) {
+  const corners = getRotatedTextLocalBoxCornersUnits(entity);
   return {
-    x: entity.x + centerOffset.x,
-    y: entity.y + centerOffset.y,
+    minX: Math.min(...corners.map((point) => point.x)),
+    minY: Math.min(...corners.map((point) => point.y)),
+    maxX: Math.max(...corners.map((point) => point.x)),
+    maxY: Math.max(...corners.map((point) => point.y)),
+  };
+}
+
+function getTextBoundsScreenFromUnits(boundsUnits) {
+  const a = worldToScreen({ x: boundsUnits.minX, y: boundsUnits.minY });
+  const b = worldToScreen({ x: boundsUnits.maxX, y: boundsUnits.maxY });
+  return {
+    left: Math.min(a.x, b.x),
+    right: Math.max(a.x, b.x),
+    top: Math.min(a.y, b.y),
+    bottom: Math.max(a.y, b.y),
+  };
+}
+
+function getRotatedTextLocalBoxCornersUnits(entity, metrics = getTextMetricsUnits(entity)) {
+  const localBox = getTextLocalBoxUnits(entity, metrics);
+  return [
+    { x: localBox.left, y: localBox.top },
+    { x: localBox.right, y: localBox.top },
+    { x: localBox.right, y: localBox.bottom },
+    { x: localBox.left, y: localBox.bottom },
+  ].map((point) => {
+    const rotated = getRotatedTextLocalOffsetUnits(point, entity.rotation || 0);
+    return {
+      x: roundToUnit(entity.x + rotated.x),
+      y: roundToUnit(entity.y + rotated.y),
+    };
+  });
+}
+
+function getLegacyTextVisualCenterOffsetUnits(entity, metrics = getTextMetricsUnits(entity)) {
+  const { widthUnits, heightUnits } = metrics;
+  let x = widthUnits / 2;
+  if (entity.align === "center") {
+    x = 0;
+  } else if (entity.align === "right") {
+    x = -widthUnits / 2;
+  }
+  return {
+    x,
+    y: -heightUnits / 2,
+  };
+}
+
+function getTextInsertionPointUnits(entity, metrics = getTextMetricsUnits(entity)) {
+  const legacyCenterOffset = getLegacyTextVisualCenterOffsetUnits(entity, metrics);
+  const rotatedOffset = getRotatedTextLocalOffsetUnits(legacyCenterOffset, entity.rotation || 0);
+  return {
+    x: roundToUnit(entity.x - rotatedOffset.x),
+    y: roundToUnit(entity.y - rotatedOffset.y),
+  };
+}
+
+function migrateLegacyTextEntityToCenter(entity) {
+  const metrics = getTextMetricsUnits(entity);
+  const legacyCenterOffset = getLegacyTextVisualCenterOffsetUnits(entity, metrics);
+  const rotatedOffset = getRotatedTextLocalOffsetUnits(legacyCenterOffset, entity.rotation || 0);
+  return {
+    ...entity,
+    x: roundToUnit(entity.x + rotatedOffset.x),
+    y: roundToUnit(entity.y + rotatedOffset.y),
+    textAnchor: "center",
   };
 }
 
@@ -4664,6 +4703,7 @@ function createDebugFixtureTextMm(xMm, yMm, text = "Text", heightMm = 25) {
     height: Math.max(1, mmToUnits(heightMm)),
     rotation: 0,
     align: "left",
+    textAnchor: "center",
     color: "",
   };
 }
@@ -5414,6 +5454,7 @@ function createAgentTextEntity(command) {
     height,
     rotation: 0,
     align: "left",
+    textAnchor: "center",
     color: normalizeOptionalColor(command.color || ""),
   };
 }
@@ -6849,7 +6890,7 @@ function handleTextToolClick(worldPoint) {
     return;
   }
   pushUndoState();
-  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: 250, rotation: 0, align: "left", color: "" };
+  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: 250, rotation: 0, align: "left", textAnchor: "center", color: "" };
   state.entities.push(entity);
   state.selectedEntityIds = [entity.id];
   syncAfterStateChange();
@@ -7186,13 +7227,28 @@ function buildDxfText() {
     dxfLines.push("51", formatDxfNumber(dxfAngles.end));
   });
   exportTexts.forEach((entity) => {
+    const insertionPoint = getTextInsertionPointUnits(entity);
+    const needsAlignedPoint = entity.align === "center" || entity.align === "right";
     dxfLines.push("0", "TEXT");
     dxfLines.push("8", getDxfLayerNameForEntity(entity));
-    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(entity.x)));
-    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(entity.y)));
+    dxfLines.push("10", formatDxfNumber(dxfXUnitsToMm(insertionPoint.x)));
+    dxfLines.push("20", formatDxfNumber(dxfYUnitsToMm(insertionPoint.y)));
     dxfLines.push("30", formatDxfNumber(0));
+    if (needsAlignedPoint) {
+      dxfLines.push("11", formatDxfNumber(dxfXUnitsToMm(insertionPoint.x)));
+      dxfLines.push("21", formatDxfNumber(dxfYUnitsToMm(insertionPoint.y)));
+      dxfLines.push("31", formatDxfNumber(0));
+    }
     dxfLines.push("40", formatDxfNumber(unitsToMm(entity.height)));
     dxfLines.push("1", sanitizeDxfText(entity.text || ""));
+    if (entity.rotation) {
+      dxfLines.push("50", formatDxfNumber(normalizeAngleDeg(entity.rotation)));
+    }
+    if (entity.align === "center") {
+      dxfLines.push("72", "1");
+    } else if (entity.align === "right") {
+      dxfLines.push("72", "2");
+    }
   });
   dxfLines.push("0", "ENDSEC", "0", "EOF");
 
@@ -7286,7 +7342,7 @@ function explodeDimensionToDxfPrimitives(entity) {
       {layerId:entity.layerId,p1:{x:o1.x-tx,y:o1.y-ty},p2:{x:o1.x+tx,y:o1.y+ty}},
       {layerId:entity.layerId,p1:{x:o2.x-tx,y:o2.y-ty},p2:{x:o2.x+tx,y:o2.y+ty}},
     ],
-    text:{type:"text",layerId:entity.layerId,x:roundToUnit((o1.x+o2.x)/2),y:roundToUnit((o1.y+o2.y)/2),height:entity.textHeight||250,text:getDimensionDisplayText(entity)}
+    text:{type:"text",layerId:entity.layerId,x:roundToUnit((o1.x+o2.x)/2),y:roundToUnit((o1.y+o2.y)/2),height:entity.textHeight||250,text:getDimensionDisplayText(entity),align:"center",textAnchor:"center"}
   };
 }
 
@@ -7390,8 +7446,9 @@ function getDxfBoundsMm(lines, textEntities = [], circles = [], arcs = []) {
     ys.push(dxfYUnitsToMm(line.p1.y), dxfYUnitsToMm(line.p2.y));
   });
   textEntities.forEach((entity) => {
-    xs.push(dxfXUnitsToMm(entity.x));
-    ys.push(dxfYUnitsToMm(entity.y));
+    const bounds = getTextBoundsUnits(entity);
+    xs.push(dxfXUnitsToMm(bounds.minX), dxfXUnitsToMm(bounds.maxX));
+    ys.push(dxfYUnitsToMm(bounds.minY), dxfYUnitsToMm(bounds.maxY));
   });
   circles.forEach((entity) => {
     xs.push(dxfXUnitsToMm(entity.center.x - entity.radius), dxfXUnitsToMm(entity.center.x + entity.radius));
