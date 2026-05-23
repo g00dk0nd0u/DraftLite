@@ -2186,6 +2186,23 @@ function renderPropertiesPanel() {
     });
     addPropertyRow(geometryGrid, "Text Height mm", textHeightInput);
 
+    const extensionGapInput = document.createElement("input");
+    extensionGapInput.type = "number";
+    extensionGapInput.min = "0";
+    extensionGapInput.value = String(unitsToMm(getDimensionExtensionGapUnits(entity)));
+    extensionGapInput.addEventListener("change", () => {
+      const nextMm = Number(extensionGapInput.value);
+      if (!Number.isFinite(nextMm) || nextMm < 0) {
+        extensionGapInput.value = String(unitsToMm(getDimensionExtensionGapUnits(entity)));
+        setStatus("Extension Gap mm must be zero or greater.");
+        return;
+      }
+      pushUndoState();
+      entity.extensionGap = Math.max(0, mmToUnits(nextMm));
+      syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Extension Gap mm", extensionGapInput);
+
     const tickSizeInput = document.createElement("input");
     tickSizeInput.type = "number";
     tickSizeInput.value = String(unitsToMm(entity.tickSize || 250));
