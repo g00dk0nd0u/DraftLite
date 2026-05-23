@@ -168,7 +168,9 @@ const uiState = {
   transformPreviewTimer: null,
   hoverWorld: { x: 0, y: 0 },
   pointerWorld: { x: 0, y: 0 },
+  hoverGrip: null,
   hoverMoveAnchor: null,
+  hoverBorrowedHandle: null,
   hoverRectEdge: null,
   deleteLayerDialogLayerId: null,
   panning: false,
@@ -296,7 +298,9 @@ function clearTransientState() {
   uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  uiState.hoverGrip = null;
   uiState.hoverMoveAnchor = null;
+  uiState.hoverBorrowedHandle = null;
   uiState.hoverRectEdge = null;
   document.body.style.cursor = "";
   clearLinePreviewTimer();
@@ -579,6 +583,36 @@ function getRectMoveAnchorPoints(entity) {
 function getSelectedEntityHandles(entity) {
   if (!entity) {
     return [];
+  }
+  if (entity.type === "rect") {
+    return getRectMoveAnchorPoints(entity).map((candidate) => ({
+      entityId: entity.id,
+      type: candidate.kind === "midpoint" ? "rectMidpoint" : "rectCorner",
+      point: candidate.point,
+    }));
+  }
+  if (entity.type === "circle") {
+    return [{ entityId: entity.id, type: "circleCenter", point: roundWorldPoint(entity.center) }];
+  }
+  if (entity.type === "filledRegion") {
+    return entity.points.map((point) => ({
+      entityId: entity.id,
+      type: "filledRegionVertex",
+      point: roundWorldPoint(point),
+    }));
+  }
+  return [];
+}
+
+function getBorrowableHandlePoints(entity) {
+  if (!entity) {
+    return [];
+  }
+  if (entity.type === "line") {
+    return [
+      { entityId: entity.id, type: "lineEndpoint", endpoint: "p1", point: roundWorldPoint(entity.p1) },
+      { entityId: entity.id, type: "lineEndpoint", endpoint: "p2", point: roundWorldPoint(entity.p2) },
+    ];
   }
   if (entity.type === "rect") {
     return getRectMoveAnchorPoints(entity).map((candidate) => ({
@@ -2249,6 +2283,8 @@ function draw() {
     drawSelectionWindow(uiState.selectionWindow);
   }
 
+  drawBorrowedHoverHandle();
+
   if (uiState.snapMarker) {
     drawSnapMarker(uiState.snapMarker);
   }
@@ -2343,10 +2379,15 @@ function drawLineEntity(entity) {
 
   if (isSelected) {
     ctx.fillStyle = "#fffaf2";
-    ctx.strokeStyle = "#c2693e";
-    [screenP1, screenP2].forEach((point) => {
+    [screenP1, screenP2].forEach((point, index) => {
+      const endpoint = index === 0 ? "p1" : "p2";
+      const isActive = uiState.hoverGrip
+        && uiState.hoverGrip.entity.id === entity.id
+        && uiState.hoverGrip.endpoint === endpoint;
+      ctx.strokeStyle = isActive ? "rgba(194, 105, 62, 0.92)" : "#c2693e";
+      ctx.lineWidth = isActive ? 3 : 1.5;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, isActive ? 6.5 : 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     });
@@ -2466,6 +2507,22 @@ function drawSelectedEntityHandles(entity) {
     ctx.fill();
     ctx.stroke();
   });
+}
+
+function drawBorrowedHoverHandle() {
+  if (!uiState.hoverBorrowedHandle) {
+    return;
+  }
+  const screenPoint = worldToScreen(uiState.hoverBorrowedHandle.point);
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 250, 242, 0.95)";
+  ctx.strokeStyle = "rgba(98, 73, 45, 0.7)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(screenPoint.x, screenPoint.y, 4.75, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawRectEntity(entity) {
@@ -4921,6 +4978,21 @@ function findSelectedMoveAnchorAtPoint(worldPoint) {
     .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
 }
 
+function findBorrowedMoveBaseHandleAtPoint(worldPoint, options = {}) {
+  const excludedIds = new Set(options.excludeEntityIds || []);
+  return state.entities
+    .filter((entity) => !excludedIds.has(entity.id) && canSelectEntity(entity))
+    .slice()
+    .reverse()
+    .flatMap((entity) => getBorrowableHandlePoints(entity))
+    .map((candidate) => ({
+      ...candidate,
+      distancePx: distanceScreenPx(worldPoint, candidate.point),
+    }))
+    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+}
+
 function findRectEdgeAtPoint(worldPoint) {
   return state.entities
     .filter((entity) => entity.type === "rect" && canSelectEntity(entity))
@@ -4937,6 +5009,53 @@ function findRectEdgeAtPoint(worldPoint) {
       return edgeHit ? { entityId: entity.id, edge: edgeHit.edge } : null;
     })
     .find(Boolean) || null;
+}
+
+function startRectEdgeEdit(rectEntity, edge, worldPoint) {
+  if (!rectEntity || rectEntity.type !== "rect" || !canSelectEntity(rectEntity)) {
+    return false;
+  }
+  state.selectedEntityIds = [rectEntity.id];
+  syncAfterStateChange(false);
+  uiState.rectEdgeEditDraft = {
+    entityId: rectEntity.id,
+    edge,
+    originalRect: { x: rectEntity.x, y: rectEntity.y, width: rectEntity.width, height: rectEntity.height },
+    startPoint: worldPoint,
+    currentPoint: worldPoint,
+    numericInputBuffer: "",
+  };
+  updateRectEdgeEditStatus();
+  draw();
+  return true;
+}
+
+function startHandleDrivenSelectionAction(handleHit, rawWorldPoint, worldPoint, event) {
+  const entity = getEntityById(handleHit.entityId);
+  if (!entity || !canSelectEntity(entity)) {
+    return false;
+  }
+  state.selectedEntityIds = [entity.id];
+  syncAfterStateChange(false);
+  if (handleHit.type === "lineEndpoint") {
+    startGripEdit(
+      {
+        entity,
+        endpoint: handleHit.endpoint,
+        point: handleHit.point,
+      },
+      worldPoint
+    );
+    return true;
+  }
+  return startSelectDragWithMode(
+    rawWorldPoint,
+    event.altKey || event.ctrlKey ? "copy" : "move",
+    {
+      snapAnchorPoint: handleHit.point,
+      pointerStartPoint: rawWorldPoint,
+    }
+  );
 }
 
 function getResizedRectFromDraft(draft, worldPoint) {
@@ -6833,24 +6952,45 @@ function onPointerMove(event) {
     !uiState.rectEdgeEditDraft
   ) {
     const roundedWorldPoint = roundWorldPoint(worldPoint);
-    const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
-    if (moveAnchorHit) {
-      uiState.hoverMoveAnchor = moveAnchorHit;
+    const gripHit = findEditableGripAtPoint(roundedWorldPoint);
+    if (gripHit) {
+      uiState.hoverGrip = gripHit;
+      uiState.hoverMoveAnchor = null;
+      uiState.hoverBorrowedHandle = null;
       uiState.hoverRectEdge = null;
       document.body.style.cursor = "move";
     } else {
-      uiState.hoverMoveAnchor = null;
-      uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+      uiState.hoverGrip = null;
+      const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
+      if (moveAnchorHit) {
+        uiState.hoverMoveAnchor = moveAnchorHit;
+        uiState.hoverBorrowedHandle = null;
+        uiState.hoverRectEdge = null;
+        document.body.style.cursor = "move";
+      } else {
+        uiState.hoverMoveAnchor = null;
+        uiState.hoverBorrowedHandle = findBorrowedMoveBaseHandleAtPoint(roundedWorldPoint, {
+          excludeEntityIds: state.selectedEntityIds,
+        });
+        if (uiState.hoverBorrowedHandle) {
+          uiState.hoverRectEdge = null;
+          document.body.style.cursor = "move";
+        } else {
+          uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+        }
+      }
     }
     if (uiState.hoverRectEdge) {
       document.body.style.cursor = (uiState.hoverRectEdge.edge === "left" || uiState.hoverRectEdge.edge === "right")
         ? "ew-resize"
         : "ns-resize";
-    } else if (!moveAnchorHit) {
+    } else if (!uiState.hoverGrip && !uiState.hoverMoveAnchor && !uiState.hoverBorrowedHandle) {
       document.body.style.cursor = "";
     }
   } else {
+    uiState.hoverGrip = null;
     uiState.hoverMoveAnchor = null;
+    uiState.hoverBorrowedHandle = null;
     uiState.hoverRectEdge = null;
     document.body.style.cursor = "";
   }
@@ -7153,21 +7293,29 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       );
       return;
     }
+    const borrowedHandleHit = findBorrowedMoveBaseHandleAtPoint(roundWorldPoint(rawWorldPoint), {
+      excludeEntityIds: state.selectedEntityIds,
+    });
+    if (borrowedHandleHit) {
+      if (state.selectedEntityIds.length) {
+        startSelectDragWithMode(
+          rawWorldPoint,
+          event.altKey || event.ctrlKey ? "copy" : "move",
+          {
+            snapAnchorPoint: borrowedHandleHit.point,
+            pointerStartPoint: rawWorldPoint,
+          }
+        );
+        return;
+      }
+      if (startHandleDrivenSelectionAction(borrowedHandleHit, rawWorldPoint, worldPoint, event)) {
+        return;
+      }
+    }
     const rectEdgeHit = findRectEdgeAtPoint(roundWorldPoint(rawWorldPoint));
     if (rectEdgeHit) {
       const rectEntity = getEntityById(rectEdgeHit.entityId);
-      if (rectEntity && rectEntity.type === "rect" && canSelectEntity(rectEntity)) {
-        state.selectedEntityIds = [rectEntity.id];
-        uiState.rectEdgeEditDraft = {
-          entityId: rectEntity.id,
-          edge: rectEdgeHit.edge,
-          originalRect: { x: rectEntity.x, y: rectEntity.y, width: rectEntity.width, height: rectEntity.height },
-          startPoint: worldPoint,
-          currentPoint: worldPoint,
-          numericInputBuffer: "",
-        };
-        updateRectEdgeEditStatus();
-        draw();
+      if (startRectEdgeEdit(rectEntity, rectEdgeHit.edge, worldPoint)) {
         return;
       }
     }
