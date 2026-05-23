@@ -2964,20 +2964,23 @@ function getDimensionScreenGeometry(entity) {
   const fontPx = Math.max(10, (entity.textHeight || 250) * state.view.zoom);
   const tickRadiusPx = getDimensionTickRadiusPx(entity);
   const dimensionMidpoint = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 };
-  const measuredMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
   const lineDx = o2.x - o1.x;
   const lineDy = o2.y - o1.y;
   const lineLen = Math.hypot(lineDx, lineDy) || 1;
   const baseNormal = { x: -lineDy / lineLen, y: lineDx / lineLen };
-  const awayVector = {
-    x: dimensionMidpoint.x - measuredMidpoint.x,
-    y: dimensionMidpoint.y - measuredMidpoint.y,
-  };
-  const normalSign = (awayVector.x * baseNormal.x + awayVector.y * baseNormal.y) >= 0 ? 1 : -1;
+  const verticalBiasThreshold = 0.86;
+  let textNormal = baseNormal;
+  if (Math.abs(lineDx) >= Math.abs(lineDy)) {
+    textNormal = baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  } else if (Math.abs(lineDy / lineLen) >= verticalBiasThreshold) {
+    textNormal = baseNormal.x <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  } else {
+    textNormal = baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  }
   const textOffsetPx = Math.max(8, fontPx * 0.55);
   const textPosition = {
-    x: dimensionMidpoint.x + baseNormal.x * normalSign * textOffsetPx,
-    y: dimensionMidpoint.y + baseNormal.y * normalSign * textOffsetPx,
+    x: dimensionMidpoint.x + textNormal.x * textOffsetPx,
+    y: dimensionMidpoint.y + textNormal.y * textOffsetPx,
   };
 
   ctx.save();
