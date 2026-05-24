@@ -8,17 +8,15 @@
   const DEFAULT_SHOW_MODE = "full";
   const SCALE_OPTIONS = [50, 100, 200, 500];
   const PNG_DPI = 300;
+  const PT_TO_MM = 25.4 / 72;
   const PDF_STYLE = {
     strokeRgb: [0.10, 0.16, 0.22],
     titleBlockStrokeRgb: [0.10, 0.16, 0.22],
-    rectFillRgb: [0.90, 0.92, 0.94],
-    filledRegionFillRgb: [0.88, 0.90, 0.93],
     textRgb: [0.10, 0.16, 0.22],
     normalStrokeWidthMm: 0.18,
     titleBlockStrokeWidthMm: 0.18,
     innerFrameStrokeWidthMm: 0.18,
     minStrokeWidthPt: 0.25,
-    innerFrameInsetMm: 0.25,
   };
 
   function getTemplateRegistry() {
@@ -44,7 +42,24 @@
       rightWingWidthMm: 200,
       sheetNoWidthMm: 40,
       infoColumns: ["PROJECT NAME", "DRAWN BY", "SCALE", "PAPER", "DATE"],
-      textHeightsMm: { infoLine: 2.3, title: 4.1, sheetNo: 4.1, notes: 2.4 },
+      textHeightsMm: {
+        infoLabel: 3.3 * PT_TO_MM,
+        infoValue: 5.7 * PT_TO_MM,
+        titleLabel: 3.3 * PT_TO_MM,
+        titleValue: 12.5 * PT_TO_MM,
+        sheetNoLabel: 3.3 * PT_TO_MM,
+        sheetNoValue: 12.5 * PT_TO_MM,
+        notesLabel: 3.4 * PT_TO_MM,
+      },
+      textStyles: {
+        infoLabel: { fontSizePt: 3.3, color: "#888888", align: "right", letterSpacingEm: 0.075 },
+        infoValue: { fontSizePt: 5.7, color: "#111111", align: "right", fontWeight: 600 },
+        titleLabel: { fontSizePt: 3.3, color: "#888888", align: "right" },
+        titleValue: { fontSizePt: 12.5, color: "#111111", align: "right", fontWeight: 700 },
+        sheetNoLabel: { fontSizePt: 3.3, color: "#888888", align: "right" },
+        sheetNoValue: { fontSizePt: 12.5, color: "#111111", align: "right", fontWeight: 700 },
+        notesLabel: { fontSizePt: 3.4, color: "#999999", align: "left" },
+      },
     };
   }
 
@@ -301,28 +316,44 @@
     ];
   }
 
-  function createTextPrimitive(entity, xMm, yMm, text, heightMm, align, deps = {}) {
+  function createTextPrimitive(entity, xMm, yMm, text, heightMm, align, deps = {}, options = {}) {
+    const point = localMmPointToWorld(entity, xMm, yMm, deps);
     return {
       type: "text",
       layerId: entity.layerId,
-      x: localMmPointToWorld(entity, xMm, yMm, deps).x,
-      y: localMmPointToWorld(entity, xMm, yMm, deps).y,
+      x: point.x,
+      y: point.y,
       text: String(text || ""),
       height: Math.max(1, getWorldUnitsFromPaperMm(entity, heightMm, deps)),
       rotation: 0,
       align: align || "left",
       textAnchor: "center",
-      color: "",
+      color: typeof options.color === "string" ? options.color : "",
+      role: typeof options.role === "string" ? options.role : "",
+      fontWeight: Number.isFinite(Number(options.fontWeight)) ? Number(options.fontWeight) : 400,
+      letterSpacingEm: Number.isFinite(Number(options.letterSpacingEm)) ? Number(options.letterSpacingEm) : 0,
     };
   }
 
-  function getInfoLineText(label, value) {
-    const trimmedValue = String(value || "").trim();
-    return `${label} ${trimmedValue || "-"}`;
+  function getTemplateTextMetrics(template, role) {
+    const style = template && template.textStyles ? template.textStyles[role] : null;
+    const heightMm = template && template.textHeightsMm ? template.textHeightsMm[role] : null;
+    return {
+      role,
+      align: style && style.align ? style.align : "left",
+      color: style && style.color ? style.color : "",
+      fontWeight: style && Number.isFinite(Number(style.fontWeight)) ? Number(style.fontWeight) : 400,
+      letterSpacingEm: style && Number.isFinite(Number(style.letterSpacingEm)) ? Number(style.letterSpacingEm) : 0,
+      heightMm: Number.isFinite(Number(heightMm))
+        ? Number(heightMm)
+        : (style && Number.isFinite(Number(style.fontSizePt)) ? Number(style.fontSizePt) * PT_TO_MM : 2),
+    };
   }
 
-  function getDisplayPaperLabel(entity) {
-    return `${normalizePaperSize(entity.paperSize)} ${normalizeOrientation(entity.orientation) === "portrait" ? "Portrait" : "Landscape"}`;
+  function getPaperShortLabel(entity) {
+    const paper = normalizePaperSize(entity.paperSize);
+    const orientation = normalizeOrientation(entity.orientation) === "portrait" ? "P" : "L";
+    return `${paper} ${orientation}`;
   }
 
   function getTodayLabel() {
@@ -340,7 +371,6 @@
     const titleBand = localMmRectToWorld(entity, layout.titleBand, deps);
     const leftWing = localMmRectToWorld(entity, layout.leftWing, deps);
     const rightWing = localMmRectToWorld(entity, layout.rightWing, deps);
-    const labelHeights = layout.template.textHeightsMm;
     const includeOuterBorder = options.includeOuterBorder !== false;
     const includeInnerFrame = options.includeInnerFrame !== false;
     const effectiveShowMode = options.forceFull ? "full" : normalizeShowMode(entity.showMode);
@@ -366,32 +396,99 @@
         lines.push({ type: "line", layerId: entity.layerId, p1: start, p2: end });
       }
 
+      const infoLabelMetrics = getTemplateTextMetrics(layout.template, "infoLabel");
+      const infoValueMetrics = getTemplateTextMetrics(layout.template, "infoValue");
+      const notesLabelMetrics = getTemplateTextMetrics(layout.template, "notesLabel");
+      const titleLabelMetrics = getTemplateTextMetrics(layout.template, "titleLabel");
+      const titleValueMetrics = getTemplateTextMetrics(layout.template, "titleValue");
+      const sheetNoLabelMetrics = getTemplateTextMetrics(layout.template, "sheetNoLabel");
+      const sheetNoValueMetrics = getTemplateTextMetrics(layout.template, "sheetNoValue");
       const infoValues = [
-        entity.projectName || "",
-        entity.drawnBy || "",
+        entity.projectName || "-",
+        entity.drawnBy || "-",
         `1:${normalizeScale(entity.scale)}`,
-        getDisplayPaperLabel(entity),
+        getPaperShortLabel(entity),
         getTodayLabel(),
       ];
       layout.template.infoColumns.forEach((label, index) => {
-        const rightMm = layout.leftWing.xMm + infoColumnWidthMm * (index + 1) - 1.8;
+        const cellLeftMm = layout.leftWing.xMm + infoColumnWidthMm * index;
+        const cellRightMm = cellLeftMm + infoColumnWidthMm;
+        const textRightMm = cellRightMm - 2.0;
         texts.push(createTextPrimitive(
           entity,
-          rightMm,
-          layout.leftWing.yMm + 3.85,
-          getInfoLineText(label, infoValues[index]),
-          labelHeights.infoLine,
-          "right",
-          deps
+          textRightMm,
+          layout.leftWing.yMm + 1.95,
+          label,
+          infoLabelMetrics.heightMm,
+          infoLabelMetrics.align,
+          deps,
+          infoLabelMetrics
+        ));
+        texts.push(createTextPrimitive(
+          entity,
+          textRightMm,
+          layout.leftWing.yMm + 4.85,
+          infoValues[index] || "-",
+          infoValueMetrics.heightMm,
+          infoValueMetrics.align,
+          deps,
+          infoValueMetrics
         ));
       });
 
-      texts.push(createTextPrimitive(entity, layout.leftWing.xMm + 2.2, layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.9, "NOTES", labelHeights.notes, "left", deps));
-      if (entity.projectName) {
-        texts.push(createTextPrimitive(entity, layout.leftWing.xMm + layout.leftWing.widthMm - 2.2, layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.9, entity.projectName, labelHeights.notes, "right", deps));
-      }
-      texts.push(createTextPrimitive(entity, layout.rightWing.xMm + layout.rightWing.widthMm - layout.template.sheetNoWidthMm - 2.5, layout.rightWing.yMm + 7.8, entity.title || "", labelHeights.title, "right", deps));
-      texts.push(createTextPrimitive(entity, layout.rightWing.xMm + layout.rightWing.widthMm - 2.5, layout.rightWing.yMm + 7.8, entity.sheetNo || "", labelHeights.sheetNo, "right", deps));
+      texts.push(createTextPrimitive(
+        entity,
+        layout.leftWing.xMm + 2.4,
+        layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.4,
+        "NOTES",
+        notesLabelMetrics.heightMm,
+        notesLabelMetrics.align,
+        deps,
+        notesLabelMetrics
+      ));
+
+      const drawingTitleRightMm = layout.rightWing.xMm + layout.rightWing.widthMm - layout.template.sheetNoWidthMm;
+      const sheetNoRightMm = layout.rightWing.xMm + layout.rightWing.widthMm;
+      texts.push(createTextPrimitive(
+        entity,
+        drawingTitleRightMm - 2.4,
+        layout.rightWing.yMm + 3.2,
+        "Drawing Title",
+        titleLabelMetrics.heightMm,
+        titleLabelMetrics.align,
+        deps,
+        titleLabelMetrics
+      ));
+      texts.push(createTextPrimitive(
+        entity,
+        drawingTitleRightMm - 2.4,
+        layout.rightWing.yMm + 8.8,
+        entity.title || "",
+        titleValueMetrics.heightMm,
+        titleValueMetrics.align,
+        deps,
+        titleValueMetrics
+      ));
+      texts.push(createTextPrimitive(
+        entity,
+        sheetNoRightMm - 2.4,
+        layout.rightWing.yMm + 3.2,
+        "Sheet No",
+        sheetNoLabelMetrics.heightMm,
+        sheetNoLabelMetrics.align,
+        deps,
+        sheetNoLabelMetrics
+      ));
+      texts.push(createTextPrimitive(
+        entity,
+        sheetNoRightMm - 2.4,
+        layout.rightWing.yMm + 8.8,
+        entity.sheetNo || "",
+        sheetNoValueMetrics.heightMm,
+        sheetNoValueMetrics.align,
+        deps,
+        sheetNoValueMetrics
+      ));
     }
 
     return {
@@ -503,8 +600,8 @@
     const point = projectPoint({ x: textEntity.x, y: textEntity.y });
     const fontPx = Math.max(8, Math.abs(options.unitsToPixels(textEntity.height)));
     ctx.save();
-    ctx.fillStyle = options.fillStyle;
-    ctx.font = `${fontPx}px sans-serif`;
+    ctx.fillStyle = textEntity.color || options.fillStyle;
+    ctx.font = `${Math.max(400, Number(textEntity.fontWeight) || 400)} ${fontPx}px sans-serif`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = textEntity.align || "left";
     ctx.fillText(String(textEntity.text || ""), point.x, point.y + fontPx / 2);
@@ -817,6 +914,33 @@
     };
   }
 
+  function createRasterExportProjector(bounds, scale, canvasWidth, canvasHeight, deps = {}) {
+    const effectiveScale = Math.max(1, Number(scale) || 1);
+    const widthMm = unitsToMm(bounds.maxX - bounds.minX, deps) / effectiveScale;
+    const heightMm = unitsToMm(bounds.maxY - bounds.minY, deps) / effectiveScale;
+    const scaleX = canvasWidth / Math.max(1e-6, widthMm);
+    const scaleY = canvasHeight / Math.max(1e-6, heightMm);
+    return {
+      projectPoint(point) {
+        return {
+          x: (unitsToMm(point.x - bounds.minX, deps) / effectiveScale) * scaleX,
+          y: (unitsToMm(point.y - bounds.minY, deps) / effectiveScale) * scaleY,
+        };
+      },
+      projectBounds(nextBounds) {
+        return {
+          x: (unitsToMm(nextBounds.minX - bounds.minX, deps) / effectiveScale) * scaleX,
+          y: (unitsToMm(nextBounds.minY - bounds.minY, deps) / effectiveScale) * scaleY,
+          width: (unitsToMm(nextBounds.maxX - nextBounds.minX, deps) / effectiveScale) * scaleX,
+          height: (unitsToMm(nextBounds.maxY - nextBounds.minY, deps) / effectiveScale) * scaleY,
+        };
+      },
+      unitsToPixels(units) {
+        return (unitsToMm(units, deps) / effectiveScale) * scaleY;
+      },
+    };
+  }
+
   function createExportCanvas(titleBlockEntity, deps = {}) {
     const paper = getOrientedPaperSizeMm(titleBlockEntity);
     const pixelsPerMm = Number(deps.pixelsPerMm) || (PNG_DPI / 25.4);
@@ -864,22 +988,83 @@
     return unitsToMm(distanceUnits, deps).toFixed(precision);
   }
 
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function normalizeHexColor(color, fallback = "#2e3135") {
+    const label = String(color || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(label)) {
+      return label;
+    }
+    if (/^#[0-9a-f]{3}$/i.test(label)) {
+      return `#${label.slice(1).split("").map((char) => char + char).join("")}`;
+    }
+    return fallback;
+  }
+
+  function hexToRgb01(color) {
+    const hex = normalizeHexColor(color);
+    return [
+      parseInt(hex.slice(1, 3), 16) / 255,
+      parseInt(hex.slice(3, 5), 16) / 255,
+      parseInt(hex.slice(5, 7), 16) / 255,
+    ];
+  }
+
+  function blendColorOverWhite(hexColor, alpha) {
+    const rgb = hexToRgb01(hexColor);
+    const effectiveAlpha = clamp(Number(alpha) || 0, 0, 1);
+    return [
+      1 - effectiveAlpha + rgb[0] * effectiveAlpha,
+      1 - effectiveAlpha + rgb[1] * effectiveAlpha,
+      1 - effectiveAlpha + rgb[2] * effectiveAlpha,
+    ];
+  }
+
+  function rgb01ToCss(rgb, alpha) {
+    const values = Array.isArray(rgb) ? rgb : [0, 0, 0];
+    const r = Math.round(clamp(values[0] || 0, 0, 1) * 255);
+    const g = Math.round(clamp(values[1] || 0, 0, 1) * 255);
+    const b = Math.round(clamp(values[2] || 0, 0, 1) * 255);
+    if (Number.isFinite(alpha)) {
+      return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1).toFixed(3)})`;
+    }
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function resolveExportEntityStyle(entity, deps) {
+    const layerColor = typeof deps.getLayerColor === "function" ? deps.getLayerColor(entity.layerId) : "#2e3135";
+    const strokeColor = normalizeHexColor(entity.color || entity.strokeColor || entity.lineColor || layerColor, layerColor);
+    const fillColor = normalizeHexColor(entity.fillColor || strokeColor, strokeColor);
+    const opacity = Number.isFinite(Number(entity.opacity)) ? clamp(Number(entity.opacity), 0, 1) : 1;
+    let fillAlpha;
+    if (Number.isFinite(Number(entity.fillAlpha))) {
+      fillAlpha = clamp(Number(entity.fillAlpha), 0, 1);
+    } else {
+      fillAlpha = 0.18;
+    }
+    return {
+      strokeColor,
+      fillColor,
+      opacity,
+      fillAlpha,
+      strokeWidthMm: PDF_STYLE.normalStrokeWidthMm,
+    };
+  }
+
   function renderEntityToCanvas(ctx, entity, projector, deps = {}) {
     const isPrintExport = deps.exportMode === "print";
-    const strokeStyle = isPrintExport
-      ? "rgb(26,41,56)"
-      : ((typeof deps.getStrokeColorForEntity === "function" ? deps.getStrokeColorForEntity(entity) : "#2e3135") || "#2e3135");
-    const fillStyle = isPrintExport
-      ? (entity.type === "filledRegion" ? "rgb(224,230,237)" : "rgb(230,235,240)")
-      : ((typeof deps.getFillStyleForEntity === "function" ? deps.getFillStyleForEntity(entity) : "rgba(46,49,53,0.12)") || "rgba(46,49,53,0.12)");
     const projectPoint = projector.projectPoint;
     const unitsToPixels = projector.unitsToPixels;
-    const exportScale = Math.max(1, Number(deps.exportScale) || 1);
+    const style = resolveExportEntityStyle(entity, deps);
+    const strokeStyle = style.strokeColor;
+    const fillStyle = style.fillColor;
     const normalStrokePx = isPrintExport
-      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(PDF_STYLE.normalStrokeWidthMm * exportScale, deps))))
+      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(style.strokeWidthMm, deps))))
       : 1.1;
     const titleBlockStrokePx = isPrintExport
-      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(PDF_STYLE.titleBlockStrokeWidthMm * exportScale, deps))))
+      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(PDF_STYLE.titleBlockStrokeWidthMm, deps))))
       : 1.1;
 
     if (entity.type === "line") {
@@ -893,8 +1078,10 @@
       const height = end.y - start.y;
       ctx.save();
       if (entity.fill !== false) {
+        ctx.globalAlpha = style.fillAlpha;
         ctx.fillStyle = fillStyle;
         ctx.fillRect(start.x, start.y, width, height);
+        ctx.globalAlpha = 1;
       }
       ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = normalStrokePx;
@@ -941,8 +1128,10 @@
       points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
       ctx.closePath();
       if (entity.fill !== false) {
+        ctx.globalAlpha = style.fillAlpha;
         ctx.fillStyle = fillStyle;
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
       ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = normalStrokePx;
@@ -985,7 +1174,7 @@
         });
         primitives.texts.forEach((textEntity) => {
           drawWorldText(ctx, projectPoint, textEntity, {
-            fillStyle: "rgb(26,41,56)",
+            fillStyle: rgb01ToCss(PDF_STYLE.textRgb),
             unitsToPixels,
           });
         });
@@ -1006,12 +1195,17 @@
   function renderTitleBlockSelectionCanvas(titleBlockEntity, deps = {}) {
     const includedEntities = collectEntitiesForExport(titleBlockEntity, deps);
     const { canvas, context } = createExportCanvas(titleBlockEntity, deps);
-    const projector = createWorldProjector(getTitleBlockBounds(titleBlockEntity), canvas.width, canvas.height);
+    const projector = createRasterExportProjector(
+      getTitleBlockBounds(titleBlockEntity),
+      titleBlockEntity.scale,
+      canvas.width,
+      canvas.height,
+      deps
+    );
     includedEntities.forEach((entity) => {
       renderEntityToCanvas(context, entity, projector, {
         ...deps,
         exportMode: "print",
-        exportScale: titleBlockEntity.scale,
       });
     });
     return canvas;
@@ -1089,14 +1283,17 @@
     return canvas && typeof canvas.getContext === "function" ? canvas.getContext("2d") : null;
   }
 
-  function estimatePdfTextWidthPt(text, fontSizePt, deps = {}) {
+  function estimatePdfTextWidthPt(textOrEntity, fontSizePt, deps = {}) {
     const context = deps.measureContext || getPdfMeasureContext();
-    const label = String(text || "");
+    const label = typeof textOrEntity === "object" && textOrEntity
+      ? String(textOrEntity.text || "")
+      : String(textOrEntity || "");
+    const fontWeight = typeof textOrEntity === "object" && textOrEntity && Number(textOrEntity.fontWeight) >= 600 ? 700 : 400;
     if (!context || typeof context.measureText !== "function") {
       return label.length * fontSizePt * 0.52;
     }
     const fontPx = fontSizePt * 96 / 72;
-    context.font = `${fontPx}px Helvetica, Arial, sans-serif`;
+    context.font = `${fontWeight} ${fontPx}px Helvetica, Arial, sans-serif`;
     return context.measureText(label).width * 72 / 96;
   }
 
@@ -1193,7 +1390,7 @@
   function buildPdfTextCommands(projector, textEntity, deps = {}) {
     const point = projector.projectPoint({ x: textEntity.x, y: textEntity.y });
     const fontSizePt = projector.fontSizePt(textEntity.height);
-    const widthPt = estimatePdfTextWidthPt(textEntity.text, fontSizePt, deps);
+    const widthPt = estimatePdfTextWidthPt(textEntity, fontSizePt, deps);
     let textX = point.x;
     if (textEntity.align === "right") {
       textX -= widthPt;
@@ -1201,10 +1398,16 @@
       textX -= widthPt / 2;
     }
     const baselineY = point.y - fontSizePt * 0.32;
+    const textRgb = textEntity.color ? hexToRgb01(textEntity.color) : PDF_STYLE.textRgb;
+    const fontName = Number(textEntity.fontWeight) >= 600 ? "/F2" : "/F1";
+    const charSpacingPt = Number.isFinite(Number(textEntity.letterSpacingEm))
+      ? Number(textEntity.letterSpacingEm) * fontSizePt
+      : 0;
     return [
-      pdfRgbCommand(PDF_STYLE.textRgb, "rg"),
+      pdfRgbCommand(textRgb, "rg"),
       "BT",
-      `/F1 ${formatPdfNumber(fontSizePt)} Tf`,
+      `${fontName} ${formatPdfNumber(fontSizePt)} Tf`,
+      `${formatPdfNumber(charSpacingPt)} Tc`,
       `${formatPdfNumber(textX)} ${formatPdfNumber(baselineY)} Td`,
       `(${escapePdfText(textEntity.text)}) Tj`,
       "ET",
@@ -1227,9 +1430,12 @@
   }
 
   function buildPdfCommandsForEntity(entity, projector, deps = {}) {
-    const strokeWidthPt = projector.strokeWidthPt(PDF_STYLE.normalStrokeWidthMm);
+    const style = resolveExportEntityStyle(entity, deps);
+    const strokeRgb = hexToRgb01(style.strokeColor);
+    const fillRgb = blendColorOverWhite(style.fillColor, style.fillAlpha);
+    const strokeWidthPt = projector.strokeWidthPt(style.strokeWidthMm);
     if (entity.type === "line") {
-      return buildPdfLineCommands(projector, entity, strokeWidthPt, PDF_STYLE.strokeRgb);
+      return buildPdfLineCommands(projector, entity, strokeWidthPt, strokeRgb);
     }
     if (entity.type === "rect") {
       const points = [
@@ -1243,8 +1449,8 @@
         stroke: true,
         fill: entity.fill !== false,
         strokeWidthPt,
-        strokeRgb: PDF_STYLE.strokeRgb,
-        fillRgb: entity.fill !== false ? PDF_STYLE.rectFillRgb : null,
+        strokeRgb,
+        fillRgb: entity.fill !== false ? fillRgb : null,
       });
     }
     if (entity.type === "circle") {
@@ -1253,7 +1459,7 @@
         stroke: true,
         fill: false,
         strokeWidthPt,
-        strokeRgb: PDF_STYLE.strokeRgb,
+        strokeRgb,
       });
     }
     if (entity.type === "arc") {
@@ -1262,7 +1468,7 @@
         stroke: true,
         fill: false,
         strokeWidthPt,
-        strokeRgb: PDF_STYLE.strokeRgb,
+        strokeRgb,
       });
     }
     if (entity.type === "filledRegion") {
@@ -1271,8 +1477,8 @@
         stroke: true,
         fill: entity.fill !== false,
         strokeWidthPt,
-        strokeRgb: PDF_STYLE.strokeRgb,
-        fillRgb: entity.fill !== false ? PDF_STYLE.filledRegionFillRgb : null,
+        strokeRgb,
+        fillRgb: entity.fill !== false ? fillRgb : null,
       });
     }
     if (entity.type === "text") {
@@ -1282,9 +1488,9 @@
       const geometry = buildDimensionGeometry(entity);
       const dimensionStrokeWidthPt = projector.strokeWidthPt(0.15);
       const commands = [];
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart1, p2: geometry.offset1 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart2, p2: geometry.offset2 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.offset1, p2: geometry.offset2 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart1, p2: geometry.offset1 }, dimensionStrokeWidthPt, strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart2, p2: geometry.offset2 }, dimensionStrokeWidthPt, strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.offset1, p2: geometry.offset2 }, dimensionStrokeWidthPt, strokeRgb));
       commands.push(...buildPdfTextCommands(projector, {
         type: "text",
         x: geometry.midpoint.x,
@@ -1292,6 +1498,7 @@
         text: getDimensionDisplayText(entity, deps),
         height: entity.textHeight || 250,
         align: "center",
+        color: entity.color || style.strokeColor,
       }, deps));
       return commands;
     }
@@ -1338,9 +1545,10 @@
     const objects = [
       "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
       "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-      `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidthPt)} ${formatPdfNumber(pageHeightPt)}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
+      `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidthPt)} ${formatPdfNumber(pageHeightPt)}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>\nendobj\n`,
       "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
-      `5 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
+      "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n",
+      `6 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
     ];
 
     const header = "%PDF-1.4\n";

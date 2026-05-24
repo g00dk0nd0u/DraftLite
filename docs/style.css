@@ -805,15 +805,15 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 .title-block-toggle-row,
 .title-block-export-row {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .title-block-toggle-row {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr;
 }
 
 .title-block-export-row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .title-block-toggle-row .panel-button,
@@ -821,6 +821,19 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   justify-content: center;
   min-width: 0;
   width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title-block-toggle-row .panel-button {
+  font-size: 11px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.title-block-export-row .panel-button {
+  font-size: 10px;
 }
 
 @media (max-width: 768px) {

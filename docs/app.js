@@ -8554,6 +8554,9 @@ function getTitleBlockExportDeps() {
     entities: state.entities,
     isLayerVisible,
     getEntityBoundsUnits,
+    getLayerColor(layerId) {
+      return normalizeColor(getLayerById(layerId)?.color || "#2e3135");
+    },
     getStrokeColorForEntity: getEntityStrokeColor,
     getFillStyleForEntity(entity) {
       const layer = getLayerById(entity.layerId);

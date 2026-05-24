@@ -29,10 +29,54 @@
         "DATE",
       ],
       textHeightsMm: {
-        infoLine: 2.3,
-        title: 4.1,
-        sheetNo: 4.1,
-        notes: 2.4,
+        infoLabel: 1.164,
+        infoValue: 2.011,
+        titleLabel: 1.164,
+        titleValue: 4.41,
+        sheetNoLabel: 1.164,
+        sheetNoValue: 4.41,
+        notesLabel: 1.199,
+      },
+      textStyles: {
+        infoLabel: {
+          fontSizePt: 3.3,
+          color: "#888888",
+          align: "right",
+          letterSpacingEm: 0.075,
+        },
+        infoValue: {
+          fontSizePt: 5.7,
+          color: "#111111",
+          align: "right",
+          fontWeight: 600,
+        },
+        titleLabel: {
+          fontSizePt: 3.3,
+          color: "#888888",
+          align: "right",
+        },
+        titleValue: {
+          fontSizePt: 12.5,
+          color: "#111111",
+          align: "right",
+          fontWeight: 700,
+        },
+        sheetNoLabel: {
+          fontSizePt: 3.3,
+          color: "#888888",
+          align: "right",
+        },
+        sheetNoValue: {
+          fontSizePt: 12.5,
+          color: "#111111",
+          align: "right",
+          fontWeight: 700,
+        },
+        notesLabel: {
+          fontSizePt: 3.4,
+          color: "#999999",
+          align: "left",
+        },
       },
     },
   };
