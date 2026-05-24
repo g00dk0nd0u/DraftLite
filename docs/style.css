@@ -690,6 +690,11 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   justify-self: center;
 }
 
+.layers-subpanel input[type="checkbox"],
+.layers-subpanel input[type="radio"] {
+  accent-color: var(--accent);
+}
+
 .layer-color input[type="color"] {
   width: 26px;
   height: 18px;
