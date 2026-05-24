@@ -302,6 +302,12 @@ summary:focus-visible {
   color: var(--accent-strong);
 }
 
+.panel-button.is-active {
+  background: var(--accent-soft);
+  border-color: rgba(123, 96, 64, 0.32);
+  color: var(--accent-strong);
+}
+
 .tool-button.is-disabled,
 .tool-button:disabled {
   opacity: 0.45;
@@ -794,6 +800,27 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 .prop-value input[type="checkbox"] {
   width: 16px;
   height: 16px;
+}
+
+.title-block-toggle-row,
+.title-block-export-row {
+  display: grid;
+  gap: 6px;
+}
+
+.title-block-toggle-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.title-block-export-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.title-block-toggle-row .panel-button,
+.title-block-export-row .panel-button {
+  justify-content: center;
+  min-width: 0;
+  width: 100%;
 }
 
 @media (max-width: 768px) {

@@ -28,6 +28,7 @@ const scaleBar = document.getElementById("scaleBar");
 const scaleBarTrack = document.getElementById("scaleBarTrack");
 const scaleBarLabels = document.getElementById("scaleBarLabels");
 const scaleBarLines = Array.from(document.querySelectorAll(".scale-bar-line"));
+const titleBlockApi = window.DraftLiteTitleBlock || null;
 
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
@@ -53,6 +54,7 @@ const toolButtons = {
 const deleteButton = document.getElementById("deleteButton");
 const undoButton = document.getElementById("undoButton");
 const redoButton = document.getElementById("redoButton");
+const titleBlockButton = document.getElementById("titleBlockButton");
 const fitAllButton = document.getElementById("fitAllButton");
 const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
@@ -1247,6 +1249,13 @@ function normalizeEntity(entity, options = {}) {
     return null;
   }
   const legacyUnits = Boolean(options.legacyUnits);
+  if (entity.type === "titleBlock" && titleBlockApi && typeof titleBlockApi.normalizeTitleBlockEntity === "function") {
+    return titleBlockApi.normalizeTitleBlockEntity(entity, {
+      roundToUnit,
+      mmToUnits,
+      unitsToMm,
+    });
+  }
   if (entity.type === "line") {
     return {
       id: typeof entity.id === "string" ? entity.id : null,
@@ -1999,6 +2008,26 @@ function renderPropertiesPanel() {
   }
 
   const entity = selectedEntities[0];
+  if (entity.type === "titleBlock" && titleBlockApi) {
+    titleBlockApi.buildTitleBlockProperties({
+      container: propertiesPanel,
+      entity,
+      onChange: (patch, statusMessage) => {
+        pushUndoState();
+        titleBlockApi.updateTitleBlockFromProperties(entity, patch, {
+          roundToUnit,
+          mmToUnits,
+          unitsToMm,
+        });
+        syncAfterStateChange();
+        setStatus(statusMessage || "Title Block updated.");
+      },
+      onScreenshot: () => exportSelectedTitleBlockScreenshot(entity),
+      onPdf: () => exportSelectedTitleBlockPdf(entity),
+      onDxf: () => exportSelectedTitleBlockDxf(entity),
+    });
+    return;
+  }
   if (entity.type === "text") {
     const generalGrid = appendSection("General");
     addPropertyRow(generalGrid, "Type", createReadOnlyText("Text"));
@@ -2417,6 +2446,8 @@ function draw() {
       drawLineEntity(entity);
     } else if (entity.type === "rect") {
       drawRectEntity(entity);
+    } else if (entity.type === "titleBlock") {
+      drawTitleBlockEntity(entity);
     } else if (entity.type === "circle") {
       drawCircleEntity(entity);
     } else if (entity.type === "arc") {
@@ -2850,6 +2881,33 @@ function drawRectEntity(entity) {
   }
   drawSelectedEntityHandles(entity);
   ctx.restore();
+}
+
+function drawTitleBlockEntity(entity) {
+  const layer = getLayerById(entity.layerId);
+  if (!layer || !titleBlockApi) {
+    return;
+  }
+  titleBlockApi.drawTitleBlock(ctx, entity, {
+    projectPoint: worldToScreen,
+    projectBounds(bounds) {
+      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+      return {
+        x: Math.min(p1.x, p2.x),
+        y: Math.min(p1.y, p2.y),
+        width: Math.abs(p2.x - p1.x),
+        height: Math.abs(p2.y - p1.y),
+      };
+    },
+    unitsToPixels(units) {
+      return units * state.view.zoom;
+    },
+    isSelected: state.selectedEntityIds.includes(entity.id),
+    strokeColor: getEntityStrokeColor(entity),
+    mmToUnits,
+    roundToUnit,
+  });
 }
 
 function drawCircleEntity(entity) {
@@ -3293,6 +3351,8 @@ function drawTransformPreview(transformDraft) {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
       ctx.restore();
+    } else if (entity.type === "titleBlock") {
+      drawTitleBlockEntity(entity);
     }
   });
   transformDraft.entities.forEach((entity) => {
@@ -3301,7 +3361,7 @@ function drawTransformPreview(transformDraft) {
       drawSolidPreviewLineEntity(previewLine);
     } else if (entity.type === "rect") {
       drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
-    } else if (entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension") {
+    } else if (entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "titleBlock") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
     }
   });
@@ -3318,6 +3378,8 @@ function drawEntityPreview(entity) {
     drawTextEntity(entity);
   } else if (entity.type === "dimension") {
     drawDimensionEntity(entity);
+  } else if (entity.type === "titleBlock") {
+    drawTitleBlockEntity(entity);
   }
 }
 
@@ -4444,7 +4506,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -4499,7 +4561,7 @@ function updateTransformDraft(worldPoint) {
 }
 
 function applyOffsetToEntity(entity, offset) {
-  if (entity.type === "rect") {
+  if (entity.type === "rect" || entity.type === "titleBlock") {
     return {
       ...entity,
       x: roundToUnit(entity.x + offset.dx),
@@ -4750,32 +4812,7 @@ function rotateEntity(entity, center, angleDeg) {
 }
 
 function getRotateBoundsForEntity(entity) {
-  if (!entity) {
-    return null;
-  }
-  if (entity.type === "line") {
-    return { minX: Math.min(entity.p1.x, entity.p2.x), minY: Math.min(entity.p1.y, entity.p2.y), maxX: Math.max(entity.p1.x, entity.p2.x), maxY: Math.max(entity.p1.y, entity.p2.y) };
-  }
-  if (entity.type === "rect") {
-    return { minX: entity.x, minY: entity.y, maxX: entity.x + entity.width, maxY: entity.y + entity.height };
-  }
-  if (entity.type === "circle" || entity.type === "arc") {
-    return { minX: entity.center.x - entity.radius, minY: entity.center.y - entity.radius, maxX: entity.center.x + entity.radius, maxY: entity.center.y + entity.radius };
-  }
-  if (entity.type === "filledRegion") {
-    const xs = entity.points.map((point) => point.x);
-    const ys = entity.points.map((point) => point.y);
-    return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
-  }
-  if (entity.type === "text") {
-    return getTextBoundsUnits(entity);
-  }
-  if (entity.type === "dimension") {
-    const xs = [entity.p1.x, entity.p2.x, entity.offsetPoint.x];
-    const ys = [entity.p1.y, entity.p2.y, entity.offsetPoint.y];
-    return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
-  }
-  return null;
+  return getEntityBoundsUnits(entity);
 }
 
 function rotateSelectedEntities(angleDeg = 90) {
@@ -5512,6 +5549,14 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
+      if (entity.type === "titleBlock") {
+        const p1 = worldToScreen({ x: entity.x, y: entity.y });
+        const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
+        const bounds = { left: Math.min(p1.x, p2.x), right: Math.max(p1.x, p2.x), top: Math.min(p1.y, p2.y), bottom: Math.max(p1.y, p2.y) };
+        return rect.isCrossing
+          ? !(bounds.right < rect.left || bounds.left > rect.right || bounds.bottom < rect.top || bounds.top > rect.bottom)
+          : (bounds.left >= rect.left && bounds.right <= rect.right && bounds.top >= rect.top && bounds.bottom <= rect.bottom);
+      }
       if (entity.type === "circle" || entity.type === "arc") {
         const centerScreen = worldToScreen(entity.center);
         const radiusScreen = Math.abs(entity.radius * state.view.zoom);
@@ -5609,7 +5654,7 @@ function hitTestEntity(entity, worldPoint) {
     const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
     return distancePx <= state.settings.snapTolerancePx;
   }
-  if (entity.type === "rect") {
+  if (entity.type === "rect" || entity.type === "titleBlock") {
     const p=worldToScreen(worldPoint); const a=worldToScreen({x:entity.x,y:entity.y}); const b=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
     const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x),top=Math.min(a.y,b.y),bottom=Math.max(a.y,b.y);
     const inside = p.x>=left && p.x<=right && p.y>=top && p.y<=bottom;
@@ -6065,33 +6110,67 @@ function getUnitConfig() {
   };
 }
 
+function getEntityBoundsUnits(entity) {
+  if (!entity) {
+    return null;
+  }
+  if (entity.type === "line") {
+    return {
+      minX: Math.min(entity.p1.x, entity.p2.x),
+      minY: Math.min(entity.p1.y, entity.p2.y),
+      maxX: Math.max(entity.p1.x, entity.p2.x),
+      maxY: Math.max(entity.p1.y, entity.p2.y),
+    };
+  }
+  if (entity.type === "rect" || entity.type === "titleBlock") {
+    return {
+      minX: entity.x,
+      minY: entity.y,
+      maxX: entity.x + entity.width,
+      maxY: entity.y + entity.height,
+    };
+  }
+  if (entity.type === "circle" || entity.type === "arc") {
+    return {
+      minX: entity.center.x - entity.radius,
+      minY: entity.center.y - entity.radius,
+      maxX: entity.center.x + entity.radius,
+      maxY: entity.center.y + entity.radius,
+    };
+  }
+  if (entity.type === "filledRegion") {
+    const xs = entity.points.map((point) => point.x);
+    const ys = entity.points.map((point) => point.y);
+    return {
+      minX: Math.min(...xs),
+      minY: Math.min(...ys),
+      maxX: Math.max(...xs),
+      maxY: Math.max(...ys),
+    };
+  }
+  if (entity.type === "text") {
+    return getTextBoundsUnits(entity);
+  }
+  if (entity.type === "dimension") {
+    const geometry = getDimensionGeometry(entity);
+    return {
+      minX: Math.min(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x),
+      minY: Math.min(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y),
+      maxX: Math.max(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x),
+      maxY: Math.max(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y),
+    };
+  }
+  return null;
+}
+
 function getDocumentBoundsUnits(entities = state.entities) {
   const xs = [];
   const ys = [];
   entities.forEach((entity) => {
-    if (!entity) return;
-    if (entity.type === "line") {
-      xs.push(entity.p1.x, entity.p2.x);
-      ys.push(entity.p1.y, entity.p2.y);
-    } else if (entity.type === "rect") {
-      xs.push(entity.x, entity.x + entity.width);
-      ys.push(entity.y, entity.y + entity.height);
-    } else if (entity.type === "circle" || entity.type === "arc") {
-      xs.push(entity.center.x - entity.radius, entity.center.x + entity.radius);
-      ys.push(entity.center.y - entity.radius, entity.center.y + entity.radius);
-    } else if (entity.type === "filledRegion") {
-      entity.points.forEach((point) => {
-        xs.push(point.x);
-        ys.push(point.y);
-      });
-    } else if (entity.type === "text") {
-      const bounds = getTextBoundsUnits(entity);
+    const bounds = getEntityBoundsUnits(entity);
+    if (bounds) {
       xs.push(bounds.minX, bounds.maxX);
       ys.push(bounds.minY, bounds.maxY);
-    } else if (entity.type === "dimension") {
-      const geometry = getDimensionGeometry(entity);
-      xs.push(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x);
-      ys.push(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y);
     }
   });
   if (!xs.length || !ys.length) {
@@ -6170,42 +6249,10 @@ function getAgentBoundsUnits(entities = state.entities) {
   const xs = [];
   const ys = [];
   entities.forEach((entity) => {
-    if (!entity) {
-      return;
-    }
-    if (entity.type === "line") {
-      xs.push(entity.p1.x, entity.p2.x);
-      ys.push(entity.p1.y, entity.p2.y);
-      return;
-    }
-    if (entity.type === "rect") {
-      xs.push(entity.x, entity.x + entity.width);
-      ys.push(entity.y, entity.y + entity.height);
-      return;
-    }
-    if (entity.type === "circle" || entity.type === "arc") {
-      xs.push(entity.center.x - entity.radius, entity.center.x + entity.radius);
-      ys.push(entity.center.y - entity.radius, entity.center.y + entity.radius);
-      return;
-    }
-    if (entity.type === "filledRegion") {
-      (entity.points || []).forEach((point) => {
-        xs.push(point.x);
-        ys.push(point.y);
-      });
-      return;
-    }
-    if (entity.type === "text") {
-      const bounds = getTextBoundsUnits(entity);
-      xs.push(bounds.minX, bounds.maxX);
-      ys.push(bounds.minY, bounds.maxY);
-      return;
-    }
-    if (entity.type === "dimension") {
-      const geometry = getDimensionGeometry(entity);
-      xs.push(entity.p1.x, entity.p2.x, entity.offsetPoint.x, geometry.o1.x, geometry.o2.x);
-      ys.push(entity.p1.y, entity.p2.y, entity.offsetPoint.y, geometry.o1.y, geometry.o2.y);
-    }
+    const bounds = getEntityBoundsUnits(entity);
+    if (!bounds) return;
+    xs.push(bounds.minX, bounds.maxX);
+    ys.push(bounds.minY, bounds.maxY);
   });
   if (!xs.length || !ys.length) {
     return null;
@@ -8457,6 +8504,92 @@ function fitAll() {
   setStatus("Fit all applied.");
 }
 
+function getViewportCenterWorld() {
+  return roundWorldPoint(screenToWorld({
+    x: uiState.canvasRect.width / 2,
+    y: uiState.canvasRect.height / 2,
+  }));
+}
+
+function addTitleBlockEntity() {
+  if (!titleBlockApi) {
+    setStatus("Title Block module is unavailable.");
+    return false;
+  }
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
+    setStatus("Choose a visible, unlocked active layer before placing a Title Block.");
+    return false;
+  }
+  pushUndoState();
+  const entity = titleBlockApi.createTitleBlockEntity({
+    id: createEntityId(),
+    layerId: state.activeLayerId,
+    center: getViewportCenterWorld(),
+    roundWorldPoint,
+    roundToUnit,
+    mmToUnits,
+  });
+  state.entities.push(entity);
+  state.selectedEntityIds = [entity.id];
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Title Block placed.");
+  return true;
+}
+
+function getTitleBlockExportDeps() {
+  return {
+    entities: state.entities,
+    isLayerVisible,
+    getEntityBoundsUnits,
+    getStrokeColorForEntity: getEntityStrokeColor,
+    getFillStyleForEntity(entity) {
+      const layer = getLayerById(entity.layerId);
+      return getEntityFillStyle(entity, layer?.color || getEntityStrokeColor(entity), 0.18);
+    },
+    buildDxfTextFromEntities,
+    getDxfExportSummaryForEntities,
+    downloadBlob,
+    createTimestampLabel,
+    setStatus,
+    roundToUnit,
+    roundWorldPoint,
+    mmToUnits,
+    unitsToMm,
+  };
+}
+
+function exportSelectedTitleBlockScreenshot(entity) {
+  if (!titleBlockApi) {
+    return Promise.resolve();
+  }
+  return titleBlockApi.exportTitleBlockScreenshot(entity, getTitleBlockExportDeps()).catch((error) => {
+    console.error(error);
+    setStatus("Title Block screenshot export failed.");
+  });
+}
+
+function exportSelectedTitleBlockPdf(entity) {
+  if (!titleBlockApi) {
+    return Promise.resolve();
+  }
+  return titleBlockApi.exportTitleBlockPdf(entity, getTitleBlockExportDeps()).catch((error) => {
+    console.error(error);
+    setStatus("Title Block PDF export failed.");
+  });
+}
+
+function exportSelectedTitleBlockDxf(entity) {
+  if (!titleBlockApi) {
+    return Promise.resolve();
+  }
+  return titleBlockApi.exportTitleBlockDxf(entity, getTitleBlockExportDeps()).catch((error) => {
+    console.error(error);
+    setStatus("Title Block DXF export failed.");
+  });
+}
+
 function setActiveTool(tool) {
   const missingTransformTarget = (tool === "move" || tool === "copy") && !canStartTransformTool();
   if (uiState.activeTool !== tool) {
@@ -8554,11 +8687,14 @@ function exportDxf() {
 }
 
 function buildDxfText() {
-  const exportEntities = collectDxfExportEntities();
-  const exportLines = collectDxfExportLines();
-  const exportCircles = collectDxfExportCircleEntities();
-  const exportArcs = collectDxfExportArcEntities();
-  const exportTexts = collectDxfExportTextEntities();
+  return buildDxfTextFromEntities(collectDxfExportEntities());
+}
+
+function buildDxfTextFromEntities(exportEntities) {
+  const exportLines = collectDxfExportLines(exportEntities);
+  const exportCircles = collectDxfExportCircleEntities(exportEntities);
+  const exportArcs = collectDxfExportArcEntities(exportEntities);
+  const exportTexts = collectDxfExportTextEntities(exportEntities);
   const layerNames = collectDxfLayerNames(exportEntities);
 
   const dxfLines = [];
@@ -8644,11 +8780,14 @@ function buildDxfText() {
 }
 
 function getDxfExportSummary() {
-  const exportEntities = collectDxfExportEntities();
-  const exportLines = collectDxfExportLines();
-  const exportCircles = collectDxfExportCircleEntities();
-  const exportArcs = collectDxfExportArcEntities();
-  const exportTexts = collectDxfExportTextEntities();
+  return getDxfExportSummaryForEntities(collectDxfExportEntities());
+}
+
+function getDxfExportSummaryForEntities(exportEntities) {
+  const exportLines = collectDxfExportLines(exportEntities);
+  const exportCircles = collectDxfExportCircleEntities(exportEntities);
+  const exportArcs = collectDxfExportArcEntities(exportEntities);
+  const exportTexts = collectDxfExportTextEntities(exportEntities);
   const bounds = getDxfBoundsMm(exportLines, exportTexts, exportCircles, exportArcs);
 
   return {
@@ -8742,32 +8881,45 @@ function collectDxfExportEntities() {
   return state.entities.filter((entity) =>
     entity &&
     isLayerVisible(entity.layerId) &&
-    (entity.type === "line" || entity.type === "rect" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
+    (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
   );
 }
 
-function collectDxfExportLines() {
-  return collectDxfExportEntities().flatMap((entity) =>
+function collectDxfExportLines(entities = collectDxfExportEntities()) {
+  return entities.flatMap((entity) =>
     entity.type === "line"
       ? [entity]
       : (entity.type === "rect"
         ? rectToOutlineLines(entity)
+        : (entity.type === "titleBlock" && titleBlockApi && typeof titleBlockApi.getDxfPrimitives === "function"
+          ? titleBlockApi.getDxfPrimitives(entity, { roundToUnit, mmToUnits }).lines
         : (entity.type === "filledRegion"
           ? filledRegionToOutlineLines(entity)
-          : (entity.type === "dimension" ? explodeDimensionToDxfPrimitives(entity).lines : [])))
+          : (entity.type === "dimension" ? explodeDimensionToDxfPrimitives(entity).lines : []))))
   );
 }
 
-function collectDxfExportTextEntities() {
-  return collectDxfExportEntities().flatMap((entity) => entity.type === "text" ? [entity] : (entity.type === "dimension" ? [explodeDimensionToDxfPrimitives(entity).text] : []));
+function collectDxfExportTextEntities(entities = collectDxfExportEntities()) {
+  return entities.flatMap((entity) => {
+    if (entity.type === "text") {
+      return [entity];
+    }
+    if (entity.type === "dimension") {
+      return [explodeDimensionToDxfPrimitives(entity).text];
+    }
+    if (entity.type === "titleBlock" && titleBlockApi && typeof titleBlockApi.getDxfPrimitives === "function") {
+      return titleBlockApi.getDxfPrimitives(entity, { roundToUnit, mmToUnits }).texts;
+    }
+    return [];
+  });
 }
 
-function collectDxfExportCircleEntities() {
-  return collectDxfExportEntities().filter((entity) => entity.type === "circle");
+function collectDxfExportCircleEntities(entities = collectDxfExportEntities()) {
+  return entities.filter((entity) => entity.type === "circle");
 }
 
-function collectDxfExportArcEntities() {
-  return collectDxfExportEntities().filter((entity) => entity.type === "arc");
+function collectDxfExportArcEntities(entities = collectDxfExportEntities()) {
+  return entities.filter((entity) => entity.type === "arc");
 }
 
 function filledRegionToOutlineLines(entity) {
@@ -9250,6 +9402,9 @@ function bindEvents() {
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);
+  if (titleBlockButton) {
+    titleBlockButton.addEventListener("click", addTitleBlockEntity);
+  }
   fitAllButton.addEventListener("click", fitAll);
   saveJsonButton.addEventListener("click", saveJsonToFile);
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());

@@ -1,0 +1,1067 @@
+"use strict";
+
+(function attachDraftLiteTitleBlock() {
+  const DEFAULT_TEMPLATE_ID = "a3-standard-v6";
+  const DEFAULT_PAPER_SIZE = "A3";
+  const DEFAULT_ORIENTATION = "landscape";
+  const DEFAULT_SCALE = 100;
+  const DEFAULT_SHOW_MODE = "full";
+  const SCALE_OPTIONS = [50, 100, 200, 500];
+
+  function getTemplateRegistry() {
+    return window.DraftLiteTitleBlockTemplates || null;
+  }
+
+  function getTemplateDefinition(templateId) {
+    const registry = getTemplateRegistry();
+    if (registry && typeof registry.getTemplate === "function") {
+      return registry.getTemplate(templateId);
+    }
+    return {
+      id: DEFAULT_TEMPLATE_ID,
+      name: "A3 Standard v6",
+      defaultPaperSize: DEFAULT_PAPER_SIZE,
+      defaultOrientation: DEFAULT_ORIENTATION,
+      outerInsetMm: 5,
+      innerInsetMm: 10,
+      titleBlockHeightMm: 12,
+      infoRowHeightMm: 6,
+      notesRowHeightMm: 6,
+      leftWingWidthMm: 200,
+      rightWingWidthMm: 200,
+      sheetNoWidthMm: 40,
+      infoColumns: ["PROJECT NAME", "DRAWN BY", "SCALE", "PAPER", "DATE"],
+      textHeightsMm: { label: 2.1, value: 2.7, title: 4.1, sheetNo: 4.1, notes: 2.4 },
+    };
+  }
+
+  function getPaperSizeDefinition(paperSize) {
+    const registry = getTemplateRegistry();
+    if (registry && typeof registry.getPaperSize === "function") {
+      return registry.getPaperSize(paperSize);
+    }
+    if (paperSize === "A4") {
+      return { widthMm: 297, heightMm: 210 };
+    }
+    if (paperSize === "16:9") {
+      return { widthMm: 420, heightMm: 236.25 };
+    }
+    return { widthMm: 420, heightMm: 297 };
+  }
+
+  function roundWorldPoint(point, deps = {}) {
+    if (typeof deps.roundWorldPoint === "function") {
+      return deps.roundWorldPoint(point);
+    }
+    return {
+      x: Math.round(Number(point && point.x) || 0),
+      y: Math.round(Number(point && point.y) || 0),
+    };
+  }
+
+  function roundToUnit(value, deps = {}) {
+    if (typeof deps.roundToUnit === "function") {
+      return deps.roundToUnit(value);
+    }
+    return Math.round(Number(value) || 0);
+  }
+
+  function mmToUnits(mm, deps = {}) {
+    if (typeof deps.mmToUnits === "function") {
+      return deps.mmToUnits(mm);
+    }
+    return Math.round((Number(mm) || 0) * 10);
+  }
+
+  function unitsToMm(units, deps = {}) {
+    if (typeof deps.unitsToMm === "function") {
+      return deps.unitsToMm(units);
+    }
+    return (Number(units) || 0) / 10;
+  }
+
+  function normalizeOrientation(value) {
+    return value === "portrait" ? "portrait" : "landscape";
+  }
+
+  function normalizePaperSize(value) {
+    return value === "A4" || value === "16:9" ? value : "A3";
+  }
+
+  function normalizeShowMode(value) {
+    return value === "cropOnly" ? "cropOnly" : "full";
+  }
+
+  function normalizeScale(value) {
+    const numeric = Math.round(Number(value) || DEFAULT_SCALE);
+    return Math.max(1, numeric);
+  }
+
+  function getOrientedPaperSizeMm(entity) {
+    const basePaper = getPaperSizeDefinition(normalizePaperSize(entity && entity.paperSize));
+    if (normalizeOrientation(entity && entity.orientation) === "portrait") {
+      return {
+        widthMm: basePaper.heightMm,
+        heightMm: basePaper.widthMm,
+      };
+    }
+    return { ...basePaper };
+  }
+
+  function getWorldUnitsFromPaperMm(entity, mm, deps = {}) {
+    return mmToUnits(mm * normalizeScale(entity && entity.scale), deps);
+  }
+
+  function getTitleBlockWorldSize(entity, deps = {}) {
+    const paper = getOrientedPaperSizeMm(entity);
+    return {
+      width: getWorldUnitsFromPaperMm(entity, paper.widthMm, deps),
+      height: getWorldUnitsFromPaperMm(entity, paper.heightMm, deps),
+    };
+  }
+
+  function getTitleBlockBounds(entity) {
+    return {
+      minX: entity.x,
+      minY: entity.y,
+      maxX: entity.x + entity.width,
+      maxY: entity.y + entity.height,
+      width: entity.width,
+      height: entity.height,
+    };
+  }
+
+  function updateTitleBlockSizeFromScale(entity, deps = {}) {
+    const centerX = roundToUnit(entity.x + entity.width / 2, deps);
+    const centerY = roundToUnit(entity.y + entity.height / 2, deps);
+    const nextSize = getTitleBlockWorldSize(entity, deps);
+    entity.width = nextSize.width;
+    entity.height = nextSize.height;
+    entity.x = roundToUnit(centerX - nextSize.width / 2, deps);
+    entity.y = roundToUnit(centerY - nextSize.height / 2, deps);
+    return entity;
+  }
+
+  function createTitleBlockEntity(options = {}) {
+    const entity = {
+      id: typeof options.id === "string" && options.id ? options.id : null,
+      type: "titleBlock",
+      layerId: typeof options.layerId === "string" ? options.layerId : null,
+      templateId: typeof options.templateId === "string" && options.templateId ? options.templateId : DEFAULT_TEMPLATE_ID,
+      paperSize: normalizePaperSize(options.paperSize),
+      orientation: normalizeOrientation(options.orientation || DEFAULT_ORIENTATION),
+      scale: normalizeScale(options.scale),
+      showMode: normalizeShowMode(options.showMode),
+      title: typeof options.title === "string" ? options.title : "1F FLOOR PLAN",
+      sheetNo: typeof options.sheetNo === "string" ? options.sheetNo : "A-101",
+      projectName: typeof options.projectName === "string" ? options.projectName : "DraftLite Sample",
+      drawnBy: typeof options.drawnBy === "string" ? options.drawnBy : "",
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    };
+
+    updateTitleBlockSizeFromScale(entity, options);
+    const center = roundWorldPoint(options.center || { x: 0, y: 0 }, options);
+    entity.x = roundToUnit(center.x - entity.width / 2, options);
+    entity.y = roundToUnit(center.y - entity.height / 2, options);
+    return entity;
+  }
+
+  function normalizeTitleBlockEntity(entity, deps = {}) {
+    if (!entity || entity.type !== "titleBlock") {
+      return null;
+    }
+    const normalized = {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "titleBlock",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      templateId: typeof entity.templateId === "string" && entity.templateId ? entity.templateId : DEFAULT_TEMPLATE_ID,
+      paperSize: normalizePaperSize(entity.paperSize),
+      orientation: normalizeOrientation(entity.orientation),
+      scale: normalizeScale(entity.scale),
+      showMode: normalizeShowMode(entity.showMode),
+      title: typeof entity.title === "string" ? entity.title : "1F FLOOR PLAN",
+      sheetNo: typeof entity.sheetNo === "string" ? entity.sheetNo : "A-101",
+      projectName: typeof entity.projectName === "string" ? entity.projectName : "DraftLite Sample",
+      drawnBy: typeof entity.drawnBy === "string" ? entity.drawnBy : "",
+      x: roundToUnit(Number(entity.x) || 0, deps),
+      y: roundToUnit(Number(entity.y) || 0, deps),
+      width: roundToUnit(Number(entity.width) || 0, deps),
+      height: roundToUnit(Number(entity.height) || 0, deps),
+    };
+
+    const center = {
+      x: normalized.x + normalized.width / 2,
+      y: normalized.y + normalized.height / 2,
+    };
+    updateTitleBlockSizeFromScale(normalized, deps);
+    normalized.x = roundToUnit(center.x - normalized.width / 2, deps);
+    normalized.y = roundToUnit(center.y - normalized.height / 2, deps);
+    return normalized;
+  }
+
+  function getTitleBlockLayout(entity) {
+    const template = getTemplateDefinition(entity.templateId);
+    const paper = getOrientedPaperSizeMm(entity);
+    const innerInsetMm = template.innerInsetMm;
+    const outerInsetMm = template.outerInsetMm;
+    const innerFrame = {
+      xMm: innerInsetMm,
+      yMm: innerInsetMm,
+      widthMm: Math.max(1, paper.widthMm - innerInsetMm * 2),
+      heightMm: Math.max(1, paper.heightMm - innerInsetMm * 2),
+    };
+    const outerBorder = {
+      xMm: outerInsetMm,
+      yMm: outerInsetMm,
+      widthMm: Math.max(1, paper.widthMm - outerInsetMm * 2),
+      heightMm: Math.max(1, paper.heightMm - outerInsetMm * 2),
+    };
+    const titleBlockHeightMm = template.titleBlockHeightMm;
+    const cropArea = {
+      xMm: innerFrame.xMm,
+      yMm: innerFrame.yMm,
+      widthMm: innerFrame.widthMm,
+      heightMm: Math.max(1, innerFrame.heightMm - titleBlockHeightMm),
+    };
+    const titleBand = {
+      xMm: innerFrame.xMm,
+      yMm: innerFrame.yMm + cropArea.heightMm,
+      widthMm: innerFrame.widthMm,
+      heightMm: titleBlockHeightMm,
+    };
+    const halfWidthMm = innerFrame.widthMm / 2;
+    const leftWing = {
+      xMm: titleBand.xMm,
+      yMm: titleBand.yMm,
+      widthMm: halfWidthMm,
+      heightMm: titleBand.heightMm,
+    };
+    const rightWing = {
+      xMm: titleBand.xMm + halfWidthMm,
+      yMm: titleBand.yMm,
+      widthMm: halfWidthMm,
+      heightMm: titleBand.heightMm,
+    };
+
+    return {
+      template,
+      paper,
+      outerBorder,
+      innerFrame,
+      cropArea,
+      titleBand,
+      leftWing,
+      rightWing,
+    };
+  }
+
+  function localMmPointToWorld(entity, xMm, yMm, deps = {}) {
+    return {
+      x: roundToUnit(entity.x + getWorldUnitsFromPaperMm(entity, xMm, deps), deps),
+      y: roundToUnit(entity.y + getWorldUnitsFromPaperMm(entity, yMm, deps), deps),
+    };
+  }
+
+  function localMmRectToWorld(entity, rectMm, deps = {}) {
+    const p1 = localMmPointToWorld(entity, rectMm.xMm, rectMm.yMm, deps);
+    return {
+      x: p1.x,
+      y: p1.y,
+      width: getWorldUnitsFromPaperMm(entity, rectMm.widthMm, deps),
+      height: getWorldUnitsFromPaperMm(entity, rectMm.heightMm, deps),
+    };
+  }
+
+  function rectToLines(rect, layerId) {
+    const x1 = rect.x;
+    const y1 = rect.y;
+    const x2 = rect.x + rect.width;
+    const y2 = rect.y + rect.height;
+    return [
+      { type: "line", layerId, p1: { x: x1, y: y1 }, p2: { x: x2, y: y1 } },
+      { type: "line", layerId, p1: { x: x2, y: y1 }, p2: { x: x2, y: y2 } },
+      { type: "line", layerId, p1: { x: x2, y: y2 }, p2: { x: x1, y: y2 } },
+      { type: "line", layerId, p1: { x: x1, y: y2 }, p2: { x: x1, y: y1 } },
+    ];
+  }
+
+  function createTextPrimitive(entity, xMm, yMm, text, heightMm, align, deps = {}) {
+    return {
+      type: "text",
+      layerId: entity.layerId,
+      x: localMmPointToWorld(entity, xMm, yMm, deps).x,
+      y: localMmPointToWorld(entity, xMm, yMm, deps).y,
+      text: String(text || ""),
+      height: Math.max(1, getWorldUnitsFromPaperMm(entity, heightMm, deps)),
+      rotation: 0,
+      align: align || "left",
+      textAnchor: "center",
+      color: "",
+    };
+  }
+
+  function getDisplayPaperLabel(entity) {
+    return `${normalizePaperSize(entity.paperSize)} ${normalizeOrientation(entity.orientation) === "portrait" ? "Portrait" : "Landscape"}`;
+  }
+
+  function getTodayLabel() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  function getTitleBlockPrimitives(entity, deps = {}) {
+    const layout = getTitleBlockLayout(entity);
+    const lines = [];
+    const texts = [];
+    const outerBorder = localMmRectToWorld(entity, layout.outerBorder, deps);
+    const innerFrame = localMmRectToWorld(entity, layout.innerFrame, deps);
+    const cropArea = localMmRectToWorld(entity, layout.cropArea, deps);
+    const titleBand = localMmRectToWorld(entity, layout.titleBand, deps);
+    const leftWing = localMmRectToWorld(entity, layout.leftWing, deps);
+    const rightWing = localMmRectToWorld(entity, layout.rightWing, deps);
+    const labelHeights = layout.template.textHeightsMm;
+
+    lines.push(...rectToLines(cropArea, entity.layerId));
+
+    if (normalizeShowMode(entity.showMode) === "full") {
+      lines.push(...rectToLines(outerBorder, entity.layerId));
+      lines.push(...rectToLines(innerFrame, entity.layerId));
+      lines.push({ type: "line", layerId: entity.layerId, p1: { x: leftWing.x + leftWing.width, y: titleBand.y }, p2: { x: leftWing.x + leftWing.width, y: titleBand.y + titleBand.height } });
+      lines.push({ type: "line", layerId: entity.layerId, p1: { x: rightWing.x + rightWing.width - getWorldUnitsFromPaperMm(entity, layout.template.sheetNoWidthMm, deps), y: rightWing.y }, p2: { x: rightWing.x + rightWing.width - getWorldUnitsFromPaperMm(entity, layout.template.sheetNoWidthMm, deps), y: rightWing.y + rightWing.height } });
+      lines.push({ type: "line", layerId: entity.layerId, p1: { x: leftWing.x, y: leftWing.y + getWorldUnitsFromPaperMm(entity, layout.template.infoRowHeightMm, deps) }, p2: { x: leftWing.x + leftWing.width, y: leftWing.y + getWorldUnitsFromPaperMm(entity, layout.template.infoRowHeightMm, deps) } });
+
+      const infoColumnWidthMm = layout.leftWing.widthMm / layout.template.infoColumns.length;
+      for (let index = 1; index < layout.template.infoColumns.length; index += 1) {
+        const xMm = layout.leftWing.xMm + infoColumnWidthMm * index;
+        const start = localMmPointToWorld(entity, xMm, layout.leftWing.yMm, deps);
+        const end = localMmPointToWorld(entity, xMm, layout.leftWing.yMm + layout.template.infoRowHeightMm, deps);
+        lines.push({ type: "line", layerId: entity.layerId, p1: start, p2: end });
+      }
+
+      const infoValues = [
+        entity.projectName || "",
+        entity.drawnBy || "",
+        `1:${normalizeScale(entity.scale)}`,
+        getDisplayPaperLabel(entity),
+        getTodayLabel(),
+      ];
+      layout.template.infoColumns.forEach((label, index) => {
+        const leftMm = layout.leftWing.xMm + infoColumnWidthMm * index;
+        const rightMm = leftMm + infoColumnWidthMm - 2.2;
+        texts.push(createTextPrimitive(entity, leftMm + 2.2, layout.leftWing.yMm + 2.6, label, labelHeights.label, "left", deps));
+        texts.push(createTextPrimitive(entity, rightMm, layout.leftWing.yMm + 5.1, infoValues[index], labelHeights.value, "right", deps));
+      });
+
+      texts.push(createTextPrimitive(entity, layout.leftWing.xMm + 2.2, layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.9, "NOTES", labelHeights.label, "left", deps));
+      if (entity.projectName) {
+        texts.push(createTextPrimitive(entity, layout.leftWing.xMm + layout.leftWing.widthMm - 2.2, layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.9, entity.projectName, labelHeights.notes, "right", deps));
+      }
+      texts.push(createTextPrimitive(entity, layout.rightWing.xMm + layout.rightWing.widthMm - layout.template.sheetNoWidthMm - 2.5, layout.rightWing.yMm + 7.8, entity.title || "", labelHeights.title, "right", deps));
+      texts.push(createTextPrimitive(entity, layout.rightWing.xMm + layout.rightWing.widthMm - 2.5, layout.rightWing.yMm + 7.8, entity.sheetNo || "", labelHeights.sheetNo, "right", deps));
+    }
+
+    return {
+      paperBounds: getTitleBlockBounds(entity),
+      cropBounds: getTitleBlockCropBounds(entity, deps),
+      lines,
+      texts,
+    };
+  }
+
+  function getTitleBlockCropBounds(entity, deps = {}) {
+    const layout = getTitleBlockLayout(entity);
+    const cropArea = localMmRectToWorld(entity, layout.cropArea, deps);
+    return {
+      minX: cropArea.x,
+      minY: cropArea.y,
+      maxX: cropArea.x + cropArea.width,
+      maxY: cropArea.y + cropArea.height,
+      width: cropArea.width,
+      height: cropArea.height,
+    };
+  }
+
+  function getDxfPrimitives(entity, deps = {}) {
+    const primitives = getTitleBlockPrimitives(entity, deps);
+    return {
+      lines: primitives.lines,
+      texts: primitives.texts,
+    };
+  }
+
+  function drawWorldLine(ctx, projectPoint, line, options = {}) {
+    const start = projectPoint(line.p1);
+    const end = projectPoint(line.p2);
+    ctx.save();
+    ctx.strokeStyle = options.strokeStyle;
+    ctx.lineWidth = options.lineWidth;
+    if (options.dash) {
+      ctx.setLineDash(options.dash);
+    }
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawWorldText(ctx, projectPoint, textEntity, options = {}) {
+    const point = projectPoint({ x: textEntity.x, y: textEntity.y });
+    const fontPx = Math.max(8, Math.abs(options.unitsToPixels(textEntity.height)));
+    ctx.save();
+    ctx.fillStyle = options.fillStyle;
+    ctx.font = `${fontPx}px sans-serif`;
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = textEntity.align || "left";
+    ctx.fillText(String(textEntity.text || ""), point.x, point.y + fontPx / 2);
+    ctx.restore();
+  }
+
+  function drawTitleBlockTemplateA3StandardV6(ctx, entity, deps = {}) {
+    const projectPoint = deps.projectPoint;
+    const unitsToPixels = deps.unitsToPixels;
+    const primitives = getTitleBlockPrimitives(entity, deps);
+    const isSelected = Boolean(deps.isSelected);
+    const showMode = normalizeShowMode(entity.showMode);
+    const screenBounds = deps.projectBounds(primitives.paperBounds);
+    const cropScreenBounds = deps.projectBounds(primitives.cropBounds);
+
+    if (isSelected) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.28)";
+      ctx.lineWidth = 10;
+      ctx.strokeRect(screenBounds.x, screenBounds.y, screenBounds.width, screenBounds.height);
+      ctx.restore();
+    }
+
+    if (showMode === "cropOnly") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.88)";
+      ctx.lineWidth = Math.max(1.4, Math.abs(unitsToPixels(mmToUnits(0.6, deps))));
+      ctx.strokeRect(cropScreenBounds.x, cropScreenBounds.y, cropScreenBounds.width, cropScreenBounds.height);
+      ctx.setLineDash([10, 6]);
+      ctx.strokeStyle = "rgba(98, 73, 45, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(screenBounds.x, screenBounds.y, screenBounds.width, screenBounds.height);
+      ctx.restore();
+      return;
+    }
+
+    const strokeColor = deps.strokeColor || "#2e3135";
+    primitives.lines.forEach((line) => {
+      drawWorldLine(ctx, projectPoint, line, {
+        strokeStyle: strokeColor,
+        lineWidth: Math.max(1, Math.abs(unitsToPixels(mmToUnits(0.35, deps)))),
+      });
+    });
+    primitives.texts.forEach((textEntity) => {
+      drawWorldText(ctx, projectPoint, textEntity, {
+        fillStyle: strokeColor,
+        unitsToPixels,
+      });
+    });
+  }
+
+  function drawTitleBlock(ctx, entity, deps = {}) {
+    const templateId = typeof entity.templateId === "string" ? entity.templateId : DEFAULT_TEMPLATE_ID;
+    if (templateId === "a3-standard-v6") {
+      drawTitleBlockTemplateA3StandardV6(ctx, entity, deps);
+      return;
+    }
+    drawTitleBlockTemplateA3StandardV6(ctx, entity, deps);
+  }
+
+  function buildTitleBlockProperties(options = {}) {
+    const entity = options.entity;
+    const container = options.container;
+    if (!entity || !container) {
+      return;
+    }
+    container.innerHTML = "";
+
+    const appendSection = (title) => {
+      const section = document.createElement("section");
+      section.className = "prop-section";
+      const heading = document.createElement("h4");
+      heading.className = "prop-section-title";
+      heading.textContent = title;
+      const grid = document.createElement("div");
+      grid.className = "prop-grid";
+      section.append(heading, grid);
+      container.appendChild(section);
+      return grid;
+    };
+
+    const addRow = (grid, labelText, element) => {
+      const label = document.createElement("label");
+      label.className = "prop-label";
+      label.textContent = labelText;
+      const value = document.createElement("div");
+      value.className = "prop-value";
+      value.appendChild(element);
+      grid.append(label, value);
+    };
+
+    const createSelect = (value, entries, onChange) => {
+      const select = document.createElement("select");
+      entries.forEach((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.value;
+        option.textContent = entry.label;
+        option.selected = entry.value === value;
+        select.appendChild(option);
+      });
+      select.addEventListener("change", () => onChange(select.value));
+      return select;
+    };
+
+    const createTextInput = (value, onChange) => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value || "";
+      input.addEventListener("change", () => onChange(input.value));
+      return input;
+    };
+
+    const createScaleInput = (value, onChange) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.step = "1";
+      input.value = String(value || DEFAULT_SCALE);
+      input.setAttribute("list", "titleBlockScaleOptions");
+      const list = document.createElement("datalist");
+      list.id = "titleBlockScaleOptions";
+      SCALE_OPTIONS.forEach((scale) => {
+        const option = document.createElement("option");
+        option.value = String(scale);
+        list.appendChild(option);
+      });
+      input.addEventListener("change", () => onChange(input.value));
+      const wrap = document.createElement("div");
+      wrap.append(input, list);
+      return wrap;
+    };
+
+    const createToggle = (value, entries, onChange) => {
+      const row = document.createElement("div");
+      row.className = "title-block-toggle-row";
+      entries.forEach((entry) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `panel-button${entry.value === value ? " is-active" : ""}`;
+        button.textContent = entry.label;
+        button.addEventListener("click", () => onChange(entry.value));
+        row.appendChild(button);
+      });
+      return row;
+    };
+
+    const generalGrid = appendSection("General");
+    const typeText = document.createElement("span");
+    typeText.className = "prop-static";
+    typeText.textContent = "Title Block";
+    addRow(generalGrid, "Type", typeText);
+    addRow(generalGrid, "Template", createSelect(entity.templateId, [
+      { value: "a3-standard-v6", label: "A3 Standard v6" },
+    ], (value) => options.onChange({ templateId: value }, "Title Block template updated.")));
+    addRow(generalGrid, "Paper Type", createSelect(entity.paperSize, [
+      { value: "A3", label: "A3" },
+      { value: "A4", label: "A4" },
+      { value: "16:9", label: "16:9" },
+    ], (value) => options.onChange({ paperSize: value }, "Title Block paper updated.")));
+    addRow(generalGrid, "Orientation", createToggle(entity.orientation, [
+      { value: "landscape", label: "Landscape" },
+      { value: "portrait", label: "Portrait" },
+    ], (value) => options.onChange({ orientation: value }, "Title Block orientation updated.")));
+    addRow(generalGrid, "Scale", createScaleInput(entity.scale, (value) => options.onChange({ scale: value }, "Title Block scale updated.")));
+    addRow(generalGrid, "Display", createToggle(entity.showMode, [
+      { value: "full", label: "Full Title Block" },
+      { value: "cropOnly", label: "Crop Area Only" },
+    ], (value) => options.onChange({ showMode: value }, "Title Block display updated.")));
+
+    const textGrid = appendSection("Sheet Data");
+    addRow(textGrid, "Drawing Title", createTextInput(entity.title, (value) => options.onChange({ title: value }, "Title updated.")));
+    addRow(textGrid, "Sheet No", createTextInput(entity.sheetNo, (value) => options.onChange({ sheetNo: value }, "Sheet No updated.")));
+    addRow(textGrid, "Project Name", createTextInput(entity.projectName, (value) => options.onChange({ projectName: value }, "Project Name updated.")));
+    addRow(textGrid, "Drawn By", createTextInput(entity.drawnBy, (value) => options.onChange({ drawnBy: value }, "Drawn By updated.")));
+
+    const exportGrid = appendSection("Export");
+    const exportRow = document.createElement("div");
+    exportRow.className = "title-block-export-row";
+    [
+      { label: "SCREEN SHOT", handler: options.onScreenshot },
+      { label: "PDF", handler: options.onPdf },
+      { label: "DXF", handler: options.onDxf },
+    ].forEach((entry) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "panel-button";
+      button.textContent = entry.label;
+      button.addEventListener("click", () => {
+        if (typeof entry.handler === "function") {
+          entry.handler();
+        }
+      });
+      exportRow.appendChild(button);
+    });
+    addRow(exportGrid, "Output", exportRow);
+  }
+
+  function updateTitleBlockFromProperties(entity, patch = {}, deps = {}) {
+    if (!entity || entity.type !== "titleBlock") {
+      return entity;
+    }
+    const nextPatch = { ...patch };
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "templateId")) {
+      entity.templateId = typeof nextPatch.templateId === "string" && nextPatch.templateId ? nextPatch.templateId : DEFAULT_TEMPLATE_ID;
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "paperSize")) {
+      entity.paperSize = normalizePaperSize(nextPatch.paperSize);
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "orientation")) {
+      entity.orientation = normalizeOrientation(nextPatch.orientation);
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "scale")) {
+      entity.scale = normalizeScale(nextPatch.scale);
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "showMode")) {
+      entity.showMode = normalizeShowMode(nextPatch.showMode);
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "title")) {
+      entity.title = String(nextPatch.title || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "sheetNo")) {
+      entity.sheetNo = String(nextPatch.sheetNo || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "projectName")) {
+      entity.projectName = String(nextPatch.projectName || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "drawnBy")) {
+      entity.drawnBy = String(nextPatch.drawnBy || "");
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(nextPatch, "templateId")
+      || Object.prototype.hasOwnProperty.call(nextPatch, "paperSize")
+      || Object.prototype.hasOwnProperty.call(nextPatch, "orientation")
+      || Object.prototype.hasOwnProperty.call(nextPatch, "scale")
+    ) {
+      updateTitleBlockSizeFromScale(entity, deps);
+    }
+    return entity;
+  }
+
+  function getEntityBoundsUnits(entity, deps = {}) {
+    if (!entity) {
+      return null;
+    }
+    if (entity.type === "titleBlock") {
+      return getTitleBlockBounds(entity);
+    }
+    if (typeof deps.getEntityBoundsUnits === "function") {
+      return deps.getEntityBoundsUnits(entity);
+    }
+    return null;
+  }
+
+  function isBoundsFullyInside(inner, outer) {
+    return Boolean(
+      inner
+      && outer
+      && inner.minX >= outer.minX
+      && inner.maxX <= outer.maxX
+      && inner.minY >= outer.minY
+      && inner.maxY <= outer.maxY
+    );
+  }
+
+  function collectEntitiesForExport(titleBlockEntity, deps = {}) {
+    const sheetBounds = getTitleBlockBounds(titleBlockEntity);
+    const entities = Array.isArray(deps.entities) ? deps.entities : [];
+    const isLayerVisible = typeof deps.isLayerVisible === "function"
+      ? deps.isLayerVisible
+      : () => true;
+
+    const included = entities.filter((entity) => {
+      if (!entity || entity.id === titleBlockEntity.id) {
+        return false;
+      }
+      if (entity.type === "titleBlock") {
+        return false;
+      }
+      if (!isLayerVisible(entity.layerId)) {
+        return false;
+      }
+      return isBoundsFullyInside(getEntityBoundsUnits(entity, deps), sheetBounds);
+    });
+    return [...included, titleBlockEntity];
+  }
+
+  function createWorldProjector(bounds, canvasWidth, canvasHeight) {
+    const widthUnits = Math.max(1, bounds.maxX - bounds.minX);
+    const heightUnits = Math.max(1, bounds.maxY - bounds.minY);
+    const scaleX = canvasWidth / widthUnits;
+    const scaleY = canvasHeight / heightUnits;
+    return {
+      projectPoint(point) {
+        return {
+          x: (point.x - bounds.minX) * scaleX,
+          y: (point.y - bounds.minY) * scaleY,
+        };
+      },
+      projectBounds(nextBounds) {
+        return {
+          x: (nextBounds.minX - bounds.minX) * scaleX,
+          y: (nextBounds.minY - bounds.minY) * scaleY,
+          width: (nextBounds.maxX - nextBounds.minX) * scaleX,
+          height: (nextBounds.maxY - nextBounds.minY) * scaleY,
+        };
+      },
+      unitsToPixels(units) {
+        return units * scaleY;
+      },
+    };
+  }
+
+  function createExportCanvas(titleBlockEntity, deps = {}) {
+    const paper = getOrientedPaperSizeMm(titleBlockEntity);
+    const pixelsPerMm = Number(deps.pixelsPerMm) || 4;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(paper.widthMm * pixelsPerMm));
+    canvas.height = Math.max(1, Math.round(paper.heightMm * pixelsPerMm));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    return { canvas, context };
+  }
+
+  function buildDimensionGeometry(entity) {
+    const dx = entity.p2.x - entity.p1.x;
+    const dy = entity.p2.y - entity.p1.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const normal = { x: -dy / length, y: dx / length };
+    const midpoint = {
+      x: (entity.p1.x + entity.p2.x) / 2,
+      y: (entity.p1.y + entity.p2.y) / 2,
+    };
+    const d1 = (entity.offsetPoint.x - entity.p1.x) * normal.x + (entity.offsetPoint.y - entity.p1.y) * normal.y;
+    const d2 = (entity.offsetPoint.x - entity.p2.x) * normal.x + (entity.offsetPoint.y - entity.p2.y) * normal.y;
+    const offset1 = { x: entity.p1.x + normal.x * d1, y: entity.p1.y + normal.y * d1 };
+    const offset2 = { x: entity.p2.x + normal.x * d2, y: entity.p2.y + normal.y * d2 };
+    const gap = Number.isFinite(entity.extensionGap) ? Math.max(0, entity.extensionGap) : 90;
+    const extensionStart1 = Math.abs(d1) <= gap ? entity.p1 : { x: entity.p1.x + normal.x * Math.sign(d1) * gap, y: entity.p1.y + normal.y * Math.sign(d1) * gap };
+    const extensionStart2 = Math.abs(d2) <= gap ? entity.p2 : { x: entity.p2.x + normal.x * Math.sign(d2) * gap, y: entity.p2.y + normal.y * Math.sign(d2) * gap };
+    return {
+      offset1,
+      offset2,
+      extensionStart1,
+      extensionStart2,
+      midpoint,
+    };
+  }
+
+  function getDimensionDisplayText(entity, deps = {}) {
+    const override = String(entity.textOverride || "").trim();
+    if (override) {
+      return override;
+    }
+    const distanceUnits = Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y);
+    const precision = Math.max(0, Math.min(3, Math.round(Number(entity.precision) || 0)));
+    return unitsToMm(distanceUnits, deps).toFixed(precision);
+  }
+
+  function renderEntityToCanvas(ctx, entity, projector, deps = {}) {
+    const strokeStyle = (typeof deps.getStrokeColorForEntity === "function" ? deps.getStrokeColorForEntity(entity) : "#2e3135") || "#2e3135";
+    const fillStyle = (typeof deps.getFillStyleForEntity === "function" ? deps.getFillStyleForEntity(entity) : "rgba(46,49,53,0.12)") || "rgba(46,49,53,0.12)";
+    const projectPoint = projector.projectPoint;
+    const unitsToPixels = projector.unitsToPixels;
+
+    if (entity.type === "line") {
+      drawWorldLine(ctx, projectPoint, entity, { strokeStyle, lineWidth: 1.1 });
+      return;
+    }
+    if (entity.type === "rect") {
+      const start = projectPoint({ x: entity.x, y: entity.y });
+      const end = projectPoint({ x: entity.x + entity.width, y: entity.y + entity.height });
+      const width = end.x - start.x;
+      const height = end.y - start.y;
+      ctx.save();
+      if (entity.fill !== false) {
+        ctx.fillStyle = fillStyle;
+        ctx.fillRect(start.x, start.y, width, height);
+      }
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1.1;
+      ctx.strokeRect(start.x, start.y, width, height);
+      ctx.restore();
+      return;
+    }
+    if (entity.type === "circle") {
+      const center = projectPoint(entity.center);
+      ctx.save();
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, Math.max(1, Math.abs(unitsToPixels(entity.radius))), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (entity.type === "arc") {
+      const center = projectPoint(entity.center);
+      ctx.save();
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.arc(
+        center.x,
+        center.y,
+        Math.max(1, Math.abs(unitsToPixels(entity.radius))),
+        (Number(entity.startAngleDeg) || 0) * Math.PI / 180,
+        (Number(entity.endAngleDeg) || 0) * Math.PI / 180
+      );
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (entity.type === "filledRegion") {
+      const points = (entity.points || []).map(projectPoint);
+      if (points.length < 3) {
+        return;
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+      ctx.closePath();
+      if (entity.fill !== false) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (entity.type === "text") {
+      drawWorldText(ctx, projectPoint, entity, { fillStyle: strokeStyle, unitsToPixels });
+      return;
+    }
+    if (entity.type === "dimension") {
+      const geometry = buildDimensionGeometry(entity);
+      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart1, p2: geometry.offset1 }, { strokeStyle, lineWidth: 1 });
+      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart2, p2: geometry.offset2 }, { strokeStyle, lineWidth: 1 });
+      drawWorldLine(ctx, projectPoint, { p1: geometry.offset1, p2: geometry.offset2 }, { strokeStyle, lineWidth: 1 });
+      const label = {
+        type: "text",
+        x: geometry.midpoint.x,
+        y: geometry.midpoint.y,
+        text: getDimensionDisplayText(entity, deps),
+        height: entity.textHeight || 250,
+        align: "center",
+      };
+      drawWorldText(ctx, projectPoint, label, { fillStyle: strokeStyle, unitsToPixels });
+      return;
+    }
+    if (entity.type === "titleBlock") {
+      drawTitleBlock(ctx, entity, {
+        projectPoint,
+        projectBounds: projector.projectBounds,
+        unitsToPixels,
+        strokeColor: strokeStyle,
+        isSelected: false,
+        mmToUnits: deps.mmToUnits,
+        roundToUnit: deps.roundToUnit,
+      });
+    }
+  }
+
+  function renderTitleBlockSelectionCanvas(titleBlockEntity, deps = {}) {
+    const includedEntities = collectEntitiesForExport(titleBlockEntity, deps);
+    const { canvas, context } = createExportCanvas(titleBlockEntity, deps);
+    const projector = createWorldProjector(getTitleBlockBounds(titleBlockEntity), canvas.width, canvas.height);
+    includedEntities.forEach((entity) => {
+      renderEntityToCanvas(context, entity, projector, deps);
+    });
+    return canvas;
+  }
+
+  function blobFromCanvas(canvas, type) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+        reject(new Error(`Failed to create ${type} blob.`));
+      }, type);
+    });
+  }
+
+  async function saveBlob(blob, suggestedName, types, deps = {}) {
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types,
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return { ok: true, method: "picker" };
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          return { ok: false, cancelled: true };
+        }
+      }
+    }
+    if (typeof deps.downloadBlob === "function") {
+      deps.downloadBlob(blob, suggestedName);
+      return { ok: true, method: "download" };
+    }
+    return { ok: false };
+  }
+
+  function buildPdfBlobFromCanvas(canvas, paperMm) {
+    const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const base64 = jpegDataUrl.split(",")[1] || "";
+    const binary = atob(base64);
+    const imageBytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      imageBytes[index] = binary.charCodeAt(index);
+    }
+
+    const pageWidthPt = (paperMm.widthMm / 25.4) * 72;
+    const pageHeightPt = (paperMm.heightMm / 25.4) * 72;
+    const imageStream = `q\n${pageWidthPt.toFixed(3)} 0 0 ${pageHeightPt.toFixed(3)} 0 0 cm\n/Im0 Do\nQ`;
+    const objects = [
+      "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+      "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+      `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidthPt.toFixed(3)} ${pageHeightPt.toFixed(3)}] /Resources << /ProcSet [/PDF /ImageC] /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
+      null,
+      `5 0 obj\n<< /Length ${imageStream.length} >>\nstream\n${imageStream}\nendstream\nendobj\n`,
+    ];
+    const imageHeader = `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`;
+    const imageFooter = "\nendstream\nendobj\n";
+
+    const header = "%PDF-1.3\n";
+    const chunks = [new TextEncoder().encode(header)];
+    const offsets = [0];
+    let cursor = header.length;
+
+    objects.forEach((objectText, index) => {
+      offsets[index + 1] = cursor;
+      if (index === 3) {
+        const encodedHeader = new TextEncoder().encode(imageHeader);
+        const encodedFooter = new TextEncoder().encode(imageFooter);
+        chunks.push(encodedHeader, imageBytes, encodedFooter);
+        cursor += encodedHeader.length + imageBytes.length + encodedFooter.length;
+      } else {
+        const encoded = new TextEncoder().encode(objectText);
+        chunks.push(encoded);
+        cursor += encoded.length;
+      }
+    });
+
+    const xrefOffset = cursor;
+    let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let objectNumber = 1; objectNumber <= objects.length; objectNumber += 1) {
+      xref += `${String(offsets[objectNumber]).padStart(10, "0")} 00000 n \n`;
+    }
+    const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    chunks.push(new TextEncoder().encode(xref), new TextEncoder().encode(trailer));
+    return new Blob(chunks, { type: "application/pdf" });
+  }
+
+  function getSuggestedFilename(entity, extension, deps = {}) {
+    const timestamp = typeof deps.createTimestampLabel === "function"
+      ? deps.createTimestampLabel()
+      : String(Date.now());
+    return `draftlite-title-block-${normalizePaperSize(entity.paperSize).toLowerCase()}-${timestamp}.${extension}`;
+  }
+
+  async function exportTitleBlockScreenshot(entity, deps = {}) {
+    const canvas = renderTitleBlockSelectionCanvas(entity, deps);
+    const blob = await blobFromCanvas(canvas, "image/png");
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([
+          new window.ClipboardItem({ "image/png": blob }),
+        ]);
+        if (typeof deps.setStatus === "function") {
+          deps.setStatus("Title Block screenshot copied to clipboard.");
+        }
+        return;
+      } catch (error) {
+        // Fall through to file download.
+      }
+    }
+    if (typeof deps.downloadBlob === "function") {
+      deps.downloadBlob(blob, getSuggestedFilename(entity, "png", deps));
+      if (typeof deps.setStatus === "function") {
+        deps.setStatus("Title Block screenshot downloaded.");
+      }
+    }
+  }
+
+  async function exportTitleBlockPdf(entity, deps = {}) {
+    const canvas = renderTitleBlockSelectionCanvas(entity, deps);
+    const paper = getOrientedPaperSizeMm(entity);
+    const blob = buildPdfBlobFromCanvas(canvas, paper);
+    const result = await saveBlob(blob, getSuggestedFilename(entity, "pdf", deps), [
+      {
+        description: "PDF",
+        accept: { "application/pdf": [".pdf"] },
+      },
+    ], deps);
+    if (typeof deps.setStatus === "function") {
+      deps.setStatus(result.ok ? "Title Block PDF exported." : "Title Block PDF export cancelled.");
+    }
+  }
+
+  async function exportTitleBlockDxf(entity, deps = {}) {
+    const entities = collectEntitiesForExport(entity, deps);
+    if (typeof deps.buildDxfTextFromEntities !== "function" || typeof deps.getDxfExportSummaryForEntities !== "function") {
+      throw new Error("DXF export helpers are unavailable.");
+    }
+    const summary = deps.getDxfExportSummaryForEntities(entities);
+    if (summary.exportedLineCount + summary.exportedTextCount + summary.exportedCircleCount + summary.exportedArcCount === 0) {
+      if (typeof deps.setStatus === "function") {
+        deps.setStatus("No entities inside the selected Title Block range.");
+      }
+      return;
+    }
+    const dxfText = deps.buildDxfTextFromEntities(entities);
+    const blob = new Blob([dxfText], { type: "text/plain;charset=us-ascii" });
+    const result = await saveBlob(blob, getSuggestedFilename(entity, "dxf", deps), [
+      {
+        description: "DXF",
+        accept: { "application/dxf": [".dxf"], "text/plain": [".dxf"] },
+      },
+    ], deps);
+    if (typeof deps.setStatus === "function") {
+      deps.setStatus(result.ok ? "Title Block DXF exported." : "Title Block DXF export cancelled.");
+    }
+  }
+
+  window.DraftLiteTitleBlock = {
+    createTitleBlockEntity,
+    getTitleBlockWorldSize,
+    updateTitleBlockSizeFromScale,
+    drawTitleBlock,
+    drawTitleBlockTemplateA3StandardV6,
+    buildTitleBlockProperties,
+    updateTitleBlockFromProperties,
+    exportTitleBlockScreenshot,
+    exportTitleBlockPdf,
+    exportTitleBlockDxf,
+    normalizeTitleBlockEntity,
+    getTitleBlockBounds,
+    getTitleBlockCropBounds,
+    getDxfPrimitives,
+  };
+})();

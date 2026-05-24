@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DraftLite Title Block A3 Standard v6</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f4ef;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+      }
+
+      .sheet {
+        position: relative;
+        width: 420mm;
+        height: 297mm;
+        margin: 0 auto;
+        background: #fff;
+        box-sizing: border-box;
+      }
+
+      .outer-border {
+        position: absolute;
+        inset: 5mm;
+        border: 0.35mm solid #222;
+        box-sizing: border-box;
+      }
+
+      .inner-frame {
+        position: absolute;
+        inset: 10mm;
+        border: 0.35mm solid #222;
+        box-sizing: border-box;
+      }
+
+      .crop-area {
+        position: absolute;
+        left: 10mm;
+        top: 10mm;
+        width: 400mm;
+        height: 265mm;
+        border: 0.35mm solid #222;
+        box-sizing: border-box;
+      }
+
+      .title-band {
+        position: absolute;
+        left: 10mm;
+        top: 275mm;
+        width: 400mm;
+        height: 12mm;
+        display: grid;
+        grid-template-columns: 200mm 200mm;
+        box-sizing: border-box;
+      }
+
+      .wing {
+        border: 0.35mm solid #222;
+        box-sizing: border-box;
+      }
+
+      .left-wing {
+        display: grid;
+        grid-template-rows: 6mm 6mm;
+      }
+
+      .left-top {
+        display: grid;
+        grid-template-columns: repeat(5, 40mm);
+      }
+
+      .left-top > div,
+      .left-notes,
+      .right-title,
+      .right-sheet {
+        border-right: 0.35mm solid #222;
+        border-bottom: 0.35mm solid #222;
+        box-sizing: border-box;
+        padding: 1.1mm 1.8mm;
+        font-size: 2.2mm;
+        color: #222;
+      }
+
+      .left-top > div:last-child,
+      .right-sheet {
+        border-right: 0;
+      }
+
+      .left-notes {
+        border-bottom: 0;
+      }
+
+      .right-wing {
+        display: grid;
+        grid-template-columns: 160mm 40mm;
+      }
+
+      .right-title,
+      .right-sheet {
+        border-bottom: 0;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        font-size: 4.1mm;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="outer-border"></div>
+      <div class="inner-frame"></div>
+      <div class="crop-area"></div>
+      <div class="title-band">
+        <div class="wing left-wing">
+          <div class="left-top">
+            <div>PROJECT NAME</div>
+            <div>DRAWN BY</div>
+            <div>SCALE</div>
+            <div>PAPER</div>
+            <div>DATE</div>
+          </div>
+          <div class="left-notes">NOTES</div>
+        </div>
+        <div class="wing right-wing">
+          <div class="right-title">1F FLOOR PLAN</div>
+          <div class="right-sheet">A-101</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
