@@ -3283,19 +3283,13 @@ function drawDimensionDraftPreview(dimensionDraft) {
     p1 = roundWorldPoint(dimensionDraft.chainStartPoint);
     p2 = roundWorldPoint(uiState.hoverWorld);
     const previewEntity = createDimensionWithPreservedOffset(
-      {
+      createDefaultDimensionEntity({
         id: "draft-dimension-chain",
-        type: "dimension",
         layerId: state.activeLayerId,
         p1,
         p2,
         offsetPoint: p2,
-        textOverride: "",
-        textHeight: 250,
-        tickSize: 250,
-        color: "",
-        precision: 0,
-      },
+      }),
       "p2",
       p2,
       dimensionDraft.signedOffset
@@ -3316,19 +3310,13 @@ function drawDimensionDraftPreview(dimensionDraft) {
   if (p1.x === p2.x && p1.y === p2.y) {
     return;
   }
-  drawDimensionEntity({
+  drawDimensionEntity(createDefaultDimensionEntity({
     id: "draft-dimension",
-    type: "dimension",
     layerId: state.activeLayerId,
     p1,
     p2,
     offsetPoint,
-    textOverride: "",
-    textHeight: 250,
-    tickSize: 250,
-    color: "",
-    precision: 0,
-  });
+  }));
 }
 
 function drawSnapMarker(snapMarker) {
@@ -8343,6 +8331,24 @@ function handleTextToolClick(worldPoint) {
   setStatus("Text created.");
 }
 
+function createDefaultDimensionEntity(fields = {}) {
+  const activeLayer = getLayerById(fields.layerId || state.activeLayerId);
+  return {
+    id: fields.id || createEntityId(),
+    type: "dimension",
+    layerId: fields.layerId || state.activeLayerId,
+    p1: roundWorldPoint(fields.p1 || { x: 0, y: 0 }),
+    p2: roundWorldPoint(fields.p2 || { x: 0, y: 0 }),
+    offsetPoint: roundWorldPoint(fields.offsetPoint || fields.p2 || { x: 0, y: 0 }),
+    textOverride: typeof fields.textOverride === "string" ? fields.textOverride : "",
+    textHeight: Number.isFinite(fields.textHeight) ? fields.textHeight : mmToUnits(100),
+    extensionGap: Number.isFinite(fields.extensionGap) ? fields.extensionGap : mmToUnits(50),
+    tickSize: Number.isFinite(fields.tickSize) ? fields.tickSize : mmToUnits(200),
+    color: typeof fields.color === "string" && fields.color ? fields.color : normalizeColor(activeLayer?.color || "#000000"),
+    precision: Number.isFinite(fields.precision) ? fields.precision : 0,
+  };
+}
+
 function handleDimensionToolClick(worldPoint) {
   const activeLayer = getLayerById(state.activeLayerId);
   if (!activeLayer || !activeLayer.visible || activeLayer.locked) { setStatus("Choose a visible, unlocked active layer before drawing."); return; }
@@ -8363,19 +8369,13 @@ function handleDimensionToolClick(worldPoint) {
     const p1 = roundWorldPoint(uiState.dimensionDraft.chainStartPoint);
     const p2 = roundWorldPoint(worldPoint);
     const entity = createDimensionWithPreservedOffset(
-      {
+      createDefaultDimensionEntity({
         id: createEntityId(),
-        type: "dimension",
         layerId: state.activeLayerId,
         p1,
         p2,
         offsetPoint: p2,
-        textOverride: "",
-        textHeight: 250,
-        tickSize: 250,
-        color: "",
-        precision: 0,
-      },
+      }),
       "p2",
       p2,
       uiState.dimensionDraft.signedOffset
@@ -8393,7 +8393,13 @@ function handleDimensionToolClick(worldPoint) {
     return;
   }
   pushUndoState();
-  const entity = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:roundWorldPoint(uiState.dimensionDraft.p1), p2:roundWorldPoint(uiState.dimensionDraft.p2), offsetPoint:roundWorldPoint(worldPoint), textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
+  const entity = createDefaultDimensionEntity({
+    id: createEntityId(),
+    layerId: state.activeLayerId,
+    p1: uiState.dimensionDraft.p1,
+    p2: uiState.dimensionDraft.p2,
+    offsetPoint: worldPoint,
+  });
   state.entities.push(entity);
   state.selectedEntityIds=[entity.id];
   const geometry = getDimensionGeometry(entity);
@@ -9712,7 +9718,13 @@ window.DraftLiteDebug = {
 
   createDimensionFixture() {
     pushUndoState();
-    const d = { id:createEntityId(), type:"dimension", layerId:state.activeLayerId, p1:{x:mmToUnits(0),y:mmToUnits(0)}, p2:{x:mmToUnits(1000),y:mmToUnits(0)}, offsetPoint:{x:mmToUnits(0),y:mmToUnits(200)}, textOverride:"", textHeight:250, tickSize:250, color:"", precision:0 };
+    const d = createDefaultDimensionEntity({
+      id: createEntityId(),
+      layerId: state.activeLayerId,
+      p1: { x: mmToUnits(0), y: mmToUnits(0) },
+      p2: { x: mmToUnits(1000), y: mmToUnits(0) },
+      offsetPoint: { x: mmToUnits(0), y: mmToUnits(200) },
+    });
     state.entities.push(d); state.selectedEntityIds=[d.id]; syncAfterStateChange(); return deepClone(d);
   },
 

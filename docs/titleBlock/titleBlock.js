@@ -348,11 +348,12 @@
     valueStyle,
     paddingRightMm = 2.0,
     gapMm = 0.4,
+    labelOffsetMm = 0,
   }) {
     const textRightMm = cellRectMm.xMm + cellRectMm.widthMm - paddingRightMm;
     const contentHeightMm = labelStyle.heightMm + gapMm + valueStyle.heightMm;
     const contentTopMm = cellRectMm.yMm + (cellRectMm.heightMm - contentHeightMm) / 2;
-    const labelYMm = contentTopMm + labelStyle.heightMm * 0.80;
+    const labelYMm = contentTopMm + labelStyle.heightMm * 0.80 + labelOffsetMm;
     const valueYMm = contentTopMm + labelStyle.heightMm + gapMm + valueStyle.heightMm * 0.80;
     return [
       createTextPrimitive(entity, textRightMm, labelYMm, label, labelStyle.heightMm, labelStyle.align, deps, labelStyle),
@@ -435,6 +436,7 @@
           valueStyle: { ...infoValueMetrics, role: "infoValue" },
           paddingRightMm: 2.0,
           gapMm: 0.4,
+          labelOffsetMm: -infoLabelMetrics.heightMm * 0.5,
         }));
       });
 
@@ -457,13 +459,14 @@
           widthMm: layout.rightWing.widthMm - layout.template.sheetNoWidthMm,
           heightMm: layout.rightWing.heightMm,
         },
-        label: "Drawing Title",
+        label: "DRAWING TITLE",
         value: entity.title || "",
         deps,
         labelStyle: { ...titleLabelMetrics, role: "titleLabel" },
         valueStyle: { ...titleValueMetrics, role: "titleValue" },
         paddingRightMm: 2.4,
         gapMm: 0.8,
+        labelOffsetMm: -titleLabelMetrics.heightMm,
       }));
       texts.push(...createCellLabelValueTextPrimitives({
         entity,
@@ -473,13 +476,14 @@
           widthMm: layout.template.sheetNoWidthMm,
           heightMm: layout.rightWing.heightMm,
         },
-        label: "Sheet No",
+        label: "SHEET NO",
         value: entity.sheetNo || "",
         deps,
         labelStyle: { ...titleLabelMetrics, role: "titleLabel" },
         valueStyle: { ...titleValueMetrics, role: "titleValue" },
         paddingRightMm: 2.4,
         gapMm: 0.8,
+        labelOffsetMm: -titleLabelMetrics.heightMm,
       }));
     }
 

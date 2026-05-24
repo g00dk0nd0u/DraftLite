@@ -230,6 +230,10 @@ body {
   white-space: nowrap;
 }
 
+.info-cell .label {
+  transform: translateY(-0.582mm);
+}
+
 .value {
   display: block;
   margin-top: 0.4mm;
@@ -323,6 +327,11 @@ body {
   font-family: var(--font-mono);
 }
 
+.drawing-title .label,
+.sheet-no .label {
+  transform: translateY(-1.164mm);
+}
+
 /* Print */
 @media print {
   body {
@@ -406,12 +415,12 @@ body {
         <!-- Right wing: unchanged title/sheet block -->
         <div class="right-wing">
           <div class="cell drawing-title">
-            <span class="label">Drawing Title</span>
+            <span class="label">DRAWING TITLE</span>
             <span class="value">1F FLOOR PLAN</span>
           </div>
 
           <div class="cell sheet-no">
-            <span class="label">Sheet No</span>
+            <span class="label">SHEET NO</span>
             <span class="value">A-101</span>
           </div>
         </div>
