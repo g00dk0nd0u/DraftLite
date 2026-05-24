@@ -883,32 +883,32 @@
     addRow(generalGrid, "Template", createSelect(entity.templateId, [
       { value: "a3-standard-v6", label: "A3 Standard v6" },
     ], (value) => options.onChange({ templateId: value }, "Title Block template updated.")));
-    addRow(generalGrid, "Paper Type", createSelect(entity.paperSize, [
+    addRow(generalGrid, "Paper", createSelect(entity.paperSize, [
       { value: "A3", label: "A3" },
       { value: "A4", label: "A4" },
       { value: "16:9", label: "16:9" },
     ], (value) => options.onChange({ paperSize: value }, "Title Block paper updated.")));
-    addRow(generalGrid, "Orientation", createToggle(entity.orientation, [
+    addRow(generalGrid, "Orient.", createToggle(entity.orientation, [
       { value: "landscape", label: "Landscape" },
       { value: "portrait", label: "Portrait" },
     ], (value) => options.onChange({ orientation: value }, "Title Block orientation updated.")));
     addRow(generalGrid, "Scale", createScaleInput(entity.scale, (value) => options.onChange({ scale: value }, "Title Block scale updated.")));
     addRow(generalGrid, "Display", createToggle(entity.showMode, [
-      { value: "full", label: "Full Title Block" },
-      { value: "cropOnly", label: "Crop Area Only" },
+      { value: "full", label: "Full" },
+      { value: "cropOnly", label: "Crop" },
     ], (value) => options.onChange({ showMode: value }, "Title Block display updated.")));
 
     const textGrid = appendSection("Sheet Data");
-    addRow(textGrid, "Drawing Title", createTextInput(entity.title, (value) => options.onChange({ title: value }, "Title updated.")));
+    addRow(textGrid, "Title", createTextInput(entity.title, (value) => options.onChange({ title: value }, "Title updated.")));
     addRow(textGrid, "Sheet No", createTextInput(entity.sheetNo, (value) => options.onChange({ sheetNo: value }, "Sheet No updated.")));
-    addRow(textGrid, "Project Name", createTextInput(entity.projectName, (value) => options.onChange({ projectName: value }, "Project Name updated.")));
-    addRow(textGrid, "Drawn By", createTextInput(entity.drawnBy, (value) => options.onChange({ drawnBy: value }, "Drawn By updated.")));
+    addRow(textGrid, "Project", createTextInput(entity.projectName, (value) => options.onChange({ projectName: value }, "Project Name updated.")));
+    addRow(textGrid, "Drawn", createTextInput(entity.drawnBy, (value) => options.onChange({ drawnBy: value }, "Drawn By updated.")));
 
     const exportGrid = appendSection("Export");
     const exportRow = document.createElement("div");
     exportRow.className = "title-block-export-row";
     [
-      { label: "SCREEN SHOT", handler: options.onScreenshot },
+      { label: "PNG", handler: options.onScreenshot },
       { label: "PDF", handler: options.onPdf },
       { label: "DXF", handler: options.onDxf },
     ].forEach((entry) => {

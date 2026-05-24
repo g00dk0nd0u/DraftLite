@@ -1563,7 +1563,29 @@ function renderLayersPanel() {
   layerList.innerHTML = "";
   const header = document.createElement("div");
   header.className = "layer-table-header";
-  ["Active", "Name", "Visible", "Lock", "Color"].forEach((t) => { const c = document.createElement("div"); c.textContent = t; header.appendChild(c); });
+  const appendHeaderCell = (className, textContent, title) => {
+    const cell = document.createElement("div");
+    cell.className = className;
+    cell.textContent = textContent;
+    if (title) {
+      cell.title = title;
+      cell.setAttribute("aria-label", title);
+    }
+    header.appendChild(cell);
+  };
+  appendHeaderCell("layer-header-icon", "●", "Active");
+  appendHeaderCell("layer-header-icon", "👁", "Visible");
+  appendHeaderCell("layer-header-name", "Name");
+  appendHeaderCell("layer-header-icon", "🔒", "Lock");
+  const colorHeader = document.createElement("div");
+  colorHeader.className = "layer-header-color";
+  colorHeader.title = "Color";
+  colorHeader.setAttribute("aria-label", "Color");
+  const colorChip = document.createElement("span");
+  colorChip.className = "layer-color-header-chip";
+  colorHeader.appendChild(colorChip);
+  header.appendChild(colorHeader);
+  appendHeaderCell("layer-header-icon", "⚙", "Settings");
   layerList.appendChild(header);
   state.layers.forEach((layer) => {
     const row = document.createElement("div");
@@ -1582,7 +1604,14 @@ function renderLayersPanel() {
     const colorInput = document.createElement("input"); colorInput.type = "color"; colorInput.value = normalizeColor(layer.color);
     colorInput.addEventListener("change", () => { pushUndoState(); layer.color = colorInput.value; syncAfterStateChange(); setStatus(`${layer.name} color updated.`); });
     colorWrap.appendChild(colorInput);
-    row.append(activeRadio, nameWrap, visibleInput, lockInput, colorWrap);
+    const settingsButton = document.createElement("button");
+    settingsButton.type = "button";
+    settingsButton.className = "layer-settings-button";
+    settingsButton.textContent = "⚙";
+    settingsButton.title = "Layer settings";
+    settingsButton.setAttribute("aria-label", "Layer settings");
+    settingsButton.addEventListener("click", () => { setStatus("Layer settings are not implemented yet."); });
+    row.append(activeRadio, visibleInput, nameWrap, lockInput, colorWrap, settingsButton);
     layerList.appendChild(row);
   });
 }
