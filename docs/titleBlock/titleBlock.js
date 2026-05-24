@@ -1073,17 +1073,21 @@
     return angle;
   }
 
+  function isNearlyVerticalAngle(angleRad) {
+    const normalized = normalizeAngleRad(angleRad);
+    const absCos = Math.abs(Math.cos(normalized));
+    return absCos < 0.25;
+  }
+
   function normalizeDimensionTextRotation(angleRad) {
     let angle = normalizeAngleRad(angleRad);
-    if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
-      angle += Math.PI;
+    if (!isNearlyVerticalAngle(angle)) {
+      if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+        angle += Math.PI;
+      }
+      return normalizeAngleRad(angle);
     }
-    angle = normalizeAngleRad(angle);
-    const ninety = Math.PI / 2;
-    const tolerance = (Math.PI / 180) * 15;
-    if (Math.abs(angle + ninety) <= tolerance) {
-      angle += Math.PI;
-    }
+    angle += Math.PI;
     return normalizeAngleRad(angle);
   }
 
