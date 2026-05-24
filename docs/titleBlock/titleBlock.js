@@ -1066,6 +1066,27 @@
     return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
   }
 
+  function normalizeAngleRad(angleRad) {
+    let angle = Number(angleRad) || 0;
+    while (angle <= -Math.PI) angle += Math.PI * 2;
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    return angle;
+  }
+
+  function normalizeDimensionTextRotation(angleRad) {
+    let angle = normalizeAngleRad(angleRad);
+    if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+      angle += Math.PI;
+    }
+    angle = normalizeAngleRad(angle);
+    const ninety = Math.PI / 2;
+    const tolerance = (Math.PI / 180) * 15;
+    if (Math.abs(angle + ninety) <= tolerance) {
+      angle += Math.PI;
+    }
+    return normalizeAngleRad(angle);
+  }
+
   function getFallbackDimensionTextLayout(entity, geometry, deps = {}) {
     const lineDx = geometry.o2.x - geometry.o1.x;
     const lineDy = geometry.o2.y - geometry.o1.y;
@@ -1076,10 +1097,7 @@
     };
     const textNormal = getFallbackDimensionTextNormal(lineDx, lineDy, lineLen);
     const textOffsetUnits = (entity.textHeight || 250) * 0.55;
-    const textAngleRadBase = Math.atan2(lineDy, lineDx);
-    const textAngleRad = Math.cos(textAngleRadBase) < 0
-      ? textAngleRadBase + Math.PI
-      : textAngleRadBase;
+    const textAngleRad = normalizeDimensionTextRotation(Math.atan2(lineDy, lineDx));
     return {
       text: getFallbackDimensionDisplayText(entity, deps),
       textAngleRad,
@@ -1647,10 +1665,9 @@
       );
       const projectedO1 = projector.projectPoint(dimensionData.geometry.o1);
       const projectedO2 = projector.projectPoint(dimensionData.geometry.o2);
-      let pdfAngleRad = Math.atan2(projectedO2.y - projectedO1.y, projectedO2.x - projectedO1.x);
-      if (Math.cos(pdfAngleRad) < 0) {
-        pdfAngleRad += Math.PI;
-      }
+      const pdfAngleRad = normalizeDimensionTextRotation(
+        Math.atan2(projectedO2.y - projectedO1.y, projectedO2.x - projectedO1.x)
+      );
       const textColor = dimensionData.text.color
         || (typeof deps.getDimensionTextColorForExport === "function" ? deps.getDimensionTextColorForExport(entity) : entity.color || style.strokeColor);
       const commands = [];

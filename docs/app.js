@@ -3114,6 +3114,27 @@ function getDimensionTextNormal(lineDx, lineDy, lineLen) {
   return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
 }
 
+function normalizeAngleRad(angleRad) {
+  let angle = Number(angleRad) || 0;
+  while (angle <= -Math.PI) angle += Math.PI * 2;
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  return angle;
+}
+
+function normalizeDimensionTextRotation(angleRad) {
+  let angle = normalizeAngleRad(angleRad);
+  if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+    angle += Math.PI;
+  }
+  angle = normalizeAngleRad(angle);
+  const ninety = Math.PI / 2;
+  const tolerance = (Math.PI / 180) * 15;
+  if (Math.abs(angle + ninety) <= tolerance) {
+    angle += Math.PI;
+  }
+  return normalizeAngleRad(angle);
+}
+
 function getDimensionTextLayout(entity, geometry = getDimensionGeometry(entity)) {
   const lineDx = geometry.o2.x - geometry.o1.x;
   const lineDy = geometry.o2.y - geometry.o1.y;
@@ -3124,10 +3145,7 @@ function getDimensionTextLayout(entity, geometry = getDimensionGeometry(entity))
   };
   const textNormal = getDimensionTextNormal(lineDx, lineDy, lineLen);
   const textOffsetUnits = (entity.textHeight || 250) * 0.55;
-  const textAngleRadBase = Math.atan2(lineDy, lineDx);
-  const textAngleRad = Math.cos(textAngleRadBase) < 0
-    ? textAngleRadBase + Math.PI
-    : textAngleRadBase;
+  const textAngleRad = normalizeDimensionTextRotation(Math.atan2(lineDy, lineDx));
   return {
     text: getDimensionDisplayText(entity),
     textAngleRad,
