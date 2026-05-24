@@ -29,7 +29,7 @@
         "DATE",
       ],
       textHeightsMm: {
-        infoLine: 2.15,
+        infoLine: 2.3,
         title: 4.1,
         sheetNo: 4.1,
         notes: 2.4,

@@ -7,6 +7,18 @@
   const DEFAULT_SCALE = 100;
   const DEFAULT_SHOW_MODE = "full";
   const SCALE_OPTIONS = [50, 100, 200, 500];
+  const PDF_STYLE = {
+    strokeRgb: [0.10, 0.16, 0.22],
+    titleBlockStrokeRgb: [0.10, 0.16, 0.22],
+    rectFillRgb: [0.90, 0.92, 0.94],
+    filledRegionFillRgb: [0.88, 0.90, 0.93],
+    textRgb: [0.10, 0.16, 0.22],
+    normalStrokeWidthMm: 0.18,
+    titleBlockStrokeWidthMm: 0.18,
+    innerFrameStrokeWidthMm: 0.18,
+    minStrokeWidthPt: 0.25,
+    innerFrameInsetMm: 0.25,
+  };
 
   function getTemplateRegistry() {
     return window.DraftLiteTitleBlockTemplates || null;
@@ -31,7 +43,7 @@
       rightWingWidthMm: 200,
       sheetNoWidthMm: 40,
       infoColumns: ["PROJECT NAME", "DRAWN BY", "SCALE", "PAPER", "DATE"],
-      textHeightsMm: { infoLine: 2.15, title: 4.1, sheetNo: 4.1, notes: 2.4 },
+      textHeightsMm: { infoLine: 2.3, title: 4.1, sheetNo: 4.1, notes: 2.4 },
     };
   }
 
@@ -305,7 +317,7 @@
 
   function getInfoLineText(label, value) {
     const trimmedValue = String(value || "").trim();
-    return trimmedValue ? `${label}  ${trimmedValue}` : label;
+    return `${label} ${trimmedValue || "-"}`;
   }
 
   function getDisplayPaperLabel(entity) {
@@ -361,11 +373,11 @@
         getTodayLabel(),
       ];
       layout.template.infoColumns.forEach((label, index) => {
-        const rightMm = layout.leftWing.xMm + infoColumnWidthMm * (index + 1) - 1.6;
+        const rightMm = layout.leftWing.xMm + infoColumnWidthMm * (index + 1) - 1.8;
         texts.push(createTextPrimitive(
           entity,
           rightMm,
-          layout.leftWing.yMm + 4.0,
+          layout.leftWing.yMm + 3.85,
           getInfoLineText(label, infoValues[index]),
           labelHeights.infoLine,
           "right",
@@ -1027,7 +1039,7 @@
         return Math.max(4, mmToPt(unitsToMm(heightUnits, deps) / effectiveScale));
       },
       strokeWidthPt(widthMmValue) {
-        return Math.max(0.25, mmToPt(widthMmValue));
+        return Math.max(PDF_STYLE.minStrokeWidthPt, mmToPt(widthMmValue));
       },
     };
   }
@@ -1065,10 +1077,15 @@
     return Number(value).toFixed(3);
   }
 
-  function buildPdfLineCommands(projector, line, strokeWidthPt) {
+  function pdfRgbCommand(rgb, operator) {
+    return `${rgb[0].toFixed(3)} ${rgb[1].toFixed(3)} ${rgb[2].toFixed(3)} ${operator}`;
+  }
+
+  function buildPdfLineCommands(projector, line, strokeWidthPt, strokeRgb = PDF_STYLE.strokeRgb) {
     const start = projector.projectPoint(line.p1);
     const end = projector.projectPoint(line.p2);
     return [
+      pdfRgbCommand(strokeRgb, "RG"),
       `${formatPdfNumber(strokeWidthPt)} w`,
       `${formatPdfNumber(start.x)} ${formatPdfNumber(start.y)} m`,
       `${formatPdfNumber(end.x)} ${formatPdfNumber(end.y)} l`,
@@ -1081,7 +1098,14 @@
       return [];
     }
     const projected = points.map((point) => projector.projectPoint(point));
-    const commands = [`${formatPdfNumber(options.strokeWidthPt || 0.75)} w`];
+    const commands = [];
+    if (Array.isArray(options.strokeRgb)) {
+      commands.push(pdfRgbCommand(options.strokeRgb, "RG"));
+    }
+    if (Array.isArray(options.fillRgb)) {
+      commands.push(pdfRgbCommand(options.fillRgb, "rg"));
+    }
+    commands.push(`${formatPdfNumber(options.strokeWidthPt || PDF_STYLE.minStrokeWidthPt)} w`);
     commands.push(`${formatPdfNumber(projected[0].x)} ${formatPdfNumber(projected[0].y)} m`);
     for (let index = 1; index < projected.length; index += 1) {
       commands.push(`${formatPdfNumber(projected[index].x)} ${formatPdfNumber(projected[index].y)} l`);
@@ -1141,6 +1165,7 @@
     }
     const baselineY = point.y - fontSizePt * 0.32;
     return [
+      pdfRgbCommand(PDF_STYLE.textRgb, "rg"),
       "BT",
       `/F1 ${formatPdfNumber(fontSizePt)} Tf`,
       `${formatPdfNumber(textX)} ${formatPdfNumber(baselineY)} Td`,
@@ -1149,17 +1174,35 @@
     ];
   }
 
-  function getPdfColorCommands() {
+  function getSafeInnerFrameBounds(entity, innerFrameBounds, deps = {}) {
+    const insetUnits = mmToUnits(PDF_STYLE.innerFrameInsetMm * normalizeScale(entity.scale), deps);
+    return {
+      minX: innerFrameBounds.minX + insetUnits,
+      minY: innerFrameBounds.minY + insetUnits,
+      maxX: innerFrameBounds.maxX - insetUnits,
+      maxY: innerFrameBounds.maxY - insetUnits,
+    };
+  }
+
+  function boundsToRectLines(bounds, layerId) {
     return [
-      "0 0 0 RG",
-      "0 0 0 rg",
+      { type: "line", layerId, p1: { x: bounds.minX, y: bounds.minY }, p2: { x: bounds.maxX, y: bounds.minY } },
+      { type: "line", layerId, p1: { x: bounds.maxX, y: bounds.minY }, p2: { x: bounds.maxX, y: bounds.maxY } },
+      { type: "line", layerId, p1: { x: bounds.maxX, y: bounds.maxY }, p2: { x: bounds.minX, y: bounds.maxY } },
+      { type: "line", layerId, p1: { x: bounds.minX, y: bounds.maxY }, p2: { x: bounds.minX, y: bounds.minY } },
     ];
   }
 
+  function isSameLine(a, b) {
+    const direct = a.p1.x === b.p1.x && a.p1.y === b.p1.y && a.p2.x === b.p2.x && a.p2.y === b.p2.y;
+    const reverse = a.p1.x === b.p2.x && a.p1.y === b.p2.y && a.p2.x === b.p1.x && a.p2.y === b.p1.y;
+    return direct || reverse;
+  }
+
   function buildPdfCommandsForEntity(entity, projector, deps = {}) {
-    const strokeWidthPt = projector.strokeWidthPt(0.35);
+    const strokeWidthPt = projector.strokeWidthPt(PDF_STYLE.normalStrokeWidthMm);
     if (entity.type === "line") {
-      return buildPdfLineCommands(projector, entity, strokeWidthPt);
+      return buildPdfLineCommands(projector, entity, strokeWidthPt, PDF_STYLE.strokeRgb);
     }
     if (entity.type === "rect") {
       const points = [
@@ -1173,6 +1216,8 @@
         stroke: true,
         fill: entity.fill !== false,
         strokeWidthPt,
+        strokeRgb: PDF_STYLE.strokeRgb,
+        fillRgb: entity.fill !== false ? PDF_STYLE.rectFillRgb : null,
       });
     }
     if (entity.type === "circle") {
@@ -1181,6 +1226,7 @@
         stroke: true,
         fill: false,
         strokeWidthPt,
+        strokeRgb: PDF_STYLE.strokeRgb,
       });
     }
     if (entity.type === "arc") {
@@ -1189,6 +1235,7 @@
         stroke: true,
         fill: false,
         strokeWidthPt,
+        strokeRgb: PDF_STYLE.strokeRgb,
       });
     }
     if (entity.type === "filledRegion") {
@@ -1197,6 +1244,8 @@
         stroke: true,
         fill: entity.fill !== false,
         strokeWidthPt,
+        strokeRgb: PDF_STYLE.strokeRgb,
+        fillRgb: entity.fill !== false ? PDF_STYLE.filledRegionFillRgb : null,
       });
     }
     if (entity.type === "text") {
@@ -1204,10 +1253,11 @@
     }
     if (entity.type === "dimension") {
       const geometry = buildDimensionGeometry(entity);
+      const dimensionStrokeWidthPt = projector.strokeWidthPt(0.15);
       const commands = [];
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart1, p2: geometry.offset1 }, projector.strokeWidthPt(0.30)));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart2, p2: geometry.offset2 }, projector.strokeWidthPt(0.30)));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.offset1, p2: geometry.offset2 }, projector.strokeWidthPt(0.30)));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart1, p2: geometry.offset1 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart2, p2: geometry.offset2 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: geometry.offset1, p2: geometry.offset2 }, dimensionStrokeWidthPt, PDF_STYLE.strokeRgb));
       commands.push(...buildPdfTextCommands(projector, {
         type: "text",
         x: geometry.midpoint.x,
@@ -1224,9 +1274,18 @@
         includeInnerFrame: true,
         forceFull: true,
       });
+      const innerFrameLines = boundsToRectLines(primitives.innerFrameBounds, entity.layerId);
+      const safeInnerFrameLines = boundsToRectLines(getSafeInnerFrameBounds(entity, primitives.innerFrameBounds, deps), entity.layerId);
       const commands = [];
       primitives.lines.forEach((line) => {
-        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(0.35)));
+        const isInnerFrameLine = innerFrameLines.some((candidate) => isSameLine(candidate, line));
+        if (isInnerFrameLine) {
+          return;
+        }
+        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.titleBlockStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
+      });
+      safeInnerFrameLines.forEach((line) => {
+        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.innerFrameStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
       });
       primitives.texts.forEach((textEntity) => {
         commands.push(...buildPdfTextCommands(projector, textEntity, deps));
@@ -1245,7 +1304,7 @@
     });
     const pageBounds = titleBlockPrimitives.innerFrameBounds;
     const projector = createPdfProjector(pageBounds, titleBlockEntity.scale, deps);
-    const bodyCommands = [...getPdfColorCommands()];
+    const bodyCommands = [];
     const measureContext = getPdfMeasureContext();
 
     exportEntities.forEach((entity) => {
