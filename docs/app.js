@@ -106,6 +106,24 @@ const SHORTCUT_TO_ACTION = {
   d: () => setActiveTool("dimension"),
 };
 const PASTE_OFFSET_PX = 18;
+const DRAWING_REPEAT_TOOL_IDS = new Set([
+  "line",
+  "rectangle",
+  "circle",
+  "arc",
+  "filledRegion",
+  "text",
+  "dimension",
+]);
+const MODIFY_REPEAT_TOOL_IDS = new Set([
+  "move",
+  "copy",
+  "matchProperties",
+  "mirror",
+  "align",
+  "extend",
+  "fillet",
+]);
 
 const ctx = canvas.getContext("2d");
 
@@ -179,6 +197,7 @@ let pasteSequence = 0;
 
 const uiState = {
   activeTool: "select",
+  lastRepeatableToolId: null,
   lineDraft: null,
   rectangleDraft: null,
   circleDraft: null,
@@ -396,6 +415,25 @@ function isEditableTarget(target) {
     || target.isContentEditable === true;
 }
 
+function isDrawingRepeatTool(toolId) {
+  return DRAWING_REPEAT_TOOL_IDS.has(toolId);
+}
+
+function isModifyRepeatTool(toolId) {
+  return MODIFY_REPEAT_TOOL_IDS.has(toolId);
+}
+
+function isRepeatableTool(toolId) {
+  return isDrawingRepeatTool(toolId) || isModifyRepeatTool(toolId);
+}
+
+function rememberRepeatableTool(toolId) {
+  if (!isRepeatableTool(toolId)) {
+    return;
+  }
+  uiState.lastRepeatableToolId = toolId;
+}
+
 function isCommandInProgress() {
   return Boolean(
     uiState.lineDraft
@@ -417,6 +455,35 @@ function isCommandInProgress() {
     || uiState.matchPropertiesSourceId
     || uiState.selectionWindow
   );
+}
+
+function shouldIgnoreSpaceRepeat(event) {
+  return event.code !== "Space"
+    || event.repeat
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || isDeleteLayerDialogOpen()
+    || uiState.panning
+    || uiState.touchGestureActive
+    || isCommandInProgress();
+}
+
+function repeatLastToolFromSpace(event) {
+  if (shouldIgnoreSpaceRepeat(event)) {
+    return false;
+  }
+
+  const toolId = uiState.lastRepeatableToolId;
+  if (!isRepeatableTool(toolId)) {
+    return false;
+  }
+
+  event.preventDefault();
+  setActiveTool(toolId, {
+    clearSelection: isDrawingRepeatTool(toolId),
+  });
+  return true;
 }
 
 function cancelCurrentOperationAndClearSelection() {
@@ -9221,15 +9288,25 @@ function exportSelectedTitleBlockDxf(entity) {
   });
 }
 
-function setActiveTool(tool) {
+function setActiveTool(tool, options = {}) {
+  const remember = options.remember !== false;
+  const shouldClearSelection = options.clearSelection === true;
+  if (remember) {
+    rememberRepeatableTool(tool);
+  }
   const missingTransformTarget = (tool === "move" || tool === "copy") && !canStartTransformTool();
   if (uiState.activeTool !== tool) {
     clearTransientState();
   }
   uiState.activeTool = tool;
-  syncToolButtons();
-  draw();
-  renderStatusPanel();
+  if (shouldClearSelection && state.selectedEntityIds.length) {
+    state.selectedEntityIds = [];
+    syncAfterStateChange(false);
+  } else {
+    syncToolButtons();
+    draw();
+    renderStatusPanel();
+  }
   if (missingTransformTarget) {
     setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
     return;
@@ -9805,6 +9882,16 @@ function onKeyDown(event) {
     event.preventDefault();
     cancelCurrentOperationAndClearSelection();
     return;
+  }
+
+  if (event.code === "Space" && !textInputActive) {
+    if (repeatLastToolFromSpace(event)) {
+      return;
+    }
+    if (shouldIgnoreSpaceRepeat(event)) {
+      event.preventDefault();
+      return;
+    }
   }
 
   if (uiState.gripEditDraft && !textInputActive) {
