@@ -3057,7 +3057,8 @@ function getDimensionTextColor(entity) {
 }
 
 function getDimensionTickRadiusPx(entity) {
-  return clampNumber((entity.tickSize || 250) * state.view.zoom * 0.06, 2, 3.25, 2.5);
+  const tickRadiusPx = Math.abs((entity.tickSize || 250) * state.view.zoom * 0.06);
+  return tickRadiusPx < 0.75 ? 0 : tickRadiusPx;
 }
 
 function getDimensionExtensionGapUnits(entity) {
@@ -3096,6 +3097,49 @@ function getDimensionGeometry(entity) {
   return { o1, o2, extensionStart1, extensionStart2, midpoint, normal: { x: nx, y: ny }, signedOffset, offsetHandlePoint };
 }
 
+function getDimensionTickRadiusUnits(entity) {
+  return Math.abs((entity.tickSize || 250) * 0.06);
+}
+
+function getDimensionTextNormal(lineDx, lineDy, lineLen) {
+  const safeLen = lineLen || 1;
+  const baseNormal = { x: -lineDy / safeLen, y: lineDx / safeLen };
+  const verticalBiasThreshold = 0.86;
+  if (Math.abs(lineDx) >= Math.abs(lineDy)) {
+    return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  }
+  if (Math.abs(lineDy / safeLen) >= verticalBiasThreshold) {
+    return baseNormal.x <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  }
+  return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+}
+
+function getDimensionTextLayout(entity, geometry = getDimensionGeometry(entity)) {
+  const lineDx = geometry.o2.x - geometry.o1.x;
+  const lineDy = geometry.o2.y - geometry.o1.y;
+  const lineLen = Math.hypot(lineDx, lineDy) || 1;
+  const midpoint = {
+    x: (geometry.o1.x + geometry.o2.x) / 2,
+    y: (geometry.o1.y + geometry.o2.y) / 2,
+  };
+  const textNormal = getDimensionTextNormal(lineDx, lineDy, lineLen);
+  const textOffsetUnits = (entity.textHeight || 250) * 0.55;
+  const textAngleRadBase = Math.atan2(lineDy, lineDx);
+  const textAngleRad = Math.cos(textAngleRadBase) < 0
+    ? textAngleRadBase + Math.PI
+    : textAngleRadBase;
+  return {
+    text: getDimensionDisplayText(entity),
+    textAngleRad,
+    textNormal,
+    textOffsetUnits,
+    textPosition: {
+      x: midpoint.x + textNormal.x * textOffsetUnits,
+      y: midpoint.y + textNormal.y * textOffsetUnits,
+    },
+  };
+}
+
 function createDimensionWithPreservedOffset(entity, endpoint, nextPoint, signedOffset) {
   const nextDimension = {
     ...entity,
@@ -3124,46 +3168,27 @@ function createDimensionWithPreservedOffset(entity, endpoint, nextPoint, signedO
 }
 
 function getDimensionScreenGeometry(entity) {
+  const geometryWorld = getDimensionGeometry(entity);
+  const textLayoutWorld = getDimensionTextLayout(entity, geometryWorld);
   const {
     o1: o1World,
     o2: o2World,
     extensionStart1: extensionStart1World,
     extensionStart2: extensionStart2World,
     offsetHandlePoint: offsetHandlePointWorld,
-  } = getDimensionGeometry(entity);
+  } = geometryWorld;
   const p1 = worldToScreen(entity.p1);
   const p2 = worldToScreen(entity.p2);
   const extensionStart1 = worldToScreen(extensionStart1World);
   const extensionStart2 = worldToScreen(extensionStart2World);
   const o1 = worldToScreen(o1World);
   const o2 = worldToScreen(o2World);
-  const textAngleRadBase = Math.atan2(o2.y - o1.y, o2.x - o1.x);
-  const textAngleRad = Math.cos(textAngleRadBase) < 0
-    ? textAngleRadBase + Math.PI
-    : textAngleRadBase;
   const offsetHandlePoint = worldToScreen(offsetHandlePointWorld);
-  const text = getDimensionDisplayText(entity);
-  const fontPx = Math.max(10, (entity.textHeight || 250) * state.view.zoom);
+  const text = textLayoutWorld.text;
+  const fontPx = Math.abs((entity.textHeight || 250) * state.view.zoom);
   const tickRadiusPx = getDimensionTickRadiusPx(entity);
-  const dimensionMidpoint = { x: (o1.x + o2.x) / 2, y: (o1.y + o2.y) / 2 };
-  const lineDx = o2.x - o1.x;
-  const lineDy = o2.y - o1.y;
-  const lineLen = Math.hypot(lineDx, lineDy) || 1;
-  const baseNormal = { x: -lineDy / lineLen, y: lineDx / lineLen };
-  const verticalBiasThreshold = 0.86;
-  let textNormal = baseNormal;
-  if (Math.abs(lineDx) >= Math.abs(lineDy)) {
-    textNormal = baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
-  } else if (Math.abs(lineDy / lineLen) >= verticalBiasThreshold) {
-    textNormal = baseNormal.x <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
-  } else {
-    textNormal = baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
-  }
-  const textOffsetPx = Math.max(8, fontPx * 0.55);
-  const textPosition = {
-    x: dimensionMidpoint.x + textNormal.x * textOffsetPx,
-    y: dimensionMidpoint.y + textNormal.y * textOffsetPx,
-  };
+  const textPosition = worldToScreen(textLayoutWorld.textPosition);
+  const textAngleRad = textLayoutWorld.textAngleRad;
 
   ctx.save();
   ctx.font = `${fontPx}px sans-serif`;
@@ -3220,27 +3245,32 @@ function drawDimensionEntity(entity) {
     ctx.stroke();
   });
   geometry.tickDots.forEach(({ center, radiusPx }) => {
+    if (radiusPx < 0.75) {
+      return;
+    }
     ctx.beginPath();
     ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.setLineDash([]);
-  ctx.font = `${geometry.fontPx}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = textColor;
-  ctx.translate(geometry.textPosition.x, geometry.textPosition.y);
-  ctx.rotate(geometry.textAngleRad);
-  ctx.fillText(geometry.text, 0, 0);
-  if (isSelected && !isPreview) {
-    ctx.strokeStyle = "rgba(194, 105, 62, 0.78)";
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(
-      geometry.textBox.left - geometry.textPosition.x,
-      geometry.textBox.top - geometry.textPosition.y,
-      geometry.textBox.right - geometry.textBox.left,
-      geometry.textBox.bottom - geometry.textBox.top
-    );
+  if (geometry.fontPx >= 1.5) {
+    ctx.font = `${geometry.fontPx}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = textColor;
+    ctx.translate(geometry.textPosition.x, geometry.textPosition.y);
+    ctx.rotate(geometry.textAngleRad);
+    ctx.fillText(geometry.text, 0, 0);
+    if (isSelected && !isPreview) {
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.78)";
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(
+        geometry.textBox.left - geometry.textPosition.x,
+        geometry.textBox.top - geometry.textPosition.y,
+        geometry.textBox.right - geometry.textBox.left,
+        geometry.textBox.bottom - geometry.textBox.top
+      );
+    }
   }
   ctx.restore();
 }
@@ -8561,6 +8591,24 @@ function getTitleBlockExportDeps() {
     getFillStyleForEntity(entity) {
       const layer = getLayerById(entity.layerId);
       return getEntityFillStyle(entity, layer?.color || getEntityStrokeColor(entity), 0.18);
+    },
+    getDimensionGeometryForExport(entity) {
+      return getDimensionGeometry(entity);
+    },
+    getDimensionDisplayTextForExport(entity) {
+      return getDimensionDisplayText(entity);
+    },
+    getDimensionTextLayoutForExport(entity) {
+      return getDimensionTextLayout(entity);
+    },
+    getDimensionGeometryColorForExport(entity) {
+      return getDimensionGeometryColor(entity);
+    },
+    getDimensionTextColorForExport(entity) {
+      return getDimensionTextColor(entity);
+    },
+    getDimensionTickRadiusUnitsForExport(entity) {
+      return getDimensionTickRadiusUnits(entity);
     },
     buildDxfTextFromEntities,
     getDxfExportSummaryForEntities,

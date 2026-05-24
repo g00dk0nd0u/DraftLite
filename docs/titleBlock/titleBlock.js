@@ -599,8 +599,67 @@
     ctx.font = `${Math.max(400, Number(textEntity.fontWeight) || 400)} ${fontPx}px sans-serif`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = textEntity.align || "left";
-    ctx.fillText(String(textEntity.text || ""), point.x, point.y);
+    if (Number.isFinite(Number(textEntity.rotationRad))) {
+      ctx.translate(point.x, point.y);
+      ctx.rotate(Number(textEntity.rotationRad));
+      ctx.fillText(String(textEntity.text || ""), 0, 0);
+    } else {
+      ctx.fillText(String(textEntity.text || ""), point.x, point.y);
+    }
     ctx.restore();
+  }
+
+  function drawDimensionTextToCanvas(ctx, projectPoint, unitsToPixels, textEntity, fallbackColor) {
+    const point = projectPoint({ x: textEntity.x, y: textEntity.y });
+    const fontPx = Math.abs(unitsToPixels(textEntity.height));
+    if (fontPx < 1.5) {
+      return;
+    }
+    ctx.save();
+    ctx.fillStyle = textEntity.color || fallbackColor;
+    ctx.font = `${Math.max(400, Number(textEntity.fontWeight) || 400)} ${fontPx}px sans-serif`;
+    ctx.textAlign = textEntity.align || "center";
+    ctx.textBaseline = "middle";
+    ctx.translate(point.x, point.y);
+    ctx.rotate(Number(textEntity.rotationRad) || 0);
+    ctx.fillText(String(textEntity.text || ""), 0, 0);
+    ctx.restore();
+  }
+
+  function drawDimensionEntityToCanvas(ctx, entity, projector, deps = {}, options = {}) {
+    const projectPoint = projector.projectPoint;
+    const unitsToPixels = projector.unitsToPixels;
+    const dimensionData = getDimensionExportData(entity, deps);
+    const geometryColor = dimensionData.geometryColor || options.geometryColor || options.textColor || "#2e3135";
+    const textColor = dimensionData.text.color || options.textColor || geometryColor;
+    [
+      [dimensionData.geometry.extensionStart1, dimensionData.geometry.o1],
+      [dimensionData.geometry.extensionStart2, dimensionData.geometry.o2],
+      [dimensionData.geometry.o1, dimensionData.geometry.o2],
+    ].forEach(([start, end]) => {
+      drawWorldLine(ctx, projectPoint, { p1: start, p2: end }, {
+        strokeStyle: geometryColor,
+        lineWidth: options.lineWidth,
+      });
+    });
+    if (dimensionData.tickRadiusUnits > 0) {
+      const tickRadiusPx = Math.abs(unitsToPixels(dimensionData.tickRadiusUnits));
+      if (tickRadiusPx >= 0.75) {
+        [dimensionData.geometry.o1, dimensionData.geometry.o2].forEach((point) => {
+          const projected = projectPoint(point);
+          ctx.save();
+          ctx.fillStyle = geometryColor;
+          ctx.beginPath();
+          ctx.arc(projected.x, projected.y, tickRadiusPx, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+    }
+    drawDimensionTextToCanvas(ctx, projectPoint, unitsToPixels, {
+      ...dimensionData.text,
+      color: textColor,
+    }, textColor);
   }
 
   function drawTitleBlockTemplateA3StandardV6(ctx, entity, deps = {}) {
@@ -948,32 +1007,39 @@
     return { canvas, context };
   }
 
-  function buildDimensionGeometry(entity) {
+  function getFallbackDimensionGeometry(entity) {
     const dx = entity.p2.x - entity.p1.x;
     const dy = entity.p2.y - entity.p1.y;
     const length = Math.hypot(dx, dy) || 1;
     const normal = { x: -dy / length, y: dx / length };
     const midpoint = {
-      x: (entity.p1.x + entity.p2.x) / 2,
-      y: (entity.p1.y + entity.p2.y) / 2,
+      x: entity.p1.x + dx / 2,
+      y: entity.p1.y + dy / 2,
     };
     const d1 = (entity.offsetPoint.x - entity.p1.x) * normal.x + (entity.offsetPoint.y - entity.p1.y) * normal.y;
     const d2 = (entity.offsetPoint.x - entity.p2.x) * normal.x + (entity.offsetPoint.y - entity.p2.y) * normal.y;
-    const offset1 = { x: entity.p1.x + normal.x * d1, y: entity.p1.y + normal.y * d1 };
-    const offset2 = { x: entity.p2.x + normal.x * d2, y: entity.p2.y + normal.y * d2 };
+    const signedOffset = (d1 + d2) / 2;
+    const o1 = { x: entity.p1.x + normal.x * d1, y: entity.p1.y + normal.y * d1 };
+    const o2 = { x: entity.p2.x + normal.x * d2, y: entity.p2.y + normal.y * d2 };
     const gap = Number.isFinite(entity.extensionGap) ? Math.max(0, entity.extensionGap) : 90;
     const extensionStart1 = Math.abs(d1) <= gap ? entity.p1 : { x: entity.p1.x + normal.x * Math.sign(d1) * gap, y: entity.p1.y + normal.y * Math.sign(d1) * gap };
     const extensionStart2 = Math.abs(d2) <= gap ? entity.p2 : { x: entity.p2.x + normal.x * Math.sign(d2) * gap, y: entity.p2.y + normal.y * Math.sign(d2) * gap };
     return {
-      offset1,
-      offset2,
+      o1,
+      o2,
       extensionStart1,
       extensionStart2,
       midpoint,
+      normal,
+      signedOffset,
+      offsetHandlePoint: {
+        x: midpoint.x + normal.x * signedOffset,
+        y: midpoint.y + normal.y * signedOffset,
+      },
     };
   }
 
-  function getDimensionDisplayText(entity, deps = {}) {
+  function getFallbackDimensionDisplayText(entity, deps = {}) {
     const override = String(entity.textOverride || "").trim();
     if (override) {
       return override;
@@ -981,6 +1047,81 @@
     const distanceUnits = Math.hypot(entity.p2.x - entity.p1.x, entity.p2.y - entity.p1.y);
     const precision = Math.max(0, Math.min(3, Math.round(Number(entity.precision) || 0)));
     return unitsToMm(distanceUnits, deps).toFixed(precision);
+  }
+
+  function getFallbackDimensionTextNormal(lineDx, lineDy, lineLen) {
+    const safeLen = lineLen || 1;
+    const baseNormal = { x: -lineDy / safeLen, y: lineDx / safeLen };
+    const verticalBiasThreshold = 0.86;
+    if (Math.abs(lineDx) >= Math.abs(lineDy)) {
+      return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+    }
+    if (Math.abs(lineDy / safeLen) >= verticalBiasThreshold) {
+      return baseNormal.x <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+    }
+    return baseNormal.y <= 0 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+  }
+
+  function getFallbackDimensionTextLayout(entity, geometry, deps = {}) {
+    const lineDx = geometry.o2.x - geometry.o1.x;
+    const lineDy = geometry.o2.y - geometry.o1.y;
+    const lineLen = Math.hypot(lineDx, lineDy) || 1;
+    const midpoint = {
+      x: (geometry.o1.x + geometry.o2.x) / 2,
+      y: (geometry.o1.y + geometry.o2.y) / 2,
+    };
+    const textNormal = getFallbackDimensionTextNormal(lineDx, lineDy, lineLen);
+    const textOffsetUnits = (entity.textHeight || 250) * 0.55;
+    const textAngleRadBase = Math.atan2(lineDy, lineDx);
+    const textAngleRad = Math.cos(textAngleRadBase) < 0
+      ? textAngleRadBase + Math.PI
+      : textAngleRadBase;
+    return {
+      text: getFallbackDimensionDisplayText(entity, deps),
+      textAngleRad,
+      textNormal,
+      textOffsetUnits,
+      textPosition: {
+        x: midpoint.x + textNormal.x * textOffsetUnits,
+        y: midpoint.y + textNormal.y * textOffsetUnits,
+      },
+    };
+  }
+
+  function getDimensionExportData(entity, deps = {}) {
+    const geometry = typeof deps.getDimensionGeometryForExport === "function"
+      ? deps.getDimensionGeometryForExport(entity)
+      : getFallbackDimensionGeometry(entity);
+    const textLayout = typeof deps.getDimensionTextLayoutForExport === "function"
+      ? deps.getDimensionTextLayoutForExport(entity)
+      : getFallbackDimensionTextLayout(entity, geometry, deps);
+    const text = typeof deps.getDimensionDisplayTextForExport === "function"
+      ? deps.getDimensionDisplayTextForExport(entity)
+      : getFallbackDimensionDisplayText(entity, deps);
+    const tickRadiusUnits = typeof deps.getDimensionTickRadiusUnitsForExport === "function"
+      ? Math.abs(Number(deps.getDimensionTickRadiusUnitsForExport(entity)) || 0)
+      : Math.abs((entity.tickSize || 250) * 0.06);
+    return {
+      geometry,
+      text: {
+        type: "text",
+        x: textLayout.textPosition.x,
+        y: textLayout.textPosition.y,
+        text,
+        height: entity.textHeight || 250,
+        align: "center",
+        rotationRad: textLayout.textAngleRad,
+        color: typeof deps.getDimensionTextColorForExport === "function"
+          ? deps.getDimensionTextColorForExport(entity)
+          : "",
+        fontWeight: 400,
+        baselineShiftEm: 0.35,
+      },
+      tickRadiusUnits,
+      geometryColor: typeof deps.getDimensionGeometryColorForExport === "function"
+        ? deps.getDimensionGeometryColorForExport(entity)
+        : "",
+    };
   }
 
   function clamp(value, min, max) {
@@ -1139,19 +1280,15 @@
       return;
     }
     if (entity.type === "dimension") {
-      const geometry = buildDimensionGeometry(entity);
-      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart1, p2: geometry.offset1 }, { strokeStyle, lineWidth: normalStrokePx });
-      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart2, p2: geometry.offset2 }, { strokeStyle, lineWidth: normalStrokePx });
-      drawWorldLine(ctx, projectPoint, { p1: geometry.offset1, p2: geometry.offset2 }, { strokeStyle, lineWidth: normalStrokePx });
-      const label = {
-        type: "text",
-        x: geometry.midpoint.x,
-        y: geometry.midpoint.y,
-        text: getDimensionDisplayText(entity, deps),
-        height: entity.textHeight || 250,
-        align: "center",
-      };
-      drawWorldText(ctx, projectPoint, label, { fillStyle: strokeStyle, unitsToPixels });
+      drawDimensionEntityToCanvas(ctx, entity, projector, deps, {
+        geometryColor: typeof deps.getDimensionGeometryColorForExport === "function"
+          ? deps.getDimensionGeometryColorForExport(entity)
+          : strokeStyle,
+        textColor: typeof deps.getDimensionTextColorForExport === "function"
+          ? deps.getDimensionTextColorForExport(entity)
+          : strokeStyle,
+        lineWidth: normalStrokePx,
+      });
       return;
     }
     if (entity.type === "titleBlock") {
@@ -1386,26 +1523,45 @@
     const point = projector.projectPoint({ x: textEntity.x, y: textEntity.y });
     const fontSizePt = projector.fontSizePt(textEntity.height);
     const widthPt = estimatePdfTextWidthPt(textEntity, fontSizePt, deps);
-    let textX = point.x;
+    let textOffsetXPt = 0;
     if (textEntity.align === "right") {
-      textX -= widthPt;
+      textOffsetXPt -= widthPt;
     } else if (textEntity.align === "center") {
-      textX -= widthPt / 2;
+      textOffsetXPt -= widthPt / 2;
     }
     const textRgb = textEntity.color ? hexToRgb01(textEntity.color) : PDF_STYLE.textRgb;
     const fontName = Number(textEntity.fontWeight) >= 600 ? "/F2" : "/F1";
     const charSpacingPt = Number.isFinite(Number(textEntity.letterSpacingEm))
       ? Number(textEntity.letterSpacingEm) * fontSizePt
       : 0;
-    return [
+    const commands = [
       pdfRgbCommand(textRgb, "rg"),
       "BT",
       `${fontName} ${formatPdfNumber(fontSizePt)} Tf`,
       `${formatPdfNumber(charSpacingPt)} Tc`,
-      `${formatPdfNumber(textX)} ${formatPdfNumber(point.y)} Td`,
-      `(${escapePdfText(textEntity.text)}) Tj`,
-      "ET",
     ];
+    if (Number.isFinite(Number(textEntity.rotationRad))) {
+      const angle = Number(textEntity.rotationRad) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      commands.push(`${formatPdfNumber(cos)} ${formatPdfNumber(sin)} ${formatPdfNumber(-sin)} ${formatPdfNumber(cos)} ${formatPdfNumber(point.x)} ${formatPdfNumber(point.y)} Tm`);
+      commands.push(`${formatPdfNumber(textOffsetXPt)} ${formatPdfNumber(-fontSizePt * (Number(textEntity.baselineShiftEm) || 0))} Td`);
+    } else {
+      commands.push(`${formatPdfNumber(point.x + textOffsetXPt)} ${formatPdfNumber(point.y)} Td`);
+    }
+    commands.push(`(${escapePdfText(textEntity.text)}) Tj`);
+    commands.push("ET");
+    return commands;
+  }
+
+  function buildPdfFilledCircleCommands(projector, center, radiusUnits, fillRgb, segments = 16) {
+    return buildPdfPolygonCommands(projector, approximateCirclePoints(center, radiusUnits, segments), {
+      closePath: true,
+      stroke: false,
+      fill: true,
+      strokeWidthPt: PDF_STYLE.minStrokeWidthPt,
+      fillRgb,
+    });
   }
 
   function boundsToRectLines(bounds, layerId) {
@@ -1479,20 +1635,32 @@
       return buildPdfTextCommands(projector, entity, deps);
     }
     if (entity.type === "dimension") {
-      const geometry = buildDimensionGeometry(entity);
+      const dimensionData = getDimensionExportData(entity, deps);
       const dimensionStrokeWidthPt = projector.strokeWidthPt(0.15);
+      const geometryRgb = hexToRgb01(
+        dimensionData.geometryColor
+        || (typeof deps.getDimensionGeometryColorForExport === "function" ? deps.getDimensionGeometryColorForExport(entity) : style.strokeColor)
+      );
+      const projectedO1 = projector.projectPoint(dimensionData.geometry.o1);
+      const projectedO2 = projector.projectPoint(dimensionData.geometry.o2);
+      let pdfAngleRad = Math.atan2(projectedO2.y - projectedO1.y, projectedO2.x - projectedO1.x);
+      if (Math.cos(pdfAngleRad) < 0) {
+        pdfAngleRad += Math.PI;
+      }
+      const textColor = dimensionData.text.color
+        || (typeof deps.getDimensionTextColorForExport === "function" ? deps.getDimensionTextColorForExport(entity) : entity.color || style.strokeColor);
       const commands = [];
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart1, p2: geometry.offset1 }, dimensionStrokeWidthPt, strokeRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.extensionStart2, p2: geometry.offset2 }, dimensionStrokeWidthPt, strokeRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: geometry.offset1, p2: geometry.offset2 }, dimensionStrokeWidthPt, strokeRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart1, p2: dimensionData.geometry.o1 }, dimensionStrokeWidthPt, geometryRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart2, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.o1, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb));
+      if (dimensionData.tickRadiusUnits > 0) {
+        commands.push(...buildPdfFilledCircleCommands(projector, dimensionData.geometry.o1, dimensionData.tickRadiusUnits, geometryRgb));
+        commands.push(...buildPdfFilledCircleCommands(projector, dimensionData.geometry.o2, dimensionData.tickRadiusUnits, geometryRgb));
+      }
       commands.push(...buildPdfTextCommands(projector, {
-        type: "text",
-        x: geometry.midpoint.x,
-        y: geometry.midpoint.y,
-        text: getDimensionDisplayText(entity, deps),
-        height: entity.textHeight || 250,
-        align: "center",
-        color: entity.color || style.strokeColor,
+        ...dimensionData.text,
+        rotationRad: pdfAngleRad,
+        color: textColor,
       }, deps));
       return commands;
     }
