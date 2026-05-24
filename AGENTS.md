@@ -121,6 +121,28 @@
 - Annotation baseline includes `type:"text"` entities; keep integer-unit coordinate handling consistent with other entities.
 - Dimension entity `type:"dimension"` is supported for aligned linear annotation with unit-integer coordinates and mm display conversion only at render/export.
 
+### Title Block Rules
+
+- Title Block entity `type:"titleBlock"` is a paper/layout annotation entity, not a normal drawing object.
+- Title Block text primitives must not be unified with normal `type:"text"` entity rendering.
+- `getTitleBlockPrimitives()` is the source of truth for Title Block lines and text primitives.
+- Title Block primitive text has two different size meanings:
+  - `height`: world/canvas/raster/DXF size, already converted from paper mm through the Title Block scale.
+  - `fontSizeMm`: paper/PDF size in millimeters.
+- Canvas rendering must use `textPrimitive.height` so Title Block text follows zoom and Title Block scale.
+- PNG/raster export must use `textPrimitive.height` or the equivalent raster-scaled world height.
+- PDF export must use `textPrimitive.fontSizeMm` and convert it directly to PDF points.
+- DXF export must use the world/DXF text height derived from `textPrimitive.height`.
+- Do not pass Title Block primitive text through normal Text entity helpers such as center-anchored text geometry.
+- Normal Text entities and Title Block primitive text must remain separate rendering/export paths.
+- A fix for normal Text entities must not change Title Block text size, anchor, alignment, or export behavior.
+- A fix for Title Block primitive text must not change normal Text entity behavior.
+- When changing text rendering/export, verify all four paths:
+  - Canvas
+  - PDF
+  - PNG
+  - DXF
+
 ### Dimension Rules
 
 - Dimension entities use:
