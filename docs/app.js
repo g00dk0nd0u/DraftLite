@@ -5528,21 +5528,23 @@ function pointFromCenterRadiusAngle(center, radius, angleDeg) {
   };
 }
 
-function mirrorPointAcrossLine(point, lineP1, lineP2) {
-  const dx = lineP2.x - lineP1.x;
-  const dy = lineP2.y - lineP1.y;
-  const lengthSq = dx * dx + dy * dy;
-  if (lengthSq === 0) {
+function mirrorPointAcrossAxis(point, axisA, axisB) {
+  const dx = axisB.x - axisA.x;
+  const dy = axisB.y - axisA.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq <= 0) {
     return roundWorldPoint(point);
   }
-  const px = point.x - lineP1.x;
-  const py = point.y - lineP1.y;
-  const dot = (px * dx + py * dy) / lengthSq;
-  const projX = lineP1.x + dot * dx;
-  const projY = lineP1.y + dot * dy;
+  const px = point.x - axisA.x;
+  const py = point.y - axisA.y;
+  const t = (px * dx + py * dy) / lenSq;
+  const proj = {
+    x: axisA.x + t * dx,
+    y: axisA.y + t * dy,
+  };
   return roundWorldPoint({
-    x: projX * 2 - point.x,
-    y: projY * 2 - point.y,
+    x: 2 * proj.x - point.x,
+    y: 2 * proj.y - point.y,
   });
 }
 
@@ -5560,13 +5562,13 @@ function isVerticalOrHorizontalMirrorAxis(lineP1, lineP2) {
 
 function mirrorEntity(entity, lineP1, lineP2) {
   if (entity.type === "line") {
-    return { ...entity, p1: mirrorPointAcrossLine(entity.p1, lineP1, lineP2), p2: mirrorPointAcrossLine(entity.p2, lineP1, lineP2) };
+    return { ...entity, p1: mirrorPointAcrossAxis(entity.p1, lineP1, lineP2), p2: mirrorPointAcrossAxis(entity.p2, lineP1, lineP2) };
   }
   if (entity.type === "wire") {
     return {
       ...entity,
-      start: mirrorPointAcrossLine(entity.start, lineP1, lineP2),
-      end: mirrorPointAcrossLine(entity.end, lineP1, lineP2),
+      start: mirrorPointAcrossAxis(entity.start, lineP1, lineP2),
+      end: mirrorPointAcrossAxis(entity.end, lineP1, lineP2),
       startRef: null,
       endRef: null,
     };
@@ -5580,7 +5582,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
       { x: entity.x + entity.width, y: entity.y },
       { x: entity.x + entity.width, y: entity.y + entity.height },
       { x: entity.x, y: entity.y + entity.height },
-    ].map((point) => mirrorPointAcrossLine(point, lineP1, lineP2));
+    ].map((point) => mirrorPointAcrossAxis(point, lineP1, lineP2));
     const xs = corners.map((point) => point.x);
     const ys = corners.map((point) => point.y);
     const minX = Math.min(...xs);
@@ -5598,7 +5600,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
       { x: entity.x + entity.width, y: entity.y },
       { x: entity.x + entity.width, y: entity.y + entity.height },
       { x: entity.x, y: entity.y + entity.height },
-    ].map((point) => mirrorPointAcrossLine(point, lineP1, lineP2));
+    ].map((point) => mirrorPointAcrossAxis(point, lineP1, lineP2));
     const xs = corners.map((point) => point.x);
     const ys = corners.map((point) => point.y);
     const minX = Math.min(...xs);
@@ -5608,14 +5610,14 @@ function mirrorEntity(entity, lineP1, lineP2) {
     return { ...entity, x: minX, y: minY, width: roundToUnit(maxX - minX), height: roundToUnit(maxY - minY), rotation: 0 };
   }
   if (entity.type === "circle") {
-    return { ...entity, center: mirrorPointAcrossLine(entity.center, lineP1, lineP2) };
+    return { ...entity, center: mirrorPointAcrossAxis(entity.center, lineP1, lineP2) };
   }
   if (entity.type === "arc") {
     const startPoint = pointFromCenterRadiusAngle(entity.center, entity.radius, entity.startAngleDeg || 0);
     const endPoint = pointFromCenterRadiusAngle(entity.center, entity.radius, entity.endAngleDeg || 0);
-    const mirroredCenter = mirrorPointAcrossLine(entity.center, lineP1, lineP2);
-    const mirroredStart = mirrorPointAcrossLine(startPoint, lineP1, lineP2);
-    const mirroredEnd = mirrorPointAcrossLine(endPoint, lineP1, lineP2);
+    const mirroredCenter = mirrorPointAcrossAxis(entity.center, lineP1, lineP2);
+    const mirroredStart = mirrorPointAcrossAxis(startPoint, lineP1, lineP2);
+    const mirroredEnd = mirrorPointAcrossAxis(endPoint, lineP1, lineP2);
     return {
       ...entity,
       center: mirroredCenter,
@@ -5624,16 +5626,16 @@ function mirrorEntity(entity, lineP1, lineP2) {
     };
   }
   if (entity.type === "filledRegion") {
-    return { ...entity, points: entity.points.map((point) => mirrorPointAcrossLine(point, lineP1, lineP2)) };
+    return { ...entity, points: entity.points.map((point) => mirrorPointAcrossAxis(point, lineP1, lineP2)) };
   }
   if (entity.type === "text") {
-    const mirroredPosition = mirrorPointAcrossLine({ x: entity.x, y: entity.y }, lineP1, lineP2);
+    const mirroredPosition = mirrorPointAcrossAxis({ x: entity.x, y: entity.y }, lineP1, lineP2);
     const rotation = Number.isFinite(entity.rotation) ? entity.rotation : 0;
     const directionPoint = {
       x: entity.x + Math.cos((rotation * Math.PI) / 180),
       y: entity.y + Math.sin((rotation * Math.PI) / 180),
     };
-    const mirroredDirectionPoint = mirrorPointAcrossLine(directionPoint, lineP1, lineP2);
+    const mirroredDirectionPoint = mirrorPointAcrossAxis(directionPoint, lineP1, lineP2);
     return {
       ...entity,
       x: mirroredPosition.x,
@@ -5642,13 +5644,13 @@ function mirrorEntity(entity, lineP1, lineP2) {
     };
   }
   if (entity.type === "blockInstance") {
-    const mirroredPosition = mirrorPointAcrossLine({ x: entity.x, y: entity.y }, lineP1, lineP2);
+    const mirroredPosition = mirrorPointAcrossAxis({ x: entity.x, y: entity.y }, lineP1, lineP2);
     const rotation = Number.isFinite(entity.rotation) ? entity.rotation : 0;
     const directionPoint = {
       x: entity.x + Math.cos((rotation * Math.PI) / 180),
       y: entity.y + Math.sin((rotation * Math.PI) / 180),
     };
-    const mirroredDirectionPoint = mirrorPointAcrossLine(directionPoint, lineP1, lineP2);
+    const mirroredDirectionPoint = mirrorPointAcrossAxis(directionPoint, lineP1, lineP2);
     return {
       ...entity,
       x: mirroredPosition.x,
@@ -5659,9 +5661,9 @@ function mirrorEntity(entity, lineP1, lineP2) {
   if (entity.type === "dimension") {
     return {
       ...entity,
-      p1: mirrorPointAcrossLine(entity.p1, lineP1, lineP2),
-      p2: mirrorPointAcrossLine(entity.p2, lineP1, lineP2),
-      offsetPoint: mirrorPointAcrossLine(entity.offsetPoint, lineP1, lineP2),
+      p1: mirrorPointAcrossAxis(entity.p1, lineP1, lineP2),
+      p2: mirrorPointAcrossAxis(entity.p2, lineP1, lineP2),
+      offsetPoint: mirrorPointAcrossAxis(entity.offsetPoint, lineP1, lineP2),
     };
   }
   return entity;
