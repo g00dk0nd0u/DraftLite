@@ -5561,6 +5561,9 @@ function isVerticalOrHorizontalMirrorAxis(lineP1, lineP2) {
 }
 
 function mirrorEntity(entity, lineP1, lineP2) {
+  if (entity.type === "titleBlock") {
+    return null;
+  }
   if (entity.type === "line") {
     return { ...entity, p1: mirrorPointAcrossAxis(entity.p1, lineP1, lineP2), p2: mirrorPointAcrossAxis(entity.p2, lineP1, lineP2) };
   }
@@ -5575,25 +5578,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
   }
   if (entity.type === "rect") {
     if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
-      return entity;
-    }
-    const corners = [
-      { x: entity.x, y: entity.y },
-      { x: entity.x + entity.width, y: entity.y },
-      { x: entity.x + entity.width, y: entity.y + entity.height },
-      { x: entity.x, y: entity.y + entity.height },
-    ].map((point) => mirrorPointAcrossAxis(point, lineP1, lineP2));
-    const xs = corners.map((point) => point.x);
-    const ys = corners.map((point) => point.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    return { ...entity, x: minX, y: minY, width: roundToUnit(maxX - minX), height: roundToUnit(maxY - minY), rotation: 0 };
-  }
-  if (entity.type === "titleBlock") {
-    if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
-      return entity;
+      return null;
     }
     const corners = [
       { x: entity.x, y: entity.y },
@@ -5666,7 +5651,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
       offsetPoint: mirrorPointAcrossAxis(entity.offsetPoint, lineP1, lineP2),
     };
   }
-  return entity;
+  return null;
 }
 
 function startMirrorDraft(worldPoint) {
@@ -5692,17 +5677,44 @@ function applyMirrorDraft(worldPoint) {
     setStatus("Mirror axis needs two distinct points.");
     return false;
   }
-  const selectedIdSet = new Set(selectedEntities.map((entity) => entity.id));
+  const idMap = new Map();
+  const mirroredCopies = [];
+  let skippedCount = 0;
+  selectedEntities.forEach((sourceEntity) => {
+    if (!canSelectEntity(sourceEntity)) {
+      skippedCount += 1;
+      return;
+    }
+    const mirrored = mirrorEntity(deepClone(sourceEntity), firstPoint, secondPoint);
+    if (!mirrored) {
+      skippedCount += 1;
+      return;
+    }
+    const newId = createEntityId();
+    idMap.set(sourceEntity.id, newId);
+    mirroredCopies.push({
+      ...mirrored,
+      id: newId,
+    });
+  });
+  if (!mirroredCopies.length) {
+    uiState.mirrorDraft = null;
+    uiState.activeTool = "select";
+    syncAfterStateChange(false);
+    setStatus("Mirror: no supported entities to copy.");
+    return false;
+  }
   pushUndoState();
-  const mirroredCopies = selectedEntities
-    .filter((entity) => selectedIdSet.has(entity.id) && canSelectEntity(entity))
-    .map((entity) => ({ ...mirrorEntity(deepClone(entity), firstPoint, secondPoint), id: createEntityId() }));
   state.entities = [...state.entities, ...mirroredCopies];
+  duplicateGroupsForCopiedEntities(selectedEntities, idMap);
   state.selectedEntityIds = mirroredCopies.map((entity) => entity.id);
   uiState.mirrorDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
-  setStatus(`Mirror copied ${mirroredCopies.length} object(s).`);
+  const status = skippedCount
+    ? `Mirror copied ${mirroredCopies.length} object(s). ${skippedCount} skipped.`
+    : `Mirror copied ${mirroredCopies.length} object(s).`;
+  setStatus(status);
   return true;
 }
 
