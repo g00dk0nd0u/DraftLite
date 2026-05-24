@@ -123,22 +123,24 @@
         </section>
 
         <aside class="sidebar" aria-label="Layers and properties">
-          <section class="panel">
-            <div class="panel-header">
-              <h2>Layers</h2>
-              <div class="panel-actions">
-                <button id="addLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Add layer" title="Add layer" data-testid="add-layer-button">+</button>
-                <button id="deleteLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Delete active layer" title="Delete active layer" data-testid="delete-layer-button">-</button>
+          <section class="panel sidebar-main-panel">
+            <section class="sidebar-subpanel layers-subpanel">
+              <div class="panel-header">
+                <h2>Layers</h2>
+                <div class="panel-actions">
+                  <button id="addLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Add layer" title="Add layer" data-testid="add-layer-button">+</button>
+                  <button id="deleteLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Delete active layer" title="Delete active layer" data-testid="delete-layer-button">-</button>
+                </div>
               </div>
-            </div>
-            <div id="layerList" class="layer-list"></div>
-          </section>
+              <div id="layerList" class="layer-list"></div>
+            </section>
 
-          <section class="panel">
-            <div class="panel-header">
-              <h2>Properties</h2>
-            </div>
-            <div id="propertiesPanel" class="properties-panel"></div>
+            <section class="sidebar-subpanel properties-subpanel">
+              <div class="panel-header">
+                <h2>Properties</h2>
+              </div>
+              <div id="propertiesPanel" class="properties-panel"></div>
+            </section>
           </section>
 
           <section class="panel agent-io-panel">

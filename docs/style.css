@@ -500,14 +500,30 @@ body[data-panning="true"] #draftCanvas {
   overflow: hidden;
 }
 
+.sidebar-main-panel {
+  overflow: hidden;
+}
+
+.sidebar-subpanel {
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar-subpanel:last-child {
+  border-bottom: 0;
+}
+
+.sidebar-subpanel .panel-header {
+  border-bottom: 1px solid var(--line);
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 0.92rem;
   letter-spacing: 0.02em;
 }
 
-.layer-list,
-.properties-panel {
+.layers-subpanel .layer-list,
+.properties-subpanel .properties-panel {
   padding: 10px 12px 12px;
 }
 
@@ -916,8 +932,8 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
     padding: 9px 10px;
   }
 
-  .layer-list,
-  .properties-panel,
+  .layers-subpanel .layer-list,
+  .properties-subpanel .properties-panel,
   .agent-io-body {
     padding: 8px 10px 10px;
   }
