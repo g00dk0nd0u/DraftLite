@@ -486,6 +486,27 @@ function repeatLastToolFromSpace(event) {
   return true;
 }
 
+function isMoveCopyTool(toolId = uiState.activeTool) {
+  return toolId === "move" || toolId === "copy";
+}
+
+function updateMoveCopyStatus(toolId = uiState.activeTool) {
+  if (!isMoveCopyTool(toolId)) {
+    return;
+  }
+  setStatus(
+    canStartTransformTool()
+      ? `${capitalize(toolId)}: Specify base point.`
+      : `${capitalize(toolId)}: Select objects.`
+  );
+}
+
+function isTransformSelectionPhase(toolId = uiState.activeTool) {
+  return isMoveCopyTool(toolId)
+    && !uiState.transformDraft
+    && !canStartTransformTool();
+}
+
 function cancelCurrentOperationAndClearSelection() {
   const hadCommandOrDraft = hasCancelableCommandOrDraft();
   const hadSelection = state.selectedEntityIds.length > 0;
@@ -6089,6 +6110,13 @@ function selectEntityAtPoint(worldPoint, append = false) {
   );
 }
 
+function finishMoveCopySelectionPhase() {
+  if (!isMoveCopyTool()) {
+    return;
+  }
+  updateMoveCopyStatus();
+}
+
 function isPointInsideRect(screenPoint, rect) {
   return (
     screenPoint.x >= rect.left &&
@@ -8673,6 +8701,17 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   }
 
   if (uiState.activeTool === "move" || uiState.activeTool === "copy") {
+    if (isTransformSelectionPhase()) {
+      uiState.selectionWindow = {
+        append: false,
+        startScreen: worldToScreen(rawWorldPoint),
+        currentScreen: worldToScreen(rawWorldPoint),
+        startWorld: rawWorldPoint,
+        currentWorld: rawWorldPoint,
+      };
+      draw();
+      return;
+    }
     if (!uiState.transformDraft) {
       const mode = uiState.activeTool === "move" && (event.altKey || event.ctrlKey)
         ? "copy"
@@ -9099,10 +9138,12 @@ function onWindowMouseUp(event) {
 
     if (Math.hypot(rect.width, rect.height) < CLICK_SELECT_THRESHOLD_PX) {
       selectEntityAtPoint(selectionWindow.currentWorld, selectionWindow.append);
+      finishMoveCopySelectionPhase();
       return;
     }
 
     selectEntitiesByWindow(selectionWindow);
+    finishMoveCopySelectionPhase();
     return;
   }
 
@@ -9294,7 +9335,6 @@ function setActiveTool(tool, options = {}) {
   if (remember) {
     rememberRepeatableTool(tool);
   }
-  const missingTransformTarget = (tool === "move" || tool === "copy") && !canStartTransformTool();
   if (uiState.activeTool !== tool) {
     clearTransientState();
   }
@@ -9307,8 +9347,8 @@ function setActiveTool(tool, options = {}) {
     draw();
     renderStatusPanel();
   }
-  if (missingTransformTarget) {
-    setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
+  if (isMoveCopyTool(tool)) {
+    updateMoveCopyStatus(tool);
     return;
   }
   if (tool === "dimension") {
