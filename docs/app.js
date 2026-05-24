@@ -104,6 +104,7 @@ const SHORTCUT_TO_ACTION = {
   t: () => setActiveTool("text"),
   d: () => setActiveTool("dimension"),
 };
+const PASTE_OFFSET_PX = 18;
 
 const ctx = canvas.getContext("2d");
 
@@ -172,6 +173,8 @@ let history = {
   undoStack: [],
   redoStack: [],
 };
+let entityClipboard = null;
+let pasteSequence = 0;
 
 const uiState = {
   activeTool: "select",
@@ -380,6 +383,16 @@ function isTextInputActive() {
     || activeElement.isContentEditable;
 }
 
+function isEditableTarget(target) {
+  if (!target) {
+    return false;
+  }
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target.isContentEditable === true;
+}
+
 function isCommandInProgress() {
   return Boolean(
     uiState.lineDraft
@@ -558,6 +571,76 @@ function duplicateGroupsForCopiedEntities(sourceEntities, idMap) {
   if (copiedGroups.length) {
     state.groups.push(...copiedGroups);
   }
+}
+
+function getEntityClipboardBounds(entities) {
+  const boundsList = entities.map(getEntityBoundsUnits).filter(Boolean);
+  if (!boundsList.length) {
+    return null;
+  }
+  return {
+    minX: Math.min(...boundsList.map((bounds) => bounds.minX)),
+    minY: Math.min(...boundsList.map((bounds) => bounds.minY)),
+    maxX: Math.max(...boundsList.map((bounds) => bounds.maxX)),
+    maxY: Math.max(...boundsList.map((bounds) => bounds.maxY)),
+  };
+}
+
+function copySelectedEntitiesToClipboard() {
+  const selectedEntities = getSelectedTransformableEntities();
+  if (!selectedEntities.length) {
+    return false;
+  }
+  entityClipboard = {
+    entities: deepClone(selectedEntities),
+    bounds: getEntityClipboardBounds(selectedEntities),
+    sourceEntityIds: selectedEntities.map((entity) => entity.id),
+    sourceTimestamp: Date.now(),
+  };
+  pasteSequence = 0;
+  setStatus("Copied.");
+  renderStatusPanel();
+  return true;
+}
+
+function cutSelectedEntitiesToClipboard() {
+  const copied = copySelectedEntitiesToClipboard();
+  if (!copied) {
+    return false;
+  }
+  deleteSelectedEntities();
+  setStatus("Cut.");
+  renderStatusPanel();
+  return true;
+}
+
+function resolvePasteLayerId(layerId) {
+  const layer = getLayerById(layerId);
+  if (!layer || layer.locked || layer.hidden) {
+    return state.activeLayerId;
+  }
+  return layerId;
+}
+
+function pasteEntitiesFromClipboard() {
+  if (!entityClipboard || !Array.isArray(entityClipboard.entities) || !entityClipboard.entities.length) {
+    return false;
+  }
+  pasteSequence += 1;
+  const offsetUnits = (PASTE_OFFSET_PX * pasteSequence) / view.zoom;
+  const offset = { dx: roundToUnit(offsetUnits), dy: roundToUnit(-offsetUnits) };
+  const sourceEntities = entityClipboard.entities.map((entity) => deepClone(entity));
+  const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
+  newEntities.forEach((entity) => {
+    entity.layerId = resolvePasteLayerId(entity.layerId);
+  });
+  pushUndoState();
+  state.entities.push(...newEntities);
+  duplicateGroupsForCopiedEntities(sourceEntities, idMap);
+  state.selectedEntityIds = newEntities.map((entity) => entity.id);
+  syncAfterStateChange();
+  setStatus("Pasted.");
+  return true;
 }
 
 function unitsToMm(units) {
@@ -9233,6 +9316,28 @@ function addLayer() {
 function onKeyDown(event) {
   const isMeta = event.metaKey || event.ctrlKey;
   const textInputActive = isTextInputActive();
+  if (isEditableTarget(event.target)) {
+    return;
+  }
+
+  if (isMeta && !event.shiftKey && !event.altKey) {
+    const key = event.key.toLowerCase();
+    if (key === "c") {
+      event.preventDefault();
+      copySelectedEntitiesToClipboard();
+      return;
+    }
+    if (key === "x") {
+      event.preventDefault();
+      cutSelectedEntitiesToClipboard();
+      return;
+    }
+    if (key === "v") {
+      event.preventDefault();
+      pasteEntitiesFromClipboard();
+      return;
+    }
+  }
 
   if (isDeleteLayerDialogOpen()) {
     if (event.key === "Escape") {
