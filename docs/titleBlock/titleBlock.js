@@ -310,12 +310,16 @@
     return {
       type: "text",
       layerId: entity.layerId,
+      xMm: Number(xMm) || 0,
+      yMm: Number(yMm) || 0,
       x: point.x,
       y: point.y,
       text: String(text || ""),
+      fontSizeMm: Number(heightMm) || 0,
       height: Math.max(1, getWorldUnitsFromPaperMm(entity, heightMm, deps)),
       rotation: 0,
       align: align || "left",
+      baseline: typeof options.baseline === "string" ? options.baseline : "alphabetic",
       textAnchor: "center",
       color: typeof options.color === "string" ? options.color : "",
       role: typeof options.role === "string" ? options.role : "",
@@ -657,6 +661,29 @@
     ctx.restore();
   }
 
+  function drawTitleBlockPrimitiveTextToCanvas(ctx, projectPoint, unitsToPixels, textPrimitive, options = {}) {
+    const point = projectPoint({ x: textPrimitive.x, y: textPrimitive.y });
+    const fontPx = Number.isFinite(Number(textPrimitive.fontSizeMm))
+      ? Math.abs(unitsToPixels(mmToUnits(textPrimitive.fontSizeMm, options.deps)))
+      : Math.abs(unitsToPixels(textPrimitive.height));
+    if (fontPx < 1.5) {
+      return;
+    }
+    ctx.save();
+    ctx.fillStyle = textPrimitive.color || options.fillStyle;
+    ctx.font = `${Math.max(400, Number(textPrimitive.fontWeight) || 400)} ${fontPx}px sans-serif`;
+    ctx.textBaseline = textPrimitive.baseline || "alphabetic";
+    ctx.textAlign = textPrimitive.align || "left";
+    if (Number.isFinite(Number(textPrimitive.rotationRad))) {
+      ctx.translate(point.x, point.y);
+      ctx.rotate(Number(textPrimitive.rotationRad) || 0);
+      ctx.fillText(String(textPrimitive.text || ""), 0, 0);
+    } else {
+      ctx.fillText(String(textPrimitive.text || ""), point.x, point.y);
+    }
+    ctx.restore();
+  }
+
   function drawDimensionTextToCanvas(ctx, projectPoint, unitsToPixels, textEntity, fallbackColor) {
     const point = projectPoint({ x: textEntity.x, y: textEntity.y });
     const fontPx = Math.abs(unitsToPixels(textEntity.height));
@@ -748,9 +775,9 @@
       });
     });
     primitives.texts.forEach((textEntity) => {
-      drawWorldText(ctx, projectPoint, textEntity, {
+      drawTitleBlockPrimitiveTextToCanvas(ctx, projectPoint, unitsToPixels, textEntity, {
         fillStyle: strokeColor,
-        unitsToPixels,
+        deps,
       });
     });
   }
@@ -1375,9 +1402,8 @@
           });
         });
         primitives.texts.forEach((textEntity) => {
-          drawWorldText(ctx, projectPoint, textEntity, {
+          drawTitleBlockPrimitiveTextToCanvas(ctx, projectPoint, unitsToPixels, textEntity, {
             fillStyle: rgb01ToCss(PDF_STYLE.textRgb),
-            unitsToPixels,
             deps,
           });
         });
@@ -1626,6 +1652,43 @@
     return commands;
   }
 
+  function buildPdfTitleBlockTextCommands(projector, textPrimitive, deps = {}) {
+    const point = projector.projectPoint({ x: textPrimitive.x, y: textPrimitive.y });
+    const fontSizePt = Number.isFinite(Number(textPrimitive.fontSizeMm))
+      ? mmToPt(Number(textPrimitive.fontSizeMm) || 0)
+      : projector.fontSizePt(textPrimitive.height);
+    const widthPt = estimatePdfTextWidthPt(textPrimitive, fontSizePt, deps);
+    let textOffsetXPt = 0;
+    if (textPrimitive.align === "right") {
+      textOffsetXPt -= widthPt;
+    } else if (textPrimitive.align === "center") {
+      textOffsetXPt -= widthPt / 2;
+    }
+    const textRgb = textPrimitive.color ? hexToRgb01(textPrimitive.color) : PDF_STYLE.textRgb;
+    const fontName = Number(textPrimitive.fontWeight) >= 600 ? "/F2" : "/F1";
+    const charSpacingPt = Number.isFinite(Number(textPrimitive.letterSpacingEm))
+      ? Number(textPrimitive.letterSpacingEm) * fontSizePt
+      : 0;
+    const commands = [
+      pdfRgbCommand(textRgb, "rg"),
+      "BT",
+      `${fontName} ${formatPdfNumber(fontSizePt)} Tf`,
+      `${formatPdfNumber(charSpacingPt)} Tc`,
+    ];
+    if (Number.isFinite(Number(textPrimitive.rotationRad))) {
+      const angle = Number(textPrimitive.rotationRad) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      commands.push(`${formatPdfNumber(cos)} ${formatPdfNumber(sin)} ${formatPdfNumber(-sin)} ${formatPdfNumber(cos)} ${formatPdfNumber(point.x)} ${formatPdfNumber(point.y)} Tm`);
+      commands.push(`${formatPdfNumber(textOffsetXPt)} 0 Td`);
+    } else {
+      commands.push(`${formatPdfNumber(point.x + textOffsetXPt)} ${formatPdfNumber(point.y)} Td`);
+    }
+    commands.push(`(${escapePdfText(textPrimitive.text)}) Tj`);
+    commands.push("ET");
+    return commands;
+  }
+
   function buildPdfFilledCircleCommands(projector, center, radiusUnits, fillRgb, segments = 16) {
     return buildPdfPolygonCommands(projector, approximateCirclePoints(center, radiusUnits, segments), {
       closePath: true,
@@ -1746,7 +1809,7 @@
         commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.titleBlockStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
       });
       primitives.texts.forEach((textEntity) => {
-        commands.push(...buildPdfTextCommands(projector, textEntity, deps));
+        commands.push(...buildPdfTitleBlockTextCommands(projector, textEntity, deps));
       });
       return commands;
     }
