@@ -3858,6 +3858,24 @@ function drawTransformPreview(transformDraft) {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
       ctx.restore();
+    } else if (entity.type === "blockInstance") {
+      const bounds = getBlockInstanceBoundsUnits(entity);
+      if (!bounds) {
+        return;
+      }
+      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+      ctx.save();
+      ctx.setLineDash([9, 6]);
+      ctx.strokeStyle = "rgba(98, 73, 45, 0.82)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(
+        Math.min(p1.x, p2.x),
+        Math.min(p1.y, p2.y),
+        Math.abs(p2.x - p1.x),
+        Math.abs(p2.y - p1.y)
+      );
+      ctx.restore();
     } else if (entity.type === "titleBlock") {
       drawTitleBlockEntity(entity);
     }
@@ -3868,6 +3886,8 @@ function drawTransformPreview(transformDraft) {
       drawSolidPreviewLineEntity(previewLine);
     } else if (entity.type === "rect") {
       drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
+    } else if (entity.type === "blockInstance") {
+      drawBlockInstanceEntity(applyOffsetToEntity(entity, offset));
     } else if (entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "titleBlock") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
     }
@@ -3887,6 +3907,8 @@ function drawEntityPreview(entity) {
     drawDimensionEntity(entity);
   } else if (entity.type === "titleBlock") {
     drawTitleBlockEntity(entity);
+  } else if (entity.type === "blockInstance") {
+    drawBlockInstanceEntity(entity);
   }
 }
 
