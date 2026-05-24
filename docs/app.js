@@ -8317,7 +8317,6 @@ function onPointerMove(event) {
       uiState.hoverMoveAnchor = null;
       uiState.hoverBorrowedHandle = null;
       uiState.hoverRectEdge = null;
-      document.body.style.cursor = "move";
     } else {
       uiState.hoverDimensionEndpointHandle = null;
       const dimensionOffsetHandleHit = findDimensionOffsetHandleAtPoint(roundedWorldPoint);
@@ -8327,7 +8326,6 @@ function onPointerMove(event) {
         uiState.hoverMoveAnchor = null;
         uiState.hoverBorrowedHandle = null;
         uiState.hoverRectEdge = null;
-        document.body.style.cursor = "move";
       } else {
         uiState.hoverDimensionOffsetHandle = null;
         const gripHit = findEditableGripAtPoint(roundedWorldPoint);
@@ -8336,7 +8334,6 @@ function onPointerMove(event) {
           uiState.hoverMoveAnchor = null;
           uiState.hoverBorrowedHandle = null;
           uiState.hoverRectEdge = null;
-          document.body.style.cursor = "move";
         } else {
           uiState.hoverGrip = null;
           const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundedWorldPoint);
@@ -8344,7 +8341,6 @@ function onPointerMove(event) {
             uiState.hoverMoveAnchor = moveAnchorHit;
             uiState.hoverBorrowedHandle = null;
             uiState.hoverRectEdge = null;
-            document.body.style.cursor = "move";
           } else {
             uiState.hoverMoveAnchor = null;
             uiState.hoverBorrowedHandle = findBorrowedMoveBaseHandleAtPoint(roundedWorldPoint, {
@@ -8352,7 +8348,6 @@ function onPointerMove(event) {
             });
             if (uiState.hoverBorrowedHandle) {
               uiState.hoverRectEdge = null;
-              document.body.style.cursor = "move";
             } else {
               uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
             }

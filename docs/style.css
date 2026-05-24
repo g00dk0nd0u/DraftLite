@@ -467,9 +467,15 @@ body[data-tool="select"] #draftCanvas {
   cursor: default;
 }
 
+body[data-tool="matchProperties"] #draftCanvas,
 body[data-tool="move"] #draftCanvas,
-body[data-tool="copy"] #draftCanvas {
-  cursor: move;
+body[data-tool="copy"] #draftCanvas,
+body[data-tool="rotate"] #draftCanvas,
+body[data-tool="mirror"] #draftCanvas,
+body[data-tool="align"] #draftCanvas,
+body[data-tool="extend"] #draftCanvas,
+body[data-tool="fillet"] #draftCanvas {
+  cursor: default;
 }
 
 body[data-panning="true"] #draftCanvas {
