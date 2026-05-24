@@ -3010,12 +3010,12 @@ function drawTextEntity(entity) {
   const metricsUnits = getTextMetricsUnits(entity);
   const drawOffsetUnits = getTextDrawOffsetUnits(entity, metricsUnits);
   const localBoxUnits = getTextLocalBoxUnits(entity, metricsUnits);
-  const fontPx = Math.max(10, Math.abs(metricsUnits.heightUnits * state.view.zoom));
+  const fontPx = Math.abs(metricsUnits.heightUnits * state.view.zoom);
+  const shouldDrawTextGlyphs = fontPx >= 1.5;
   const rotationDeg = entity.rotation || 0;
   const rotationRad = (rotationDeg * Math.PI) / 180;
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.font = `${fontPx}px sans-serif`;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = entity.align || "left";
   ctx.fillStyle = color;
@@ -3023,11 +3023,14 @@ function drawTextEntity(entity) {
   if (rotationDeg) {
     ctx.rotate(-rotationRad);
   }
-  ctx.fillText(
-    entity.text,
-    drawOffsetUnits.x * state.view.zoom,
-    drawOffsetUnits.y * state.view.zoom,
-  );
+  if (shouldDrawTextGlyphs) {
+    ctx.font = `${fontPx}px sans-serif`;
+    ctx.fillText(
+      entity.text,
+      drawOffsetUnits.x * state.view.zoom,
+      drawOffsetUnits.y * state.view.zoom,
+    );
+  }
   if (isSelected) {
     ctx.strokeStyle = "#c2693e";
     ctx.lineWidth = 1.3;
@@ -8346,7 +8349,7 @@ function handleTextToolClick(worldPoint) {
     return;
   }
   pushUndoState();
-  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: 250, rotation: 0, align: "left", textAnchor: "center", color: "" };
+  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: mmToUnits(100), rotation: 0, align: "left", textAnchor: "center", color: "" };
   state.entities.push(entity);
   state.selectedEntityIds = [entity.id];
   syncAfterStateChange();
@@ -8637,6 +8640,9 @@ function getTitleBlockExportDeps() {
     },
     getDimensionTickRadiusUnitsForExport(entity) {
       return getDimensionTickRadiusUnits(entity);
+    },
+    getTextInsertionPointUnitsForExport(entity) {
+      return getTextInsertionPointUnits(entity);
     },
     buildDxfTextFromEntities,
     getDxfExportSummaryForEntities,

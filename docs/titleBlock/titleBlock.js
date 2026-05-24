@@ -603,8 +603,40 @@
     ctx.restore();
   }
 
+  function usesCenterAnchoredTextGeometry(textEntity, deps = {}) {
+    return textEntity && textEntity.textAnchor === "center" && typeof deps.getTextInsertionPointUnitsForExport === "function";
+  }
+
+  function getRasterTextRotationRad(textEntity) {
+    if (Number.isFinite(Number(textEntity.rotationRad))) {
+      return Number(textEntity.rotationRad) || 0;
+    }
+    if (Number.isFinite(Number(textEntity.rotation))) {
+      return -((Number(textEntity.rotation) || 0) * Math.PI / 180);
+    }
+    return null;
+  }
+
+  function getPdfTextRotationRad(textEntity) {
+    if (Number.isFinite(Number(textEntity.rotationRad))) {
+      return Number(textEntity.rotationRad) || 0;
+    }
+    if (Number.isFinite(Number(textEntity.rotation))) {
+      return (Number(textEntity.rotation) || 0) * Math.PI / 180;
+    }
+    return null;
+  }
+
+  function getExportTextAnchorPoint(textEntity, deps = {}) {
+    if (usesCenterAnchoredTextGeometry(textEntity, deps)) {
+      return deps.getTextInsertionPointUnitsForExport(textEntity);
+    }
+    return { x: textEntity.x, y: textEntity.y };
+  }
+
   function drawWorldText(ctx, projectPoint, textEntity, options = {}) {
-    const point = projectPoint({ x: textEntity.x, y: textEntity.y });
+    const deps = options.deps || {};
+    const point = projectPoint(getExportTextAnchorPoint(textEntity, deps));
     const fontPx = Math.abs(options.unitsToPixels(textEntity.height));
     if (fontPx < 1.5) {
       return;
@@ -614,9 +646,10 @@
     ctx.font = `${Math.max(400, Number(textEntity.fontWeight) || 400)} ${fontPx}px sans-serif`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = textEntity.align || "left";
-    if (Number.isFinite(Number(textEntity.rotationRad))) {
+    const rotationRad = getRasterTextRotationRad(textEntity);
+    if (Number.isFinite(rotationRad)) {
       ctx.translate(point.x, point.y);
-      ctx.rotate(Number(textEntity.rotationRad));
+      ctx.rotate(rotationRad);
       ctx.fillText(String(textEntity.text || ""), 0, 0);
     } else {
       ctx.fillText(String(textEntity.text || ""), point.x, point.y);
@@ -1313,7 +1346,7 @@
       return;
     }
     if (entity.type === "text") {
-      drawWorldText(ctx, projectPoint, entity, { fillStyle: strokeStyle, unitsToPixels });
+      drawWorldText(ctx, projectPoint, entity, { fillStyle: strokeStyle, unitsToPixels, deps });
       return;
     }
     if (entity.type === "dimension") {
@@ -1345,6 +1378,7 @@
           drawWorldText(ctx, projectPoint, textEntity, {
             fillStyle: rgb01ToCss(PDF_STYLE.textRgb),
             unitsToPixels,
+            deps,
           });
         });
         return;
@@ -1557,7 +1591,7 @@
   }
 
   function buildPdfTextCommands(projector, textEntity, deps = {}) {
-    const point = projector.projectPoint({ x: textEntity.x, y: textEntity.y });
+    const point = projector.projectPoint(getExportTextAnchorPoint(textEntity, deps));
     const fontSizePt = projector.fontSizePt(textEntity.height);
     const widthPt = estimatePdfTextWidthPt(textEntity, fontSizePt, deps);
     let textOffsetXPt = 0;
@@ -1577,8 +1611,9 @@
       `${fontName} ${formatPdfNumber(fontSizePt)} Tf`,
       `${formatPdfNumber(charSpacingPt)} Tc`,
     ];
-    if (Number.isFinite(Number(textEntity.rotationRad))) {
-      const angle = Number(textEntity.rotationRad) || 0;
+    const rotationRad = getPdfTextRotationRad(textEntity);
+    if (Number.isFinite(rotationRad)) {
+      const angle = rotationRad || 0;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
       commands.push(`${formatPdfNumber(cos)} ${formatPdfNumber(sin)} ${formatPdfNumber(-sin)} ${formatPdfNumber(cos)} ${formatPdfNumber(point.x)} ${formatPdfNumber(point.y)} Tm`);
