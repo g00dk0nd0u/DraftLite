@@ -141,20 +141,19 @@
               </div>
               <div id="propertiesPanel" class="properties-panel"></div>
             </section>
-          </section>
 
-          <section class="panel agent-io-panel">
-            <details id="agentIoDetails" data-testid="agent-io-details">
-              <summary>Agent IO</summary>
-              <div class="agent-io-body">
-                <div id="agentModeHint" class="agent-io-hint" data-testid="agent-io-hint">
-                  Start with: <code>tools</code> / <code>resources</code> / <code>summary</code> / <code>validate</code>
-                </div>
-                <textarea
-                  id="agentCommandInput"
-                  data-testid="agent-command-input"
-                  spellcheck="false"
-                  placeholder='tools
+            <section class="sidebar-subpanel agent-io-panel">
+              <details id="agentIoDetails" data-testid="agent-io-details">
+                <summary>Agent IO</summary>
+                <div class="agent-io-body">
+                  <div id="agentModeHint" class="agent-io-hint" data-testid="agent-io-hint">
+                    Start with: <code>tools</code> / <code>resources</code> / <code>summary</code> / <code>validate</code>
+                  </div>
+                  <textarea
+                    id="agentCommandInput"
+                    data-testid="agent-command-input"
+                    spellcheck="false"
+                    placeholder='tools
 
 or JSON:
 [
@@ -162,28 +161,29 @@ or JSON:
   { "action": "rect", "x": 0, "y": 0, "width": 6000, "height": 3000 },
   { "action": "fit" }
 ]'
-                ></textarea>
-                <div class="agent-io-actions">
-                  <button id="agentRunButton" class="panel-button" type="button" data-testid="agent-run-button">Run</button>
-                  <button id="agentCopyInputButton" class="panel-button" type="button" data-testid="agent-copy-input-button">Copy Input</button>
-                  <button id="agentCopyResultButton" class="panel-button" type="button" data-testid="agent-copy-result-button">Copy Result</button>
+                  ></textarea>
+                  <div class="agent-io-actions">
+                    <button id="agentRunButton" class="panel-button" type="button" data-testid="agent-run-button">Run</button>
+                    <button id="agentCopyInputButton" class="panel-button" type="button" data-testid="agent-copy-input-button">Copy Input</button>
+                    <button id="agentCopyResultButton" class="panel-button" type="button" data-testid="agent-copy-result-button">Copy Result</button>
+                  </div>
+                  <div class="agent-io-actions agent-io-actions-secondary">
+                    <button id="agentValidateButton" class="panel-button" type="button" data-testid="agent-validate-button">Validate</button>
+                    <button id="agentClearButton" class="panel-button" type="button" data-testid="agent-clear-button">Clear</button>
+                    <button id="agentFitButton" class="panel-button" type="button" data-testid="agent-fit-button">Fit</button>
+                  </div>
+                  <pre
+                    id="agentResultOutput"
+                    data-testid="agent-result-output"
+                    data-last-ok=""
+                    data-last-result=""
+                    data-last-error=""
+                    data-last-tool=""
+                    data-last-action=""
+                  ></pre>
                 </div>
-                <div class="agent-io-actions agent-io-actions-secondary">
-                  <button id="agentValidateButton" class="panel-button" type="button" data-testid="agent-validate-button">Validate</button>
-                  <button id="agentClearButton" class="panel-button" type="button" data-testid="agent-clear-button">Clear</button>
-                  <button id="agentFitButton" class="panel-button" type="button" data-testid="agent-fit-button">Fit</button>
-                </div>
-                <pre
-                  id="agentResultOutput"
-                  data-testid="agent-result-output"
-                  data-last-ok=""
-                  data-last-result=""
-                  data-last-error=""
-                  data-last-tool=""
-                  data-last-action=""
-                ></pre>
-              </div>
-            </details>
+              </details>
+            </section>
           </section>
 
         </aside>
