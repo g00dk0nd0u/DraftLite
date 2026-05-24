@@ -1397,6 +1397,8 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
     constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, orthoEnabled);
   } else if (uiState.gripEditDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.gripEditDraft.startPoint, constrainedWorld, orthoEnabled);
+  } else if (uiState.mirrorDraft && uiState.mirrorDraft.firstPoint) {
+    constrainedWorld = applyOrthoConstraint(uiState.mirrorDraft.firstPoint, constrainedWorld, orthoEnabled);
   }
 
   return getSnapPoint(constrainedWorld);
@@ -3164,6 +3166,9 @@ function draw() {
   if (uiState.dimensionDraft) {
     drawDimensionDraftPreview(uiState.dimensionDraft);
   }
+  if (uiState.mirrorDraft && uiState.mirrorDraft.firstPoint) {
+    drawMirrorAxisDraft(uiState.mirrorDraft.firstPoint, getMirrorAxisSecondPoint(uiState.pointerWorld));
+  }
 
   if (uiState.transformDraft) {
     drawTransformPreview(uiState.transformDraft);
@@ -4764,6 +4769,24 @@ function drawPreviewLineEntity(entity) {
   ctx.restore();
 }
 
+function drawMirrorAxisDraft(firstPoint, secondPoint) {
+  if (!firstPoint || !secondPoint) {
+    return;
+  }
+  const screenFirst = worldToScreen(firstPoint);
+  const screenSecond = worldToScreen(secondPoint);
+  ctx.save();
+  ctx.strokeStyle = getCssVar("--canvas-axis-preview", "rgba(80, 90, 110, 0.75)");
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 5]);
+  ctx.beginPath();
+  ctx.moveTo(screenFirst.x, screenFirst.y);
+  ctx.lineTo(screenSecond.x, screenSecond.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
 function drawSolidPreviewLineEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer || !isLayerVisible(entity.layerId)) {
@@ -5523,6 +5546,14 @@ function mirrorPointAcrossLine(point, lineP1, lineP2) {
   });
 }
 
+function getMirrorAxisSecondPoint(worldPoint, shiftKey = uiState.isShiftPressed) {
+  if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
+    return roundWorldPoint(worldPoint);
+  }
+  const constrained = applyOrthoConstraint(uiState.mirrorDraft.firstPoint, worldPoint, !shiftKey);
+  return roundWorldPoint(constrained);
+}
+
 function isVerticalOrHorizontalMirrorAxis(lineP1, lineP2) {
   return lineP1.x === lineP2.x || lineP1.y === lineP2.y;
 }
@@ -5541,6 +5572,24 @@ function mirrorEntity(entity, lineP1, lineP2) {
     };
   }
   if (entity.type === "rect") {
+    if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
+      return entity;
+    }
+    const corners = [
+      { x: entity.x, y: entity.y },
+      { x: entity.x + entity.width, y: entity.y },
+      { x: entity.x + entity.width, y: entity.y + entity.height },
+      { x: entity.x, y: entity.y + entity.height },
+    ].map((point) => mirrorPointAcrossLine(point, lineP1, lineP2));
+    const xs = corners.map((point) => point.x);
+    const ys = corners.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return { ...entity, x: minX, y: minY, width: roundToUnit(maxX - minX), height: roundToUnit(maxY - minY), rotation: 0 };
+  }
+  if (entity.type === "titleBlock") {
     if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
       return entity;
     }
@@ -5593,7 +5642,19 @@ function mirrorEntity(entity, lineP1, lineP2) {
     };
   }
   if (entity.type === "blockInstance") {
-    return entity;
+    const mirroredPosition = mirrorPointAcrossLine({ x: entity.x, y: entity.y }, lineP1, lineP2);
+    const rotation = Number.isFinite(entity.rotation) ? entity.rotation : 0;
+    const directionPoint = {
+      x: entity.x + Math.cos((rotation * Math.PI) / 180),
+      y: entity.y + Math.sin((rotation * Math.PI) / 180),
+    };
+    const mirroredDirectionPoint = mirrorPointAcrossLine(directionPoint, lineP1, lineP2);
+    return {
+      ...entity,
+      x: mirroredPosition.x,
+      y: mirroredPosition.y,
+      rotation: normalizeAngleDeg(angleDegFromCenter(mirroredPosition, mirroredDirectionPoint)),
+    };
   }
   if (entity.type === "dimension") {
     return {
@@ -5609,11 +5670,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
 function startMirrorDraft(worldPoint) {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
-    setStatus("Select at least one entity before using Mirror.");
-    return false;
-  }
-  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
-    setStatus("Block mirror is not supported in Block v1.");
+    setStatus("Mirror: Select objects first.");
     return false;
   }
   uiState.mirrorDraft = { firstPoint: roundWorldPoint(worldPoint) };
@@ -5627,28 +5684,23 @@ function applyMirrorDraft(worldPoint) {
     return false;
   }
   const selectedEntities = getSelectedTransformableEntities();
-  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
-    setStatus("Block mirror is not supported in Block v1.");
-    return false;
-  }
   const firstPoint = uiState.mirrorDraft.firstPoint;
-  const secondPoint = roundWorldPoint(worldPoint);
+  const secondPoint = getMirrorAxisSecondPoint(worldPoint);
   if (firstPoint.x === secondPoint.x && firstPoint.y === secondPoint.y) {
     setStatus("Mirror axis needs two distinct points.");
     return false;
   }
-  const selectedIdSet = new Set(state.selectedEntityIds);
+  const selectedIdSet = new Set(selectedEntities.map((entity) => entity.id));
   pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (!selectedIdSet.has(entity.id) || !canSelectEntity(entity)) {
-      return entity;
-    }
-    return mirrorEntity(entity, firstPoint, secondPoint);
-  });
+  const mirroredCopies = selectedEntities
+    .filter((entity) => selectedIdSet.has(entity.id) && canSelectEntity(entity))
+    .map((entity) => ({ ...mirrorEntity(deepClone(entity), firstPoint, secondPoint), id: createEntityId() }));
+  state.entities = [...state.entities, ...mirroredCopies];
+  state.selectedEntityIds = mirroredCopies.map((entity) => entity.id);
   uiState.mirrorDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
-  setStatus("Mirror applied.");
+  setStatus(`Mirror copied ${mirroredCopies.length} object(s).`);
   return true;
 }
 
@@ -9710,7 +9762,11 @@ function setActiveTool(tool, options = {}) {
     return;
   }
   if (tool === "mirror") {
-    setStatus("Mirror: pick axis first point.");
+    if (!getSelectedTransformableEntities().length) {
+      setStatus("Mirror: Select objects first.");
+    } else {
+      setStatus("Mirror: pick axis first point.");
+    }
     return;
   }
   setStatus(`${capitalize(tool)} tool active.`);
