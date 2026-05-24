@@ -577,16 +577,19 @@ function duplicateGroupsForCopiedEntities(sourceEntities, idMap) {
 }
 
 function getEntityClipboardBounds(entities) {
-  const boundsList = entities.map(getEntityBoundsUnits).filter(Boolean);
-  if (!boundsList.length) {
-    return null;
-  }
-  return {
-    minX: Math.min(...boundsList.map((bounds) => bounds.minX)),
-    minY: Math.min(...boundsList.map((bounds) => bounds.minY)),
-    maxX: Math.max(...boundsList.map((bounds) => bounds.maxX)),
-    maxY: Math.max(...boundsList.map((bounds) => bounds.maxY)),
-  };
+  return getBoundsForEntities(entities);
+}
+
+function getClipboardBlockDefinitions(entities) {
+  const blockIds = [...new Set(
+    entities
+      .filter((entity) => entity && entity.type === "blockInstance" && typeof entity.blockId === "string" && entity.blockId)
+      .map((entity) => entity.blockId)
+  )];
+  return blockIds
+    .map((blockId) => getBlockDefinitionById(blockId))
+    .filter(Boolean)
+    .map((definition) => deepClone(definition));
 }
 
 function copySelectedEntitiesToClipboard() {
@@ -596,6 +599,7 @@ function copySelectedEntitiesToClipboard() {
   }
   entityClipboard = {
     entities: deepClone(selectedEntities),
+    blockDefinitions: getClipboardBlockDefinitions(selectedEntities),
     bounds: getEntityClipboardBounds(selectedEntities),
     sourceEntityIds: selectedEntities.map((entity) => entity.id),
     sourceTimestamp: Date.now(),
@@ -619,25 +623,81 @@ function cutSelectedEntitiesToClipboard() {
 
 function resolvePasteLayerId(layerId) {
   const layer = getLayerById(layerId);
-  if (!layer || layer.locked || layer.hidden) {
-    return state.activeLayerId;
+  if (layer && layer.visible && !layer.locked) {
+    return layerId;
   }
-  return layerId;
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (activeLayer && activeLayer.visible && !activeLayer.locked) {
+    return activeLayer.id;
+  }
+  const fallbackLayer = state.layers.find((candidate) => candidate.visible && !candidate.locked);
+  return fallbackLayer ? fallbackLayer.id : null;
+}
+
+function restoreClipboardBlockDefinitions() {
+  const clipboardDefinitions = Array.isArray(entityClipboard && entityClipboard.blockDefinitions)
+    ? entityClipboard.blockDefinitions
+    : [];
+  if (!clipboardDefinitions.length) {
+    return new Map();
+  }
+
+  const remappedBlockIds = new Map();
+  clipboardDefinitions.forEach((definition, index) => {
+    if (!definition || typeof definition.id !== "string" || !definition.id) {
+      return;
+    }
+    if (getBlockDefinitionById(definition.id)) {
+      remappedBlockIds.set(definition.id, definition.id);
+      return;
+    }
+    const blockNumber = state.nextBlockNumber;
+    const blockId = `block-${blockNumber}`;
+    const name = typeof definition.name === "string" && definition.name.trim()
+      ? definition.name.trim()
+      : `Block ${blockNumber}`;
+    state.nextBlockNumber += 1;
+    const now = new Date().toISOString();
+    state.blockDefinitions.push({
+      id: blockId,
+      name,
+      entities: Array.isArray(definition.entities) ? deepClone(definition.entities) : [],
+      createdAt: typeof definition.createdAt === "string" ? definition.createdAt : now,
+      updatedAt: now,
+    });
+    remappedBlockIds.set(definition.id, blockId);
+  });
+  return remappedBlockIds;
 }
 
 function pasteEntitiesFromClipboard() {
   if (!entityClipboard || !Array.isArray(entityClipboard.entities) || !entityClipboard.entities.length) {
+    setStatus("Clipboard is empty.");
     return false;
   }
+  const zoom = Math.max(0.000001, Number(state.view.zoom) || DEFAULT_ZOOM);
   pasteSequence += 1;
-  const offsetUnits = (PASTE_OFFSET_PX * pasteSequence) / view.zoom;
+  const offsetUnits = (PASTE_OFFSET_PX * pasteSequence) / zoom;
   const offset = { dx: roundToUnit(offsetUnits), dy: roundToUnit(-offsetUnits) };
   const sourceEntities = entityClipboard.entities.map((entity) => deepClone(entity));
   const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
-  newEntities.forEach((entity) => {
-    entity.layerId = resolvePasteLayerId(entity.layerId);
-  });
+  const resolvedLayerIds = newEntities.map((entity) => resolvePasteLayerId(entity.layerId));
+  if (resolvedLayerIds.some((layerId) => !layerId)) {
+    setStatus("Paste failed: no visible, unlocked layer is available.");
+    return false;
+  }
   pushUndoState();
+  const blockIdMap = restoreClipboardBlockDefinitions();
+  newEntities.forEach((entity) => {
+    entity.layerId = resolvedLayerIds.shift();
+    if (entity.type === "blockInstance") {
+      entity.blockId = blockIdMap.get(entity.blockId) || entity.blockId;
+      const definition = getBlockDefinitionById(entity.blockId);
+      if (definition) {
+        entity.name = entity.name || definition.name || "";
+      }
+    }
+  });
   state.entities.push(...newEntities);
   duplicateGroupsForCopiedEntities(sourceEntities, idMap);
   state.selectedEntityIds = newEntities.map((entity) => entity.id);
@@ -964,9 +1024,24 @@ function collectSnapCandidates(worldPoint) {
         return [{ kind: "endpoint", point, distancePx: distanceScreenPx(worldPoint, point) }];
       }
       if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
-  }
-  if (entity.type === "dimension") {
+        const bounds = getBlockInstanceBoundsUnits(entity);
+        if (!bounds) {
+          return [];
+        }
+        const points = [
+          { kind: "endpoint", point: { x: bounds.minX, y: bounds.minY } },
+          { kind: "endpoint", point: { x: bounds.maxX, y: bounds.minY } },
+          { kind: "endpoint", point: { x: bounds.maxX, y: bounds.maxY } },
+          { kind: "endpoint", point: { x: bounds.minX, y: bounds.maxY } },
+          { kind: "center", point: { x: roundToUnit((bounds.minX + bounds.maxX) / 2), y: roundToUnit((bounds.minY + bounds.maxY) / 2) } },
+        ];
+        return points.map((candidate) => ({
+          ...candidate,
+          point: roundWorldPoint(candidate.point),
+          distancePx: distanceScreenPx(worldPoint, candidate.point),
+        }));
+      }
+      if (entity.type === "dimension") {
         return [entity.p1, entity.p2, entity.offsetPoint].map((point) => ({
           kind: "endpoint",
           point,
@@ -1022,6 +1097,7 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
     .flatMap((entity) => {
       if (entity.type === "line") {
         return [entity.p1, entity.p2].map((point) => ({
+          kind: "endpoint",
           entityId: entity.id,
           point: roundWorldPoint(point),
           distancePx: distanceScreenPx(worldPoint, point),
@@ -1029,6 +1105,7 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
       }
       if (entity.type === "rect") {
         return getRectMoveAnchorPoints(entity).map((candidate) => ({
+          kind: candidate.kind,
           entityId: entity.id,
           point: candidate.point,
           distancePx: distanceScreenPx(worldPoint, candidate.point),
@@ -1036,6 +1113,7 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
       }
       if (entity.type === "circle") {
         return [{
+          kind: "center",
           entityId: entity.id,
           point: roundWorldPoint(entity.center),
           distancePx: distanceScreenPx(worldPoint, entity.center),
@@ -1043,16 +1121,34 @@ function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
       }
       if (entity.type === "filledRegion") {
         return entity.points.map((point) => ({
+          kind: "endpoint",
           entityId: entity.id,
           point: roundWorldPoint(point),
           distancePx: distanceScreenPx(worldPoint, point),
         }));
       }
       if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
-  }
-  if (entity.type === "dimension") {
+        const bounds = getBlockInstanceBoundsUnits(entity);
+        if (!bounds) {
+          return [];
+        }
+        const points = [
+          { x: bounds.minX, y: bounds.minY },
+          { x: bounds.maxX, y: bounds.minY },
+          { x: bounds.maxX, y: bounds.maxY },
+          { x: bounds.minX, y: bounds.maxY },
+          { x: roundToUnit((bounds.minX + bounds.maxX) / 2), y: roundToUnit((bounds.minY + bounds.maxY) / 2) },
+        ];
+        return points.map((point) => ({
+          kind: "endpoint",
+          entityId: entity.id,
+          point: roundWorldPoint(point),
+          distancePx: distanceScreenPx(worldPoint, point),
+        }));
+      }
+      if (entity.type === "dimension") {
         return [entity.p1, entity.p2, entity.offsetPoint].map((point) => ({
+          kind: "endpoint",
           entityId: entity.id,
           point: roundWorldPoint(point),
           distancePx: distanceScreenPx(worldPoint, point),
@@ -1289,6 +1385,10 @@ function isLayerVisible(layerId) {
   return Boolean(layer && layer.visible);
 }
 
+function isEntityVisible(entity) {
+  return Boolean(entity && isLayerVisible(entity.layerId));
+}
+
 function canSelectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer || !layer.visible || layer.locked) return false;
@@ -1317,6 +1417,17 @@ function normalizePoint(point, legacyUnits) {
   return {
     x: normalizeUnitValue(sourcePoint.x, legacyUnits),
     y: normalizeUnitValue(sourcePoint.y, legacyUnits),
+  };
+}
+
+function getBoundsForEntities(entities) {
+  const boundsList = entities.map(getEntityBoundsUnits).filter(Boolean);
+  if (!boundsList.length) return null;
+  return {
+    minX: Math.min(...boundsList.map((bounds) => bounds.minX)),
+    minY: Math.min(...boundsList.map((bounds) => bounds.minY)),
+    maxX: Math.max(...boundsList.map((bounds) => bounds.maxX)),
+    maxY: Math.max(...boundsList.map((bounds) => bounds.maxY)),
   };
 }
 
@@ -1451,7 +1562,15 @@ function normalizeEntity(entity, options = {}) {
   }
 
   if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "blockInstance",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      blockId: typeof entity.blockId === "string" ? entity.blockId : "",
+      x: normalizeUnitValue(entity.x, legacyUnits),
+      y: normalizeUnitValue(entity.y, legacyUnits),
+      name: typeof entity.name === "string" ? entity.name : "",
+    };
   }
   if (entity.type === "dimension") {
     const rawExtensionGap = Number(entity.extensionGap);
@@ -1520,24 +1639,42 @@ function makeBlockFromGroup(group) {
 }
 
 function makeBlockFromSelection() {
-  const selected = state.selectedEntityIds.map(getEntityById).filter(Boolean);
-  if (!selected.length) { setStatus("Nothing selected."); return false; }
+  const selected = state.selectedEntityIds
+    .map(getEntityById)
+    .filter((entity) => entity && canSelectEntity(entity) && entity.type !== "blockInstance");
+  if (!selected.length) {
+    setStatus("Select entities to make a block.");
+    return false;
+  }
   const bounds = getBoundsForEntities(selected);
-  if (!bounds) return false;
+  if (!bounds) {
+    setStatus("Select entities to make a block.");
+    return false;
+  }
   const basePoint = { x: bounds.minX, y: bounds.minY };
   const now = new Date().toISOString();
-  const blockId = createBlockId();
-  const name = createDefaultBlockName();
-  const definition = { id: blockId, name, basePoint: deepClone(basePoint), entities: selected.map((entity)=>entityToBlockRelative(entity, basePoint)), createdAt: now, updatedAt: now };
+  const blockNumber = state.nextBlockNumber;
+  const blockId = `block-${blockNumber}`;
+  const name = `Block ${blockNumber}`;
+  state.nextBlockNumber += 1;
+  const definition = {
+    id: blockId,
+    name,
+    entities: selected.map((entity) => entityToBlockRelative(entity, basePoint)),
+    createdAt: now,
+    updatedAt: now,
+  };
+  pushUndoState();
   state.blockDefinitions.push(definition);
   const firstLayerId = selected[0].layerId || state.activeLayerId;
-  const instance = { id: createEntityId(), type: "blockInstance", layerId: firstLayerId, blockId, x: basePoint.x, y: basePoint.y, rotation: 0, scale: 1, name };
-  const removeIds = new Set(selected.map((e)=>e.id));
-  state.entities = state.entities.filter((e)=>!removeIds.has(e.id));
+  const instance = { id: createEntityId(), type: "blockInstance", layerId: firstLayerId, blockId, x: basePoint.x, y: basePoint.y, name };
+  const removeIds = new Set(selected.map((entity) => entity.id));
+  state.entities = state.entities.filter((entity) => !removeIds.has(entity.id));
   cleanupGroups();
   state.entities.push(instance);
   state.selectedEntityIds = [instance.id];
-  setStatus(`${name} created.`);
+  syncAfterStateChange();
+  setStatus(`${name} created. ${selected.length} entities converted to one block instance.`);
   return true;
 }
 
@@ -1586,15 +1723,37 @@ function normalizeDocument(raw) {
   const source = raw && raw.state ? raw.state : raw;
   const base = createInitialState();
   const legacyUnits = shouldMigrateLegacyUnits(raw, source);
+  const now = new Date().toISOString();
   const normalizedLayers = Array.isArray(source && source.layers)
     ? source.layers.map(normalizeLayer)
     : base.layers;
 
   const layerIds = new Set(normalizedLayers.map((layer) => layer.id));
+  const normalizedBlockDefinitions = Array.isArray(source && source.blockDefinitions)
+    ? source.blockDefinitions
+        .map((block, index) => {
+          const normalizedChildren = Array.isArray(block && block.entities)
+            ? block.entities
+                .map((entity) => normalizeEntity(entity, { legacyUnits }))
+                .filter((entity) => entity && entity.type !== "blockInstance")
+            : [];
+          return {
+            id: typeof block.id === "string" && block.id ? block.id : `block-${index + 1}`,
+            name: typeof block.name === "string" && block.name ? block.name : `Block ${index + 1}`,
+            entities: normalizedChildren,
+            createdAt: typeof block.createdAt === "string" ? block.createdAt : now,
+            updatedAt: typeof block.updatedAt === "string" ? block.updatedAt : now,
+          };
+        })
+        .filter((block) => block.entities.length > 0)
+    : [];
+
+  const validBlockIds = new Set(normalizedBlockDefinitions.map((block) => block.id));
   const normalizedEntities = Array.isArray(source && source.entities)
     ? source.entities
         .map((entity) => normalizeEntity(entity, { legacyUnits }))
         .filter(Boolean)
+        .filter((entity) => entity.type !== "blockInstance" || validBlockIds.has(entity.blockId))
         .map((entity, index) => ({
           ...entity,
           id: entity.id || `ent-${index + 1}`,
@@ -1607,8 +1766,6 @@ function normalizeDocument(raw) {
     : [];
 
   const entityIds = new Set(normalizedEntities.map((entity) => entity.id));
-  const normalizedBlockDefinitions = Array.isArray(source && source.blockDefinitions) ? source.blockDefinitions.map((block, index) => ({ id: typeof block.id === "string" && block.id ? block.id : `block-${index+1}`, name: typeof block.name === "string" && block.name ? block.name : `Block ${index+1}`, basePoint: block && block.basePoint ? roundWorldPoint(block.basePoint) : { x: 0, y: 0 }, entities: Array.isArray(block.entities) ? block.entities.map((entity) => normalizeEntity(entity, layers, {})).filter(Boolean) : [], createdAt: typeof block.createdAt === "string" ? block.createdAt : now, updatedAt: typeof block.updatedAt === "string" ? block.updatedAt : now })) : [];
-
   const normalizedGroups = Array.isArray(source && source.groups)
     ? source.groups
       .map((group, index) => {
@@ -2527,7 +2684,33 @@ function renderPropertiesPanel() {
   }
 
   if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
+    const definition = getBlockInstanceDefinition(entity);
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Block Instance"));
+    addPropertyRow(generalGrid, "Name", createReadOnlyText(entity.name || definition?.name || ""));
+    addPropertyRow(generalGrid, "Definition", createReadOnlyText(definition?.name || entity.blockId || ""));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Block layer updated."));
+    addPropertyRow(generalGrid, "Child Count", createReadOnlyText(String(definition?.entities?.length || 0)));
+
+    const geometryGrid = appendSection("Geometry");
+    addPropertyRow(geometryGrid, "X mm", createReadOnlyText(String(unitsToMm(entity.x))));
+    addPropertyRow(geometryGrid, "Y mm", createReadOnlyText(String(unitsToMm(entity.y))));
+
+    const actionsGrid = appendSection("Actions");
+    const explodeAction = document.createElement("button");
+    explodeAction.type = "button";
+    explodeAction.textContent = "Explode";
+    explodeAction.addEventListener("click", () => {
+      pushUndoState();
+      if (!explodeBlockInstance(entity.id)) {
+        setStatus("Explode failed.");
+        return;
+      }
+      syncAfterStateChange();
+      setStatus("Block instance exploded.");
+    });
+    addPropertyRow(actionsGrid, "Explode", explodeAction);
+    return;
   }
   if (entity.type === "dimension") {
     const generalGrid = appendSection("General");
@@ -3260,6 +3443,24 @@ function drawBlockInstanceEntity(entity) {
     else if (child.type === "text") drawTextEntity(child);
     else if (child.type === "dimension") drawDimensionEntity(child);
   });
+  if (state.selectedEntityIds.includes(entity.id)) {
+    const bounds = getBlockInstanceBoundsUnits(entity);
+    if (bounds) {
+      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+      ctx.save();
+      ctx.strokeStyle = "rgba(194, 105, 62, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(
+        Math.min(p1.x, p2.x),
+        Math.min(p1.y, p2.y),
+        Math.abs(p2.x - p1.x),
+        Math.abs(p2.y - p1.y)
+      );
+      ctx.restore();
+    }
+  }
 }
 
 function drawTextEntity(entity) {
@@ -4889,7 +5090,11 @@ function applyOffsetToEntity(entity, offset) {
     return { ...entity, points: entity.points.map((point) => ({ x: roundToUnit(point.x + offset.dx), y: roundToUnit(point.y + offset.dy) })) };
   }
   if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
+    return {
+      ...entity,
+      x: roundToUnit(entity.x + offset.dx),
+      y: roundToUnit(entity.y + offset.dy),
+    };
   }
   if (entity.type === "dimension") {
     return { ...entity, p1:{x:roundToUnit(entity.p1.x+offset.dx),y:roundToUnit(entity.p1.y+offset.dy)}, p2:{x:roundToUnit(entity.p2.x+offset.dx),y:roundToUnit(entity.p2.y+offset.dy)}, offsetPoint:{x:roundToUnit(entity.offsetPoint.x+offset.dx),y:roundToUnit(entity.offsetPoint.y+offset.dy)} };
@@ -5011,7 +5216,7 @@ function mirrorEntity(entity, lineP1, lineP2) {
     };
   }
   if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
+    return entity;
   }
   if (entity.type === "dimension") {
     return {
@@ -5030,6 +5235,10 @@ function startMirrorDraft(worldPoint) {
     setStatus("Select at least one entity before using Mirror.");
     return false;
   }
+  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
+    setStatus("Block mirror is not supported in Block v1.");
+    return false;
+  }
   uiState.mirrorDraft = { firstPoint: roundWorldPoint(worldPoint) };
   setStatus(`Mirror axis first point set at ${formatWorldPoint(uiState.mirrorDraft.firstPoint)}. Pick second point.`);
   draw();
@@ -5038,6 +5247,11 @@ function startMirrorDraft(worldPoint) {
 
 function applyMirrorDraft(worldPoint) {
   if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
+    return false;
+  }
+  const selectedEntities = getSelectedTransformableEntities();
+  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
+    setStatus("Block mirror is not supported in Block v1.");
     return false;
   }
   const firstPoint = uiState.mirrorDraft.firstPoint;
@@ -5111,7 +5325,7 @@ function rotateEntity(entity, center, angleDeg) {
     };
   }
   if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
+    return entity;
   }
   if (entity.type === "dimension") {
     return {
@@ -5132,6 +5346,10 @@ function rotateSelectedEntities(angleDeg = 90) {
   const selectedEntities = getSelectedTransformableEntities();
   if (!selectedEntities.length) {
     setStatus("Select at least one entity before using Rotate.");
+    return false;
+  }
+  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
+    setStatus("Block rotation is not supported in Block v1.");
     return false;
   }
   const boundsList = selectedEntities.map(getRotateBoundsForEntity).filter(Boolean);
@@ -5362,6 +5580,7 @@ function deleteSelectedEntities() {
   pushUndoState();
   state.entities = state.entities.filter((entity) => !deletableIds.includes(entity.id));
   cleanupGroups();
+  cleanupBlockDefinitions();
   state.selectedEntityIds = [];
   syncAfterStateChange();
   setStatus(`${deletableIds.length} entit${deletableIds.length === 1 ? "y" : "ies"} deleted.`);
@@ -5871,8 +6090,24 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
-      if (entity.type === "blockInstance") { return { ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy }; }
-  if (entity.type === "titleBlock") {
+      if (entity.type === "blockInstance") {
+        const bounds = getBlockInstanceBoundsUnits(entity);
+        if (!bounds) {
+          return false;
+        }
+        const minScreen = worldToScreen({ x: bounds.minX, y: bounds.minY });
+        const maxScreen = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+        const box = {
+          left: Math.min(minScreen.x, maxScreen.x),
+          right: Math.max(minScreen.x, maxScreen.x),
+          top: Math.min(minScreen.y, maxScreen.y),
+          bottom: Math.max(minScreen.y, maxScreen.y),
+        };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
+      if (entity.type === "titleBlock") {
         const p1 = worldToScreen({ x: entity.x, y: entity.y });
         const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
         const bounds = { left: Math.min(p1.x, p2.x), right: Math.max(p1.x, p2.x), top: Math.min(p1.y, p2.y), bottom: Math.max(p1.y, p2.y) };
@@ -5908,10 +6143,7 @@ function selectEntitiesByWindow(selectionWindow) {
           ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
           : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
       }
-      if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
-  }
-  if (entity.type === "dimension") {
+      if (entity.type === "dimension") {
         const geometry = getDimensionScreenGeometry(entity);
         const boxes = [
           ...geometry.extensionLines,
@@ -5992,7 +6224,6 @@ function hitTestEntity(entity, worldPoint) {
     const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
     return inside || edge;
   }
-  if (entity.type === "blockInstance") { return { ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy }; }
   if (entity.type === "titleBlock") {
     return Boolean(
       titleBlockApi
@@ -6024,9 +6255,6 @@ function hitTestEntity(entity, worldPoint) {
   if (entity.type === "text") {
     const box = getTextBoundsUnits(entity);
     return worldPoint.x >= box.minX && worldPoint.x <= box.maxX && worldPoint.y >= box.minY && worldPoint.y <= box.maxY;
-  }
-  if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
   }
   if (entity.type === "dimension") {
     const point = worldToScreen(worldPoint);
@@ -6513,24 +6741,7 @@ function getEntityBoundsUnits(entity) {
 }
 
 function getDocumentBoundsUnits(entities = state.entities) {
-  const xs = [];
-  const ys = [];
-  entities.forEach((entity) => {
-    const bounds = getEntityBoundsUnits(entity);
-    if (bounds) {
-      xs.push(bounds.minX, bounds.maxX);
-      ys.push(bounds.minY, bounds.maxY);
-    }
-  });
-  if (!xs.length || !ys.length) {
-    return null;
-  }
-  return {
-    minX: Math.min(...xs),
-    minY: Math.min(...ys),
-    maxX: Math.max(...xs),
-    maxY: Math.max(...ys),
-  };
+  return getBoundsForEntities(entities);
 }
 
 function boundsUnitsToMm(bounds) {
@@ -9268,11 +9479,21 @@ function explodeDimensionToDxfPrimitives(entity) {
   };
 }
 
+function flattenBlockInstancesForExport(entities) {
+  return entities.flatMap((entity) => {
+    if (!entity || entity.type !== "blockInstance") {
+      return entity ? [entity] : [];
+    }
+    return getBlockInstanceRenderableEntities(entity);
+  });
+}
+
 function collectDxfExportEntities() {
-  return state.entities.filter((entity) =>
-    entity &&
-    isLayerVisible(entity.layerId) &&
-    (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
+  return flattenBlockInstancesForExport(
+    state.entities.filter((entity) => entity && isLayerVisible(entity.layerId))
+  ).filter((entity) =>
+    entity
+    && (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
   );
 }
 
@@ -9295,10 +9516,7 @@ function collectDxfExportTextEntities(entities = collectDxfExportEntities()) {
     if (entity.type === "text") {
       return [entity];
     }
-    if (entity.type === "blockInstance") {
-    return getBlockInstanceBoundsUnits(entity);
-  }
-  if (entity.type === "dimension") {
+    if (entity.type === "dimension") {
       return [explodeDimensionToDxfPrimitives(entity).text];
     }
     if (entity.type === "titleBlock" && titleBlockApi && typeof titleBlockApi.getDxfPrimitives === "function") {
