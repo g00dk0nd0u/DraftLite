@@ -384,6 +384,64 @@
     };
   }
 
+  function getTitleBlockHitGeometry(entity, deps = {}) {
+    const layout = getTitleBlockLayout(entity);
+    return {
+      outerBorder: boundsFromRect(localMmRectToWorld(entity, layout.outerBorder, deps)),
+      innerFrame: boundsFromRect(localMmRectToWorld(entity, layout.innerFrame, deps)),
+      cropArea: getTitleBlockCropBounds(entity, deps),
+      titleBand: boundsFromRect(localMmRectToWorld(entity, layout.titleBand, deps)),
+    };
+  }
+
+  function boundsFromRect(rect) {
+    return {
+      minX: rect.x,
+      minY: rect.y,
+      maxX: rect.x + rect.width,
+      maxY: rect.y + rect.height,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function isPointNearRectBoundary(worldPoint, bounds, toleranceUnits) {
+    if (!bounds) {
+      return false;
+    }
+    const dxLeft = Math.abs(worldPoint.x - bounds.minX);
+    const dxRight = Math.abs(worldPoint.x - bounds.maxX);
+    const dyTop = Math.abs(worldPoint.y - bounds.minY);
+    const dyBottom = Math.abs(worldPoint.y - bounds.maxY);
+    const withinX = worldPoint.x >= bounds.minX - toleranceUnits && worldPoint.x <= bounds.maxX + toleranceUnits;
+    const withinY = worldPoint.y >= bounds.minY - toleranceUnits && worldPoint.y <= bounds.maxY + toleranceUnits;
+    return (
+      (withinY && (dxLeft <= toleranceUnits || dxRight <= toleranceUnits))
+      || (withinX && (dyTop <= toleranceUnits || dyBottom <= toleranceUnits))
+    );
+  }
+
+  function isPointInsideBounds(worldPoint, bounds) {
+    return Boolean(
+      bounds
+      && worldPoint.x >= bounds.minX
+      && worldPoint.x <= bounds.maxX
+      && worldPoint.y >= bounds.minY
+      && worldPoint.y <= bounds.maxY
+    );
+  }
+
+  function hitTestTitleBlock(entity, worldPoint, deps = {}) {
+    const toleranceUnits = Math.max(1, Number(deps.toleranceUnits) || 1);
+    const geometry = getTitleBlockHitGeometry(entity, deps);
+    return (
+      isPointNearRectBoundary(worldPoint, geometry.outerBorder, toleranceUnits)
+      || isPointNearRectBoundary(worldPoint, geometry.innerFrame, toleranceUnits)
+      || isPointNearRectBoundary(worldPoint, geometry.cropArea, toleranceUnits)
+      || isPointInsideBounds(worldPoint, geometry.titleBand)
+    );
+  }
+
   function getDxfPrimitives(entity, deps = {}) {
     const primitives = getTitleBlockPrimitives(entity, deps);
     return {
@@ -679,7 +737,7 @@
   }
 
   function collectEntitiesForExport(titleBlockEntity, deps = {}) {
-    const sheetBounds = getTitleBlockBounds(titleBlockEntity);
+    const cropBounds = getTitleBlockCropBounds(titleBlockEntity, deps);
     const entities = Array.isArray(deps.entities) ? deps.entities : [];
     const isLayerVisible = typeof deps.isLayerVisible === "function"
       ? deps.isLayerVisible
@@ -695,7 +753,7 @@
       if (!isLayerVisible(entity.layerId)) {
         return false;
       }
-      return isBoundsFullyInside(getEntityBoundsUnits(entity, deps), sheetBounds);
+      return isBoundsFullyInside(getEntityBoundsUnits(entity, deps), cropBounds);
     });
     return [...included, titleBlockEntity];
   }
@@ -1062,6 +1120,7 @@
     normalizeTitleBlockEntity,
     getTitleBlockBounds,
     getTitleBlockCropBounds,
+    hitTestTitleBlock,
     getDxfPrimitives,
   };
 })();

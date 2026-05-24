@@ -5654,12 +5654,23 @@ function hitTestEntity(entity, worldPoint) {
     const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
     return distancePx <= state.settings.snapTolerancePx;
   }
-  if (entity.type === "rect" || entity.type === "titleBlock") {
+  if (entity.type === "rect") {
     const p=worldToScreen(worldPoint); const a=worldToScreen({x:entity.x,y:entity.y}); const b=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
     const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x),top=Math.min(a.y,b.y),bottom=Math.max(a.y,b.y);
     const inside = p.x>=left && p.x<=right && p.y>=top && p.y<=bottom;
     const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
     return inside || edge;
+  }
+  if (entity.type === "titleBlock") {
+    return Boolean(
+      titleBlockApi
+      && typeof titleBlockApi.hitTestTitleBlock === "function"
+      && titleBlockApi.hitTestTitleBlock(entity, worldPoint, {
+        toleranceUnits: state.settings.snapTolerancePx / state.view.zoom,
+        roundToUnit,
+        mmToUnits,
+      })
+    );
   }
   if (entity.type === "circle") {
     const d = Math.hypot(worldPoint.x - entity.center.x, worldPoint.y - entity.center.y);
