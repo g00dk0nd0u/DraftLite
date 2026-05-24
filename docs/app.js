@@ -2041,6 +2041,7 @@ function renderPropertiesPanel() {
     titleBlockApi.buildTitleBlockProperties({
       container: propertiesPanel,
       entity,
+      createLayerSelect,
       onChange: (patch, statusMessage) => {
         pushUndoState();
         titleBlockApi.updateTitleBlockFromProperties(entity, patch, {

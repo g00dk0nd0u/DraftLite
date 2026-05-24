@@ -163,6 +163,7 @@
     const entity = {
       id: typeof options.id === "string" && options.id ? options.id : null,
       type: "titleBlock",
+      name: typeof options.name === "string" && options.name.trim() ? options.name.trim() : "Title Block",
       layerId: typeof options.layerId === "string" ? options.layerId : null,
       templateId: typeof options.templateId === "string" && options.templateId ? options.templateId : DEFAULT_TEMPLATE_ID,
       paperSize: normalizePaperSize(options.paperSize),
@@ -193,6 +194,7 @@
     const normalized = {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "titleBlock",
+      name: typeof entity.name === "string" && entity.name.trim() ? entity.name.trim() : "Title Block",
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       templateId: typeof entity.templateId === "string" && entity.templateId ? entity.templateId : DEFAULT_TEMPLATE_ID,
       paperSize: normalizePaperSize(entity.paperSize),
@@ -880,6 +882,14 @@
     typeText.className = "prop-static";
     typeText.textContent = "Title Block";
     addRow(generalGrid, "Type", typeText);
+    addRow(generalGrid, "Name", createTextInput(entity.name || "Title Block", (value) => options.onChange({ name: value }, "Title Block name updated.")));
+    if (typeof options.createLayerSelect === "function") {
+      addRow(
+        generalGrid,
+        "Layer",
+        options.createLayerSelect(entity, "Title Block layer updated.")
+      );
+    }
     addRow(generalGrid, "Template", createSelect(entity.templateId, [
       { value: "a3-standard-v6", label: "A3 Standard v6" },
     ], (value) => options.onChange({ templateId: value }, "Title Block template updated.")));
@@ -931,6 +941,9 @@
       return entity;
     }
     const nextPatch = { ...patch };
+    if (Object.prototype.hasOwnProperty.call(nextPatch, "name")) {
+      entity.name = String(nextPatch.name || "").trim() || "Title Block";
+    }
     if (Object.prototype.hasOwnProperty.call(nextPatch, "templateId")) {
       entity.templateId = typeof nextPatch.templateId === "string" && nextPatch.templateId ? nextPatch.templateId : DEFAULT_TEMPLATE_ID;
     }
