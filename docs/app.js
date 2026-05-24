@@ -6242,10 +6242,20 @@ function hitTestEntity(entity, worldPoint) {
     return distancePx <= state.settings.snapTolerancePx;
   }
   if (entity.type === "rect") {
-    const p=worldToScreen(worldPoint); const a=worldToScreen({x:entity.x,y:entity.y}); const b=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
-    const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x),top=Math.min(a.y,b.y),bottom=Math.max(a.y,b.y);
-    const inside = p.x>=left && p.x<=right && p.y>=top && p.y<=bottom;
-    const edge = Math.min(Math.abs(p.x-left),Math.abs(p.x-right),Math.abs(p.y-top),Math.abs(p.y-bottom)) <= state.settings.snapTolerancePx;
+    const p = worldToScreen(worldPoint);
+    const a = worldToScreen({ x: entity.x, y: entity.y });
+    const b = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
+    const left = Math.min(a.x, b.x);
+    const right = Math.max(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const bottom = Math.max(a.y, b.y);
+    const inside = entity.fill !== false
+      && p.x >= left
+      && p.x <= right
+      && p.y >= top
+      && p.y <= bottom;
+    const edge = getRectEdges(entity)
+      .some((edgeDef) => distancePointToSegmentScreenPx(worldPoint, edgeDef.p1, edgeDef.p2) <= state.settings.snapTolerancePx);
     return inside || edge;
   }
   if (entity.type === "titleBlock") {
