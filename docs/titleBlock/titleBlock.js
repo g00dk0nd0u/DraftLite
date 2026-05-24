@@ -7,6 +7,7 @@
   const DEFAULT_SCALE = 100;
   const DEFAULT_SHOW_MODE = "full";
   const SCALE_OPTIONS = [50, 100, 200, 500];
+  const PNG_DPI = 300;
   const PDF_STYLE = {
     strokeRgb: [0.10, 0.16, 0.22],
     titleBlockStrokeRgb: [0.10, 0.16, 0.22],
@@ -818,7 +819,7 @@
 
   function createExportCanvas(titleBlockEntity, deps = {}) {
     const paper = getOrientedPaperSizeMm(titleBlockEntity);
-    const pixelsPerMm = Number(deps.pixelsPerMm) || 4;
+    const pixelsPerMm = Number(deps.pixelsPerMm) || (PNG_DPI / 25.4);
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(paper.widthMm * pixelsPerMm));
     canvas.height = Math.max(1, Math.round(paper.heightMm * pixelsPerMm));
@@ -864,13 +865,25 @@
   }
 
   function renderEntityToCanvas(ctx, entity, projector, deps = {}) {
-    const strokeStyle = (typeof deps.getStrokeColorForEntity === "function" ? deps.getStrokeColorForEntity(entity) : "#2e3135") || "#2e3135";
-    const fillStyle = (typeof deps.getFillStyleForEntity === "function" ? deps.getFillStyleForEntity(entity) : "rgba(46,49,53,0.12)") || "rgba(46,49,53,0.12)";
+    const isPrintExport = deps.exportMode === "print";
+    const strokeStyle = isPrintExport
+      ? "rgb(26,41,56)"
+      : ((typeof deps.getStrokeColorForEntity === "function" ? deps.getStrokeColorForEntity(entity) : "#2e3135") || "#2e3135");
+    const fillStyle = isPrintExport
+      ? (entity.type === "filledRegion" ? "rgb(224,230,237)" : "rgb(230,235,240)")
+      : ((typeof deps.getFillStyleForEntity === "function" ? deps.getFillStyleForEntity(entity) : "rgba(46,49,53,0.12)") || "rgba(46,49,53,0.12)");
     const projectPoint = projector.projectPoint;
     const unitsToPixels = projector.unitsToPixels;
+    const exportScale = Math.max(1, Number(deps.exportScale) || 1);
+    const normalStrokePx = isPrintExport
+      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(PDF_STYLE.normalStrokeWidthMm * exportScale, deps))))
+      : 1.1;
+    const titleBlockStrokePx = isPrintExport
+      ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(PDF_STYLE.titleBlockStrokeWidthMm * exportScale, deps))))
+      : 1.1;
 
     if (entity.type === "line") {
-      drawWorldLine(ctx, projectPoint, entity, { strokeStyle, lineWidth: 1.1 });
+      drawWorldLine(ctx, projectPoint, entity, { strokeStyle, lineWidth: normalStrokePx });
       return;
     }
     if (entity.type === "rect") {
@@ -884,7 +897,7 @@
         ctx.fillRect(start.x, start.y, width, height);
       }
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = normalStrokePx;
       ctx.strokeRect(start.x, start.y, width, height);
       ctx.restore();
       return;
@@ -893,7 +906,7 @@
       const center = projectPoint(entity.center);
       ctx.save();
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = normalStrokePx;
       ctx.beginPath();
       ctx.arc(center.x, center.y, Math.max(1, Math.abs(unitsToPixels(entity.radius))), 0, Math.PI * 2);
       ctx.stroke();
@@ -904,7 +917,7 @@
       const center = projectPoint(entity.center);
       ctx.save();
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = normalStrokePx;
       ctx.beginPath();
       ctx.arc(
         center.x,
@@ -932,7 +945,7 @@
         ctx.fill();
       }
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = normalStrokePx;
       ctx.stroke();
       ctx.restore();
       return;
@@ -943,9 +956,9 @@
     }
     if (entity.type === "dimension") {
       const geometry = buildDimensionGeometry(entity);
-      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart1, p2: geometry.offset1 }, { strokeStyle, lineWidth: 1 });
-      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart2, p2: geometry.offset2 }, { strokeStyle, lineWidth: 1 });
-      drawWorldLine(ctx, projectPoint, { p1: geometry.offset1, p2: geometry.offset2 }, { strokeStyle, lineWidth: 1 });
+      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart1, p2: geometry.offset1 }, { strokeStyle, lineWidth: normalStrokePx });
+      drawWorldLine(ctx, projectPoint, { p1: geometry.extensionStart2, p2: geometry.offset2 }, { strokeStyle, lineWidth: normalStrokePx });
+      drawWorldLine(ctx, projectPoint, { p1: geometry.offset1, p2: geometry.offset2 }, { strokeStyle, lineWidth: normalStrokePx });
       const label = {
         type: "text",
         x: geometry.midpoint.x,
@@ -958,6 +971,26 @@
       return;
     }
     if (entity.type === "titleBlock") {
+      if (isPrintExport) {
+        const primitives = getTitleBlockPrimitives(entity, deps, {
+          includeOuterBorder: false,
+          includeInnerFrame: true,
+          forceFull: true,
+        });
+        primitives.lines.forEach((line) => {
+          drawWorldLine(ctx, projectPoint, line, {
+            strokeStyle,
+            lineWidth: titleBlockStrokePx,
+          });
+        });
+        primitives.texts.forEach((textEntity) => {
+          drawWorldText(ctx, projectPoint, textEntity, {
+            fillStyle: "rgb(26,41,56)",
+            unitsToPixels,
+          });
+        });
+        return;
+      }
       drawTitleBlock(ctx, entity, {
         projectPoint,
         projectBounds: projector.projectBounds,
@@ -975,7 +1008,11 @@
     const { canvas, context } = createExportCanvas(titleBlockEntity, deps);
     const projector = createWorldProjector(getTitleBlockBounds(titleBlockEntity), canvas.width, canvas.height);
     includedEntities.forEach((entity) => {
-      renderEntityToCanvas(context, entity, projector, deps);
+      renderEntityToCanvas(context, entity, projector, {
+        ...deps,
+        exportMode: "print",
+        exportScale: titleBlockEntity.scale,
+      });
     });
     return canvas;
   }
@@ -1174,16 +1211,6 @@
     ];
   }
 
-  function getSafeInnerFrameBounds(entity, innerFrameBounds, deps = {}) {
-    const insetUnits = mmToUnits(PDF_STYLE.innerFrameInsetMm * normalizeScale(entity.scale), deps);
-    return {
-      minX: innerFrameBounds.minX + insetUnits,
-      minY: innerFrameBounds.minY + insetUnits,
-      maxX: innerFrameBounds.maxX - insetUnits,
-      maxY: innerFrameBounds.maxY - insetUnits,
-    };
-  }
-
   function boundsToRectLines(bounds, layerId) {
     return [
       { type: "line", layerId, p1: { x: bounds.minX, y: bounds.minY }, p2: { x: bounds.maxX, y: bounds.minY } },
@@ -1274,18 +1301,9 @@
         includeInnerFrame: true,
         forceFull: true,
       });
-      const innerFrameLines = boundsToRectLines(primitives.innerFrameBounds, entity.layerId);
-      const safeInnerFrameLines = boundsToRectLines(getSafeInnerFrameBounds(entity, primitives.innerFrameBounds, deps), entity.layerId);
       const commands = [];
       primitives.lines.forEach((line) => {
-        const isInnerFrameLine = innerFrameLines.some((candidate) => isSameLine(candidate, line));
-        if (isInnerFrameLine) {
-          return;
-        }
         commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.titleBlockStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
-      });
-      safeInnerFrameLines.forEach((line) => {
-        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.innerFrameStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
       });
       primitives.texts.forEach((textEntity) => {
         commands.push(...buildPdfTextCommands(projector, textEntity, deps));
@@ -1302,7 +1320,7 @@
       includeInnerFrame: true,
       forceFull: true,
     });
-    const pageBounds = titleBlockPrimitives.innerFrameBounds;
+    const pageBounds = titleBlockPrimitives.paperBounds;
     const projector = createPdfProjector(pageBounds, titleBlockEntity.scale, deps);
     const bodyCommands = [];
     const measureContext = getPdfMeasureContext();
