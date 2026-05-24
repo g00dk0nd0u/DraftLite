@@ -412,6 +412,7 @@
       const notesLabelMetrics = getTemplateTextMetrics(layout.template, "notesLabel");
       const titleLabelMetrics = getTemplateTextMetrics(layout.template, "titleLabel");
       const titleValueMetrics = getTemplateTextMetrics(layout.template, "titleValue");
+      const infoLabelOffsetMm = -infoLabelMetrics.heightMm * 0.5;
       const infoValues = [
         entity.projectName || "-",
         entity.drawnBy || "-",
@@ -436,14 +437,24 @@
           valueStyle: { ...infoValueMetrics, role: "infoValue" },
           paddingRightMm: 2.0,
           gapMm: 0.4,
-          labelOffsetMm: -infoLabelMetrics.heightMm * 0.5,
+          labelOffsetMm: infoLabelOffsetMm,
         }));
       });
+
+      const notesRowRectMm = {
+        xMm: layout.leftWing.xMm,
+        yMm: layout.leftWing.yMm + layout.template.infoRowHeightMm,
+        widthMm: layout.leftWing.widthMm,
+        heightMm: layout.template.notesRowHeightMm,
+      };
+      const notesContentHeightMm = notesLabelMetrics.heightMm + 0.4 + infoValueMetrics.heightMm;
+      const notesContentTopMm = notesRowRectMm.yMm + (notesRowRectMm.heightMm - notesContentHeightMm) / 2;
+      const notesLabelYMm = notesContentTopMm + notesLabelMetrics.heightMm * 0.80 + infoLabelOffsetMm;
 
       texts.push(createTextPrimitive(
         entity,
         layout.leftWing.xMm + layout.leftWing.widthMm - 2.0,
-        layout.leftWing.yMm + layout.template.infoRowHeightMm + layout.template.notesRowHeightMm / 2 + notesLabelMetrics.heightMm * 0.35,
+        notesLabelYMm,
         "NOTES",
         notesLabelMetrics.heightMm,
         notesLabelMetrics.align,
