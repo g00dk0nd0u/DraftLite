@@ -2703,6 +2703,8 @@ function renderPropertiesPanel() {
     explodeAction.addEventListener("click", () => {
       pushUndoState();
       if (!explodeBlockInstance(entity.id)) {
+        history.undoStack.pop();
+        syncUndoRedoButtons();
         setStatus("Explode failed.");
         return;
       }
@@ -9493,6 +9495,7 @@ function collectDxfExportEntities() {
     state.entities.filter((entity) => entity && isLayerVisible(entity.layerId))
   ).filter((entity) =>
     entity
+    && isEntityVisible(entity)
     && (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension")
   );
 }
@@ -10029,13 +10032,7 @@ function bindEvents() {
   toolButtons.group.addEventListener("click", createGroupFromSelection);
   toolButtons.ungroup.addEventListener("click", ungroupSelection);
   toolButtons.makeBlock.addEventListener("click", () => {
-    pushUndoState();
-    if (!makeBlockFromSelection()) {
-      history.undoStack.pop();
-      syncUndoRedoButtons();
-      return;
-    }
-    syncAfterStateChange();
+    makeBlockFromSelection();
   });
   toolButtons.rotate.addEventListener("click", () => rotateSelectedEntities(90));
   toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));

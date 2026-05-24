@@ -38,3 +38,7 @@
 2. Export DXF.
 3. Open the DXF in a viewer or inspect the `LINE` entities.
 4. Confirm the child rectangle outlines are exported.
+5. Make a block containing child entities on two different layers.
+6. Hide one child layer.
+7. Export DXF.
+8. Confirm hidden child-layer geometry is not exported.
