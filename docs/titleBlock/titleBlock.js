@@ -663,9 +663,7 @@
 
   function drawTitleBlockPrimitiveTextToCanvas(ctx, projectPoint, unitsToPixels, textPrimitive, options = {}) {
     const point = projectPoint({ x: textPrimitive.x, y: textPrimitive.y });
-    const fontPx = Number.isFinite(Number(textPrimitive.fontSizeMm))
-      ? Math.abs(unitsToPixels(mmToUnits(textPrimitive.fontSizeMm, options.deps)))
-      : Math.abs(unitsToPixels(textPrimitive.height));
+    const fontPx = Math.abs(unitsToPixels(textPrimitive.height));
     if (fontPx < 1.5) {
       return;
     }
