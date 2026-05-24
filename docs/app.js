@@ -33,6 +33,7 @@ const titleBlockApi = window.DraftLiteTitleBlock || null;
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
   line: document.getElementById("toolLineButton"),
+  wire: document.getElementById("wireButton"),
   rectangle: document.getElementById("rectangleButton"),
   circle: document.getElementById("circleButton"),
   arc: document.getElementById("arcButton"),
@@ -87,6 +88,7 @@ let agentLastResultValue = null;
 const SHORTCUT_TO_ACTION = {
   s: () => setActiveTool("select"),
   l: () => setActiveTool("line"),
+  w: () => setActiveTool("wire"),
   q: () => setActiveTool("rectangle"),
   o: () => setActiveTool("circle"),
   p: () => setActiveTool("arc"),
@@ -108,6 +110,7 @@ const SHORTCUT_TO_ACTION = {
 const PASTE_OFFSET_PX = 18;
 const DRAWING_REPEAT_TOOL_IDS = new Set([
   "line",
+  "wire",
   "rectangle",
   "circle",
   "arc",
@@ -199,6 +202,7 @@ const uiState = {
   activeTool: "select",
   lastRepeatableToolId: null,
   lineDraft: null,
+  wireDraft: null,
   rectangleDraft: null,
   circleDraft: null,
   arcDraft: null,
@@ -341,6 +345,7 @@ function clearTransientState() {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
+  uiState.wireDraft = null;
   uiState.rectangleDraft = null;
   uiState.circleDraft = null;
   uiState.arcDraft = null;
@@ -374,6 +379,7 @@ function clearTransientState() {
 function hasCancelableCommandOrDraft() {
   return uiState.activeTool !== "select"
     || Boolean(uiState.lineDraft)
+    || Boolean(uiState.wireDraft)
     || Boolean(uiState.rectangleDraft)
     || Boolean(uiState.circleDraft)
     || Boolean(uiState.arcDraft)
@@ -437,6 +443,7 @@ function rememberRepeatableTool(toolId) {
 function isCommandInProgress() {
   return Boolean(
     uiState.lineDraft
+    || uiState.wireDraft
     || uiState.rectangleDraft
     || uiState.circleDraft
     || uiState.arcDraft
@@ -963,6 +970,104 @@ function getLineMidpoint(entity) {
   });
 }
 
+function createDefaultWireEntity(fields = {}) {
+  return {
+    id: fields.id || createEntityId(),
+    type: "wire",
+    layerId: fields.layerId || state.activeLayerId,
+    start: roundWorldPoint(fields.start || { x: 0, y: 0 }),
+    end: roundWorldPoint(fields.end || { x: 0, y: 0 }),
+    startRef: null,
+    endRef: null,
+    tension: Number.isFinite(fields.tension) ? fields.tension : 0.45,
+    color: typeof fields.color === "string" ? fields.color : "",
+  };
+}
+
+function getWireControlPoints(start, end, tension = 0.45) {
+  const safeTension = clampNumber(Number.isFinite(tension) ? tension : 0.45, 0.1, 0.9, 0.45);
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const primaryDelta = horizontal ? dx : dy;
+  const maxOffset = Math.max(1, Math.abs(primaryDelta));
+  const rawOffset = Math.max(mmToUnits(40), Math.abs(primaryDelta * safeTension));
+  const controlOffset = Math.min(maxOffset, roundToUnit(rawOffset));
+  if (horizontal) {
+    const signed = dx >= 0 ? controlOffset : -controlOffset;
+    return {
+      c1: { x: roundToUnit(start.x + signed), y: start.y },
+      c2: { x: roundToUnit(end.x - signed), y: end.y },
+    };
+  }
+  const signed = dy >= 0 ? controlOffset : -controlOffset;
+  return {
+    c1: { x: start.x, y: roundToUnit(start.y + signed) },
+    c2: { x: end.x, y: roundToUnit(end.y - signed) },
+  };
+}
+
+function drawWirePath(start, end, tension, options = {}) {
+  const screenStart = worldToScreen(start);
+  const screenEnd = worldToScreen(end);
+  const { c1, c2 } = getWireControlPoints(start, end, tension);
+  const screenC1 = worldToScreen(c1);
+  const screenC2 = worldToScreen(c2);
+  ctx.beginPath();
+  ctx.moveTo(screenStart.x, screenStart.y);
+  ctx.bezierCurveTo(screenC1.x, screenC1.y, screenC2.x, screenC2.y, screenEnd.x, screenEnd.y);
+  if (options.stroke !== false) {
+    ctx.stroke();
+  }
+}
+
+function sampleWireCurvePoints(start, end, tension, segments = 24) {
+  const safeSegments = Math.max(4, Math.round(segments));
+  const { c1, c2 } = getWireControlPoints(start, end, tension);
+  const points = [];
+  for (let index = 0; index <= safeSegments; index += 1) {
+    const t = index / safeSegments;
+    const mt = 1 - t;
+    points.push({
+      x: roundToUnit(
+        (mt ** 3) * start.x
+        + 3 * (mt ** 2) * t * c1.x
+        + 3 * mt * (t ** 2) * c2.x
+        + (t ** 3) * end.x
+      ),
+      y: roundToUnit(
+        (mt ** 3) * start.y
+        + 3 * (mt ** 2) * t * c1.y
+        + 3 * mt * (t ** 2) * c2.y
+        + (t ** 3) * end.y
+      ),
+    });
+  }
+  return points;
+}
+
+function getWireBoundsUnits(entity) {
+  const points = sampleWireCurvePoints(entity.start, entity.end, entity.tension);
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
+}
+
+function hitTestWireEntity(entity, worldPoint) {
+  const points = sampleWireCurvePoints(entity.start, entity.end, entity.tension);
+  for (let index = 0; index < points.length - 1; index += 1) {
+    if (distancePointToSegmentScreenPx(worldPoint, points[index], points[index + 1]) <= state.settings.snapTolerancePx) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getRectBoxFromPoints(startPoint, oppositePoint, options = {}) {
   const snap = options.snap !== false;
   const start = snap ? getSnapPoint(startPoint) : roundWorldPoint(startPoint);
@@ -1309,6 +1414,23 @@ function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoi
   renderStatusPanel();
 }
 
+function beginWireDraft(startPoint) {
+  uiState.wireDraft = {
+    start: roundWorldPoint(startPoint),
+    tension: 0.45,
+  };
+  draw();
+  renderStatusPanel();
+  setStatus(`Wire start set at ${formatWorldPoint(uiState.wireDraft.start)}. Pick end point.`);
+}
+
+function endWireDraft(message = "Wire command ended.") {
+  uiState.wireDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
+  setStatus(message);
+}
+
 function updateLineDraftStatus(prefix) {
   if (!uiState.lineDraft) {
     return;
@@ -1556,6 +1678,24 @@ function normalizeEntity(entity, options = {}) {
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       p1: normalizePoint(entity.p1, legacyUnits),
       p2: normalizePoint(entity.p2, legacyUnits),
+      ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
+    };
+  }
+  if (entity.type === "wire") {
+    const start = normalizePoint(entity.start, legacyUnits);
+    const end = normalizePoint(entity.end, legacyUnits);
+    if (start.x === end.x && start.y === end.y) {
+      return null;
+    }
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "wire",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      start,
+      end,
+      startRef: null,
+      endRef: null,
+      tension: clampNumber(Number(entity.tension), 0.1, 0.9, 0.45),
       ...getNormalizedEntityStyleProps(entity, { supportsStroke: true }),
     };
   }
@@ -2286,7 +2426,7 @@ function getEntityFillOpacity(entity, baseAlpha) {
 }
 
 function supportsStrokeMatchedProperties(entity) {
-  return Boolean(entity) && ["line", "rect", "circle", "arc", "filledRegion", "text", "dimension"].includes(entity.type);
+  return Boolean(entity) && ["line", "wire", "rect", "circle", "arc", "filledRegion", "text", "dimension"].includes(entity.type);
 }
 
 function supportsFillMatchedProperties(entity) {
@@ -2913,6 +3053,26 @@ function renderPropertiesPanel() {
 
     return;
   }
+  if (entity.type === "wire") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("Wire"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "Wire layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
+    addPropertyRow(geometryGrid, "Tension", createReadOnlyText(String(entity.tension ?? 0.45)));
+
+    const appearanceGrid = appendSection("Appearance");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = normalizeColor(entity.color || getLayerById(entity.layerId)?.color);
+    colorInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.color = colorInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(appearanceGrid, "Color", colorInput);
+    return;
+  }
 }
 
 function renderStatusPanel() {
@@ -2960,6 +3120,8 @@ function draw() {
     }
     if (entity.type === "line") {
       drawLineEntity(entity);
+    } else if (entity.type === "wire") {
+      drawWireEntity(entity);
     } else if (entity.type === "rect") {
       drawRectEntity(entity);
     } else if (entity.type === "titleBlock") {
@@ -2981,6 +3143,9 @@ function draw() {
 
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
+  }
+  if (uiState.wireDraft) {
+    drawDraftWire(uiState.wireDraft);
   }
 
   if (uiState.rectangleDraft) {
@@ -3165,6 +3330,30 @@ function drawLineEntity(entity) {
   ctx.restore();
 }
 
+function drawWireEntity(entity) {
+  const layer = getLayerById(entity.layerId);
+  if (!layer) {
+    return;
+  }
+  const isSelected = state.selectedEntityIds.includes(entity.id);
+  ctx.save();
+  ctx.globalAlpha = getEntityOpacity(entity);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.setLineDash(getEntityStrokeDash(entity));
+
+  if (isSelected) {
+    ctx.strokeStyle = "rgba(194, 105, 62, 0.22)";
+    ctx.lineWidth = 10;
+    drawWirePath(entity.start, entity.end, entity.tension);
+  }
+
+  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
+  drawWirePath(entity.start, entity.end, entity.tension);
+  ctx.restore();
+}
+
 function drawDraftLine(start, end) {
   const screenP1 = worldToScreen(start);
   const screenP2 = worldToScreen(end);
@@ -3176,6 +3365,18 @@ function drawDraftLine(start, end) {
   ctx.moveTo(screenP1.x, screenP1.y);
   ctx.lineTo(screenP2.x, screenP2.y);
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawDraftWire(draft) {
+  if (!draft || !draft.start) {
+    return;
+  }
+  ctx.save();
+  ctx.strokeStyle = "rgba(98, 73, 45, 0.85)";
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 1.5;
+  drawWirePath(draft.start, roundWorldPoint(uiState.hoverWorld), draft.tension || 0.45);
   ctx.restore();
 }
 
@@ -3937,6 +4138,8 @@ function drawTransformPreview(transformDraft) {
   transformDraft.entities.forEach((entity) => {
     if (entity.type === "line") {
       drawPreviewLineEntity(entity);
+    } else if (entity.type === "wire") {
+      drawWireEntity(entity);
     } else if (entity.type === "rect") {
       const p1 = worldToScreen({ x: entity.x, y: entity.y });
       const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
@@ -3972,6 +4175,8 @@ function drawTransformPreview(transformDraft) {
     if (entity.type === "line") {
       const previewLine = { ...entity, p1: { x: entity.p1.x + offset.dx, y: entity.p1.y + offset.dy }, p2: { x: entity.p2.x + offset.dx, y: entity.p2.y + offset.dy } };
       drawSolidPreviewLineEntity(previewLine);
+    } else if (entity.type === "wire") {
+      drawEntityPreview(applyOffsetToEntity(entity, offset));
     } else if (entity.type === "rect") {
       drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
     } else if (entity.type === "blockInstance") {
@@ -3987,6 +4192,8 @@ function drawEntityPreview(entity) {
     drawCircleEntity(entity);
   } else if (entity.type === "arc") {
     drawArcEntity(entity);
+  } else if (entity.type === "wire") {
+    drawWireEntity(entity);
   } else if (entity.type === "filledRegion") {
     drawFilledRegionEntity(entity);
   } else if (entity.type === "text") {
@@ -4614,6 +4821,40 @@ function addLineEntity(p1, p2) {
   return createdEntity;
 }
 
+function addWireEntity(startPoint, endPoint) {
+  const activeLayer = getLayerById(state.activeLayerId);
+  if (!activeLayer) {
+    setStatus("No active layer.");
+    return null;
+  }
+  if (!activeLayer.visible || activeLayer.locked) {
+    setStatus("Active layer must be visible and unlocked to draw.");
+    return null;
+  }
+
+  const start = roundWorldPoint(startPoint);
+  const end = roundWorldPoint(endPoint);
+  if (start.x === end.x && start.y === end.y) {
+    setStatus("Wire length must be greater than zero.");
+    return null;
+  }
+
+  pushUndoState();
+  const entity = createDefaultWireEntity({
+    start,
+    end,
+    layerId: state.activeLayerId,
+    startRef: null,
+    endRef: null,
+    tension: 0.45,
+    color: "",
+  });
+  state.entities.push(entity);
+  state.selectedEntityIds = [entity.id];
+  syncAfterStateChange();
+  return entity;
+}
+
 function getRectangleCorners(startPoint, oppositePoint, options = {}) {
   const snap = options.snap !== false;
   const p1 = snap ? getSnapPoint(startPoint) : roundWorldPoint(startPoint);
@@ -5123,7 +5364,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "wire" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -5178,6 +5419,21 @@ function updateTransformDraft(worldPoint) {
 }
 
 function applyOffsetToEntity(entity, offset) {
+  if (entity.type === "wire") {
+    return {
+      ...entity,
+      start: {
+        x: roundToUnit(entity.start.x + offset.dx),
+        y: roundToUnit(entity.start.y + offset.dy),
+      },
+      end: {
+        x: roundToUnit(entity.end.x + offset.dx),
+        y: roundToUnit(entity.end.y + offset.dy),
+      },
+      startRef: null,
+      endRef: null,
+    };
+  }
   if (entity.type === "rect" || entity.type === "titleBlock") {
     return {
       ...entity,
@@ -5274,6 +5530,15 @@ function isVerticalOrHorizontalMirrorAxis(lineP1, lineP2) {
 function mirrorEntity(entity, lineP1, lineP2) {
   if (entity.type === "line") {
     return { ...entity, p1: mirrorPointAcrossLine(entity.p1, lineP1, lineP2), p2: mirrorPointAcrossLine(entity.p2, lineP1, lineP2) };
+  }
+  if (entity.type === "wire") {
+    return {
+      ...entity,
+      start: mirrorPointAcrossLine(entity.start, lineP1, lineP2),
+      end: mirrorPointAcrossLine(entity.end, lineP1, lineP2),
+      startRef: null,
+      endRef: null,
+    };
   }
   if (entity.type === "rect") {
     if (!isVerticalOrHorizontalMirrorAxis(lineP1, lineP2)) {
@@ -5398,6 +5663,15 @@ function handleMirrorToolClick(worldPoint) {
 function rotateEntity(entity, center, angleDeg) {
   if (entity.type === "line") {
     return { ...entity, p1: rotatePoint(entity.p1, center, angleDeg), p2: rotatePoint(entity.p2, center, angleDeg) };
+  }
+  if (entity.type === "wire") {
+    return {
+      ...entity,
+      start: rotatePoint(entity.start, center, angleDeg),
+      end: rotatePoint(entity.end, center, angleDeg),
+      startRef: null,
+      endRef: null,
+    };
   }
   if (entity.type === "rect") {
     const entityCenter = { x: entity.x + entity.width / 2, y: entity.y + entity.height / 2 };
@@ -6204,6 +6478,29 @@ function selectEntitiesByWindow(selectionWindow) {
       if (entity.type === "line") {
         return rect.isCrossing ? doesLineCrossRect(entity, rect) : isLineFullyInsideRect(entity, rect);
       }
+      if (entity.type === "wire") {
+        const points = sampleWireCurvePoints(entity.start, entity.end, entity.tension).map(worldToScreen);
+        if (rect.isCrossing) {
+          const corners = [
+            { x: rect.left, y: rect.top },
+            { x: rect.right, y: rect.top },
+            { x: rect.right, y: rect.bottom },
+            { x: rect.left, y: rect.bottom },
+          ];
+          const edges = [
+            [corners[0], corners[1]],
+            [corners[1], corners[2]],
+            [corners[2], corners[3]],
+            [corners[3], corners[0]],
+          ];
+          return points.some((point) => isScreenPointInsideRect(point, rect))
+            || points.slice(0, -1).some((point, index) => {
+              const next = points[index + 1];
+              return edges.some(([edgeStart, edgeEnd]) => segmentsIntersect(point, next, edgeStart, edgeEnd));
+            });
+        }
+        return points.every((point) => isScreenPointInsideRect(point, rect));
+      }
       if (entity.type === "rect") {
         const p1 = worldToScreen({x:entity.x,y:entity.y}); const p2=worldToScreen({x:entity.x+entity.width,y:entity.y+entity.height});
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
@@ -6316,6 +6613,10 @@ function isPointInPolygon(point, polygon) {
   return inside;
 }
 
+function isScreenPointInsideRect(point, rect) {
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
 function hitTestFilledRegionEntity(entity, worldPoint) {
   if (!Array.isArray(entity.points) || entity.points.length < 3) return false;
   if (isPointInPolygon(worldPoint, entity.points)) return true;
@@ -6335,6 +6636,9 @@ function hitTestEntity(entity, worldPoint) {
   if (entity.type === "line") {
     const distancePx = distancePointToSegmentScreenPx(worldPoint, entity.p1, entity.p2);
     return distancePx <= state.settings.snapTolerancePx;
+  }
+  if (entity.type === "wire") {
+    return hitTestWireEntity(entity, worldPoint);
   }
   if (entity.type === "rect") {
     const p = worldToScreen(worldPoint);
@@ -6824,6 +7128,9 @@ function getEntityBoundsUnits(entity) {
       maxX: Math.max(entity.p1.x, entity.p2.x),
       maxY: Math.max(entity.p1.y, entity.p2.y),
     };
+  }
+  if (entity.type === "wire") {
+    return getWireBoundsUnits(entity);
   }
   if (entity.type === "rect" || entity.type === "titleBlock") {
     return {
@@ -8670,6 +8977,10 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     handleLineToolClick(worldPoint);
     return;
   }
+  if (uiState.activeTool === "wire") {
+    handleWireToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
 
   if (uiState.activeTool === "rectangle") {
     handleRectangleToolClick(worldPoint);
@@ -8865,6 +9176,25 @@ function handleLineToolClick(worldPoint) {
     createdEntity.p2,
     `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
   );
+}
+
+function handleWireToolClick(worldPoint) {
+  if (!uiState.wireDraft) {
+    if (!canDrawOnActiveLayer()) {
+      return;
+    }
+    beginWireDraft(worldPoint);
+    return;
+  }
+
+  const createdEntity = addWireEntity(uiState.wireDraft.start, worldPoint);
+  if (!createdEntity) {
+    draw();
+    renderStatusPanel();
+    return;
+  }
+
+  endWireDraft("Wire created.");
 }
 
 function handleRectangleToolClick(worldPoint) {
@@ -9353,6 +9683,10 @@ function setActiveTool(tool, options = {}) {
   }
   if (tool === "dimension") {
     setStatus("Aligned Dimension: pick first point");
+    return;
+  }
+  if (tool === "wire") {
+    setStatus("Wire: pick start point.");
     return;
   }
   if (tool === "matchProperties") {
@@ -10174,6 +10508,7 @@ function bindEvents() {
 
   toolButtons.select.addEventListener("click", () => setActiveTool("select"));
   toolButtons.line.addEventListener("click", () => setActiveTool("line"));
+  toolButtons.wire.addEventListener("click", () => setActiveTool("wire"));
   toolButtons.rectangle.addEventListener("click", () => setActiveTool("rectangle"));
   toolButtons.circle.addEventListener("click", () => setActiveTool("circle"));
   toolButtons.arc.addEventListener("click", () => setActiveTool("arc"));
