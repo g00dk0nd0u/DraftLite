@@ -42,23 +42,12 @@
       rightWingWidthMm: 200,
       sheetNoWidthMm: 40,
       infoColumns: ["PROJECT NAME", "DRAWN BY", "SCALE", "PAPER", "DATE"],
-      textHeightsMm: {
-        infoLabel: 3.3 * PT_TO_MM,
-        infoValue: 5.7 * PT_TO_MM,
-        titleLabel: 3.3 * PT_TO_MM,
-        titleValue: 12.5 * PT_TO_MM,
-        sheetNoLabel: 3.3 * PT_TO_MM,
-        sheetNoValue: 12.5 * PT_TO_MM,
-        notesLabel: 3.4 * PT_TO_MM,
-      },
       textStyles: {
-        infoLabel: { fontSizePt: 3.3, color: "#888888", align: "right", letterSpacingEm: 0.075 },
-        infoValue: { fontSizePt: 5.7, color: "#111111", align: "right", fontWeight: 600 },
-        titleLabel: { fontSizePt: 3.3, color: "#888888", align: "right" },
-        titleValue: { fontSizePt: 12.5, color: "#111111", align: "right", fontWeight: 700 },
-        sheetNoLabel: { fontSizePt: 3.3, color: "#888888", align: "right" },
-        sheetNoValue: { fontSizePt: 12.5, color: "#111111", align: "right", fontWeight: 700 },
-        notesLabel: { fontSizePt: 3.4, color: "#999999", align: "left" },
+        label: { fontSizePt: 3.0, fontSizeMm: 1.058333, color: "#888888", align: "right", letterSpacingEm: 0.075, fontWeight: 400 },
+        value: { fontSizePt: 5.7, fontSizeMm: 2.010833, color: "#111111", align: "right", fontWeight: 600 },
+        notesLabel: { fontSizePt: 3.0, fontSizeMm: 1.058333, color: "#888888", align: "right", letterSpacingEm: 0.075, fontWeight: 400 },
+        titleLabel: { fontSizePt: 3.0, fontSizeMm: 1.058333, color: "#888888", align: "right", letterSpacingEm: 0.075, fontWeight: 400 },
+        titleValue: { fontSizePt: 12.5, fontSizeMm: 4.409722, color: "#111111", align: "right", fontWeight: 700 },
       },
     };
   }
@@ -337,17 +326,38 @@
 
   function getTemplateTextMetrics(template, role) {
     const style = template && template.textStyles ? template.textStyles[role] : null;
-    const heightMm = template && template.textHeightsMm ? template.textHeightsMm[role] : null;
     return {
       role,
       align: style && style.align ? style.align : "left",
       color: style && style.color ? style.color : "",
       fontWeight: style && Number.isFinite(Number(style.fontWeight)) ? Number(style.fontWeight) : 400,
       letterSpacingEm: style && Number.isFinite(Number(style.letterSpacingEm)) ? Number(style.letterSpacingEm) : 0,
-      heightMm: Number.isFinite(Number(heightMm))
-        ? Number(heightMm)
+      heightMm: style && Number.isFinite(Number(style.fontSizeMm))
+        ? Number(style.fontSizeMm)
         : (style && Number.isFinite(Number(style.fontSizePt)) ? Number(style.fontSizePt) * PT_TO_MM : 2),
     };
+  }
+
+  function createCellLabelValueTextPrimitives({
+    entity,
+    cellRectMm,
+    label,
+    value,
+    deps,
+    labelStyle,
+    valueStyle,
+    paddingRightMm = 2.0,
+    gapMm = 0.4,
+  }) {
+    const textRightMm = cellRectMm.xMm + cellRectMm.widthMm - paddingRightMm;
+    const contentHeightMm = labelStyle.heightMm + gapMm + valueStyle.heightMm;
+    const contentTopMm = cellRectMm.yMm + (cellRectMm.heightMm - contentHeightMm) / 2;
+    const labelYMm = contentTopMm + labelStyle.heightMm * 0.80;
+    const valueYMm = contentTopMm + labelStyle.heightMm + gapMm + valueStyle.heightMm * 0.80;
+    return [
+      createTextPrimitive(entity, textRightMm, labelYMm, label, labelStyle.heightMm, labelStyle.align, deps, labelStyle),
+      createTextPrimitive(entity, textRightMm, valueYMm, value, valueStyle.heightMm, valueStyle.align, deps, valueStyle),
+    ];
   }
 
   function getPaperShortLabel(entity) {
@@ -396,13 +406,11 @@
         lines.push({ type: "line", layerId: entity.layerId, p1: start, p2: end });
       }
 
-      const infoLabelMetrics = getTemplateTextMetrics(layout.template, "infoLabel");
-      const infoValueMetrics = getTemplateTextMetrics(layout.template, "infoValue");
+      const infoLabelMetrics = getTemplateTextMetrics(layout.template, "label");
+      const infoValueMetrics = getTemplateTextMetrics(layout.template, "value");
       const notesLabelMetrics = getTemplateTextMetrics(layout.template, "notesLabel");
       const titleLabelMetrics = getTemplateTextMetrics(layout.template, "titleLabel");
       const titleValueMetrics = getTemplateTextMetrics(layout.template, "titleValue");
-      const sheetNoLabelMetrics = getTemplateTextMetrics(layout.template, "sheetNoLabel");
-      const sheetNoValueMetrics = getTemplateTextMetrics(layout.template, "sheetNoValue");
       const infoValues = [
         entity.projectName || "-",
         entity.drawnBy || "-",
@@ -411,84 +419,68 @@
         getTodayLabel(),
       ];
       layout.template.infoColumns.forEach((label, index) => {
-        const cellLeftMm = layout.leftWing.xMm + infoColumnWidthMm * index;
-        const cellRightMm = cellLeftMm + infoColumnWidthMm;
-        const textRightMm = cellRightMm - 2.0;
-        texts.push(createTextPrimitive(
+        const cellRectMm = {
+          xMm: layout.leftWing.xMm + infoColumnWidthMm * index,
+          yMm: layout.leftWing.yMm,
+          widthMm: infoColumnWidthMm,
+          heightMm: layout.template.infoRowHeightMm,
+        };
+        texts.push(...createCellLabelValueTextPrimitives({
           entity,
-          textRightMm,
-          layout.leftWing.yMm + 1.95,
+          cellRectMm,
           label,
-          infoLabelMetrics.heightMm,
-          infoLabelMetrics.align,
+          value: infoValues[index] || "-",
           deps,
-          infoLabelMetrics
-        ));
-        texts.push(createTextPrimitive(
-          entity,
-          textRightMm,
-          layout.leftWing.yMm + 4.85,
-          infoValues[index] || "-",
-          infoValueMetrics.heightMm,
-          infoValueMetrics.align,
-          deps,
-          infoValueMetrics
-        ));
+          labelStyle: { ...infoLabelMetrics, role: "infoLabel" },
+          valueStyle: { ...infoValueMetrics, role: "infoValue" },
+          paddingRightMm: 2.0,
+          gapMm: 0.4,
+        }));
       });
 
       texts.push(createTextPrimitive(
         entity,
-        layout.leftWing.xMm + 2.4,
-        layout.leftWing.yMm + layout.template.infoRowHeightMm + 3.4,
+        layout.leftWing.xMm + layout.leftWing.widthMm - 2.0,
+        layout.leftWing.yMm + layout.template.infoRowHeightMm + layout.template.notesRowHeightMm / 2 + notesLabelMetrics.heightMm * 0.35,
         "NOTES",
         notesLabelMetrics.heightMm,
         notesLabelMetrics.align,
         deps,
-        notesLabelMetrics
+        { ...notesLabelMetrics, role: "notesLabel" }
       ));
 
-      const drawingTitleRightMm = layout.rightWing.xMm + layout.rightWing.widthMm - layout.template.sheetNoWidthMm;
-      const sheetNoRightMm = layout.rightWing.xMm + layout.rightWing.widthMm;
-      texts.push(createTextPrimitive(
+      texts.push(...createCellLabelValueTextPrimitives({
         entity,
-        drawingTitleRightMm - 2.4,
-        layout.rightWing.yMm + 3.2,
-        "Drawing Title",
-        titleLabelMetrics.heightMm,
-        titleLabelMetrics.align,
+        cellRectMm: {
+          xMm: layout.rightWing.xMm,
+          yMm: layout.rightWing.yMm,
+          widthMm: layout.rightWing.widthMm - layout.template.sheetNoWidthMm,
+          heightMm: layout.rightWing.heightMm,
+        },
+        label: "Drawing Title",
+        value: entity.title || "",
         deps,
-        titleLabelMetrics
-      ));
-      texts.push(createTextPrimitive(
+        labelStyle: { ...titleLabelMetrics, role: "titleLabel" },
+        valueStyle: { ...titleValueMetrics, role: "titleValue" },
+        paddingRightMm: 2.4,
+        gapMm: 0.8,
+      }));
+      texts.push(...createCellLabelValueTextPrimitives({
         entity,
-        drawingTitleRightMm - 2.4,
-        layout.rightWing.yMm + 8.8,
-        entity.title || "",
-        titleValueMetrics.heightMm,
-        titleValueMetrics.align,
+        cellRectMm: {
+          xMm: layout.rightWing.xMm + layout.rightWing.widthMm - layout.template.sheetNoWidthMm,
+          yMm: layout.rightWing.yMm,
+          widthMm: layout.template.sheetNoWidthMm,
+          heightMm: layout.rightWing.heightMm,
+        },
+        label: "Sheet No",
+        value: entity.sheetNo || "",
         deps,
-        titleValueMetrics
-      ));
-      texts.push(createTextPrimitive(
-        entity,
-        sheetNoRightMm - 2.4,
-        layout.rightWing.yMm + 3.2,
-        "Sheet No",
-        sheetNoLabelMetrics.heightMm,
-        sheetNoLabelMetrics.align,
-        deps,
-        sheetNoLabelMetrics
-      ));
-      texts.push(createTextPrimitive(
-        entity,
-        sheetNoRightMm - 2.4,
-        layout.rightWing.yMm + 8.8,
-        entity.sheetNo || "",
-        sheetNoValueMetrics.heightMm,
-        sheetNoValueMetrics.align,
-        deps,
-        sheetNoValueMetrics
-      ));
+        labelStyle: { ...titleLabelMetrics, role: "titleLabel" },
+        valueStyle: { ...titleValueMetrics, role: "titleValue" },
+        paddingRightMm: 2.4,
+        gapMm: 0.8,
+      }));
     }
 
     return {
@@ -598,13 +590,16 @@
 
   function drawWorldText(ctx, projectPoint, textEntity, options = {}) {
     const point = projectPoint({ x: textEntity.x, y: textEntity.y });
-    const fontPx = Math.max(8, Math.abs(options.unitsToPixels(textEntity.height)));
+    const fontPx = Math.abs(options.unitsToPixels(textEntity.height));
+    if (fontPx < 1.5) {
+      return;
+    }
     ctx.save();
     ctx.fillStyle = textEntity.color || options.fillStyle;
     ctx.font = `${Math.max(400, Number(textEntity.fontWeight) || 400)} ${fontPx}px sans-serif`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = textEntity.align || "left";
-    ctx.fillText(String(textEntity.text || ""), point.x, point.y + fontPx / 2);
+    ctx.fillText(String(textEntity.text || ""), point.x, point.y);
     ctx.restore();
   }
 
@@ -1267,7 +1262,7 @@
         };
       },
       fontSizePt(heightUnits) {
-        return Math.max(4, mmToPt(unitsToMm(heightUnits, deps) / effectiveScale));
+        return mmToPt(unitsToMm(heightUnits, deps) / effectiveScale);
       },
       strokeWidthPt(widthMmValue) {
         return Math.max(PDF_STYLE.minStrokeWidthPt, mmToPt(widthMmValue));
@@ -1397,7 +1392,6 @@
     } else if (textEntity.align === "center") {
       textX -= widthPt / 2;
     }
-    const baselineY = point.y - fontSizePt * 0.32;
     const textRgb = textEntity.color ? hexToRgb01(textEntity.color) : PDF_STYLE.textRgb;
     const fontName = Number(textEntity.fontWeight) >= 600 ? "/F2" : "/F1";
     const charSpacingPt = Number.isFinite(Number(textEntity.letterSpacingEm))
@@ -1408,7 +1402,7 @@
       "BT",
       `${fontName} ${formatPdfNumber(fontSizePt)} Tf`,
       `${formatPdfNumber(charSpacingPt)} Tc`,
-      `${formatPdfNumber(textX)} ${formatPdfNumber(baselineY)} Td`,
+      `${formatPdfNumber(textX)} ${formatPdfNumber(point.y)} Td`,
       `(${escapePdfText(textEntity.text)}) Tj`,
       "ET",
     ];
