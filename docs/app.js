@@ -24,11 +24,13 @@ const pointerReadout = document.getElementById("pointerReadout");
 const zoomReadout = document.getElementById("zoomReadout");
 const statusReadout = document.getElementById("statusReadout");
 const loadJsonInput = document.getElementById("loadJsonInput");
+const importPdfInput = document.getElementById("importPdfInput");
 const scaleBar = document.getElementById("scaleBar");
 const scaleBarTrack = document.getElementById("scaleBarTrack");
 const scaleBarLabels = document.getElementById("scaleBarLabels");
 const scaleBarLines = Array.from(document.querySelectorAll(".scale-bar-line"));
 const titleBlockApi = window.DraftLiteTitleBlock || null;
+const pdfUnderlayApi = window.DraftLitePdfUnderlay || null;
 
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
@@ -61,6 +63,7 @@ const fitAllButton = document.getElementById("fitAllButton");
 const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
+const importPdfButton = document.getElementById("importPdfButton");
 const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
 const deleteLayerButton = document.getElementById("deleteLayerButton");
@@ -264,6 +267,7 @@ function createInitialState() {
     activeLayerId: "layer-1",
     selectedEntityIds: [],
     groups: [],
+    pdfUnderlay: pdfUnderlayApi ? pdfUnderlayApi.createInitialPdfUnderlayState() : null,
     view: {
       zoom: DEFAULT_ZOOM,
       panX: 0,
@@ -291,6 +295,14 @@ function deepClone(value) {
 
 function snapshotState() {
   return deepClone(state);
+}
+
+function getSerializableState() {
+  const documentState = snapshotState();
+  if (documentState.pdfUnderlay && pdfUnderlayApi && typeof pdfUnderlayApi.serializePdfUnderlayState === "function") {
+    documentState.pdfUnderlay = pdfUnderlayApi.serializePdfUnderlayState(documentState.pdfUnderlay);
+  }
+  return documentState;
 }
 
 function snapshotHistoryStacks() {
@@ -2032,6 +2044,7 @@ function normalizeDocument(raw) {
     selectedEntityIds,
     groups: normalizedGroups,
     blockDefinitions: normalizedBlockDefinitions,
+    pdfUnderlay: pdfUnderlayApi ? pdfUnderlayApi.normalizePdfUnderlayState(source && source.pdfUnderlay) : null,
     view: {
       zoom: clampNumber(
         legacyUnits && source && source.view && Number.isFinite(Number(source.view.zoom))
@@ -2069,7 +2082,7 @@ function clampNumber(value, min, max, fallback) {
 
 function saveToLocalStorage() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshotState()));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(getSerializableState()));
   } catch (error) {
     console.warn("Autosave failed.", error);
   }
@@ -2606,6 +2619,56 @@ function renderPropertiesPanel() {
   };
 
   if (!state.selectedEntityIds.length) {
+    if (state.pdfUnderlay && state.pdfUnderlay.enabled) {
+      const pdfGrid = appendSection("PDF Underlay");
+      addPropertyRow(pdfGrid, "Name", createReadOnlyText(state.pdfUnderlay.name || "Imported PDF"));
+
+      const visibleInput = document.createElement("input");
+      visibleInput.type = "checkbox";
+      visibleInput.checked = state.pdfUnderlay.visible !== false;
+      visibleInput.addEventListener("change", () => {
+        pushUndoState();
+        state.pdfUnderlay = pdfUnderlayApi.setPdfUnderlayVisible(state.pdfUnderlay, visibleInput.checked);
+        syncAfterStateChange();
+        setStatus(`PDF underlay ${state.pdfUnderlay.visible ? "shown" : "hidden"}.`);
+      });
+      addPropertyRow(pdfGrid, "Visible", visibleInput);
+
+      const opacityInput = document.createElement("input");
+      opacityInput.type = "range";
+      opacityInput.min = "0";
+      opacityInput.max = "1";
+      opacityInput.step = "0.05";
+      opacityInput.value = String(state.pdfUnderlay.opacity);
+      opacityInput.addEventListener("change", () => {
+        pushUndoState();
+        state.pdfUnderlay = pdfUnderlayApi.setPdfUnderlayOpacity(state.pdfUnderlay, Number(opacityInput.value));
+        syncAfterStateChange();
+        setStatus("PDF underlay opacity updated.");
+      });
+      addPropertyRow(pdfGrid, "Opacity", opacityInput);
+
+      const scaleInput = document.createElement("input");
+      scaleInput.type = "number";
+      scaleInput.min = "0.01";
+      scaleInput.step = "0.01";
+      scaleInput.value = String(state.pdfUnderlay.scale);
+      scaleInput.addEventListener("change", () => {
+        pushUndoState();
+        state.pdfUnderlay = pdfUnderlayApi.setPdfUnderlayScale(state.pdfUnderlay, Number(scaleInput.value));
+        syncAfterStateChange();
+        setStatus("PDF underlay scale updated.");
+      });
+      addPropertyRow(pdfGrid, "Scale", scaleInput);
+
+      const clearButton = document.createElement("button");
+      clearButton.type = "button";
+      clearButton.className = "panel-button";
+      clearButton.textContent = "Clear PDF";
+      clearButton.addEventListener("click", clearPdfUnderlay);
+      addPropertyRow(pdfGrid, "Clear", clearButton);
+      return;
+    }
     const empty = document.createElement("p");
     empty.className = "panel-empty";
     empty.textContent = "No entity selected.";
@@ -3113,6 +3176,9 @@ function draw() {
   const height = uiState.canvasRect.height;
 
   ctx.clearRect(0, 0, width, height);
+  if (pdfUnderlayApi && state.pdfUnderlay) {
+    pdfUnderlayApi.drawPdfUnderlay(ctx, state, worldToScreen);
+  }
   drawGrid();
   drawAxes(width, height);
 
@@ -9790,8 +9856,55 @@ function capitalize(value) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+
+async function importPdfUnderlayFromInput() {
+  const [file] = importPdfInput.files || [];
+  if (!file) {
+    return;
+  }
+  try {
+    if (!pdfUnderlayApi) {
+      setStatus("PDF.js is not loaded.");
+      return;
+    }
+    const fileType = typeof file.type === "string" ? file.type.toLowerCase() : "";
+    const fileName = typeof file.name === "string" ? file.name.toLowerCase() : "";
+    if (fileType !== "application/pdf" && !fileName.endsWith(".pdf")) {
+      setStatus("Please select a PDF file.");
+      return;
+    }
+    setStatus("Loading PDF underlay...");
+    const nextUnderlay = await pdfUnderlayApi.loadPdfFileAsUnderlay(file, state.pdfUnderlay);
+    pushUndoState();
+    state.pdfUnderlay = nextUnderlay;
+    syncAfterStateChange();
+    setStatus(`PDF underlay loaded: ${file.name}`);
+  } catch (error) {
+    console.error(error);
+    const message = error && typeof error.message === "string" ? error.message : "";
+    if (message === "PDF.js is not loaded." || message === "Please select a PDF file.") {
+      setStatus(message);
+    } else {
+      setStatus("Failed to load PDF underlay.");
+    }
+  } finally {
+    importPdfInput.value = "";
+  }
+}
+
+function clearPdfUnderlay() {
+  if (!pdfUnderlayApi || !state.pdfUnderlay || !state.pdfUnderlay.enabled) {
+    setStatus("No PDF underlay loaded.");
+    return;
+  }
+  pushUndoState();
+  state.pdfUnderlay = pdfUnderlayApi.clearPdfUnderlay();
+  syncAfterStateChange();
+  setStatus("PDF underlay cleared.");
+}
+
 function saveJsonToFile() {
-  const documentState = snapshotState();
+  const documentState = getSerializableState();
   const blob = new Blob([JSON.stringify(documentState, null, 2)], { type: "application/json" });
   downloadBlob(blob, `draftlite-${createTimestampLabel()}.json`);
   setStatus("JSON exported.");
@@ -9806,7 +9919,11 @@ function loadJsonFromFile(file) {
       state = nextState;
       clearTransientState();
       syncAfterStateChange();
-      setStatus(`Loaded ${file.name}.`);
+      if (state.pdfUnderlay && state.pdfUnderlay.enabled && !state.pdfUnderlay.imageBitmap && !state.pdfUnderlay.imageDataUrl) {
+        setStatus("PDF underlay needs to be re-linked.");
+      } else {
+        setStatus(`Loaded ${file.name}.`);
+      }
     } catch (error) {
       console.error(error);
       setStatus("JSON load failed.");
@@ -10608,6 +10725,9 @@ function bindEvents() {
   saveJsonButton.addEventListener("click", saveJsonToFile);
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());
   exportDxfButton.addEventListener("click", exportDxf);
+  if (importPdfButton && importPdfInput) {
+    importPdfButton.addEventListener("click", () => importPdfInput.click());
+  }
   explodeButton.addEventListener("click", explodeSelectedRects);
   addLayerButton.addEventListener("click", addLayer);
   deleteLayerButton.addEventListener("click", deleteActiveLayer);
@@ -10655,6 +10775,9 @@ function bindEvents() {
       loadJsonFromFile(file);
     }
   });
+  if (importPdfInput) {
+    importPdfInput.addEventListener("change", importPdfUnderlayFromInput);
+  }
 }
 
 function initializeView() {
@@ -10665,10 +10788,16 @@ function initializeView() {
     state.view.panY = uiState.canvasRect.height / 2;
   }
   syncAfterStateChange(false);
+  const pdfUnderlayNeedsRelink = restored && state.pdfUnderlay && state.pdfUnderlay.enabled && !state.pdfUnderlay.imageBitmap && !state.pdfUnderlay.imageDataUrl;
+  if (pdfUnderlayNeedsRelink) {
+    setStatus("PDF underlay needs to be re-linked.");
+  }
   if (!restored) {
     fitAll();
   }
-  setStatus("DraftLite ready.");
+  if (!pdfUnderlayNeedsRelink) {
+    setStatus("DraftLite ready.");
+  }
 }
 
 bindEvents();

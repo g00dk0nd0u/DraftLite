@@ -77,6 +77,7 @@
                 <span class="toolbar-group-label">File</span>
                 <button id="saveJsonButton" class="tool-button" type="button" data-testid="save-json"><span class="tool-icon">⬇</span><span>Save JSON</span></button>
                 <button id="loadJsonButton" class="tool-button" type="button" data-testid="load-json"><span class="tool-icon">⬆</span><span>Load JSON</span></button>
+                <button id="importPdfButton" class="tool-button" type="button" data-testid="import-pdf"><span class="tool-icon">PDF</span><span>Import PDF</span></button>
                 <button id="exportDxfButton" class="tool-button" type="button" data-testid="export-dxf"><span class="tool-icon">DXF</span><span>Export DXF</span></button>
               </div>
               <div class="toolbar-group" role="group" aria-label="History panel">
@@ -193,6 +194,7 @@ or JSON:
     </div>
 
     <input id="loadJsonInput" type="file" accept=".json,application/json" hidden />
+    <input id="importPdfInput" type="file" accept=".pdf,application/pdf" hidden />
     <div id="deleteLayerDialog" class="modal-backdrop" hidden>
       <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deleteLayerDialogTitle" aria-describedby="deleteLayerDialogBody">
         <h3 id="deleteLayerDialogTitle" class="modal-title">Delete layer?</h3>
@@ -229,6 +231,8 @@ or JSON:
 
     <script src="titleBlock/titleBlockTemplates.js"></script>
     <script src="titleBlock/titleBlock.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="pdfUnderlay.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
