@@ -302,9 +302,13 @@ function getSerializableState() {
   if (documentState.pdfUnderlay && pdfUnderlayApi && typeof pdfUnderlayApi.serializePdfUnderlayState === "function") {
     documentState.pdfUnderlay = pdfUnderlayApi.serializePdfUnderlayState(documentState.pdfUnderlay);
   }
-  documentState.entities = documentState.entities.map((entity) => (
-    entity && entity.type === "pdfUnderlay" ? { ...entity, imageBitmap: null } : entity
-  ));
+  documentState.entities = documentState.entities.map((entity) => {
+    if (!entity || entity.type !== "pdfUnderlay") {
+      return entity;
+    }
+    const { imageBitmap, _imageElement, ...serializableEntity } = entity;
+    return serializableEntity;
+  });
   return documentState;
 }
 
@@ -883,11 +887,14 @@ function formatScaleLabel(mm) {
   if (mm >= 1000) {
     return `${trimTrailingZeros((mm / 1000).toFixed(2))}m`;
   }
+  if (mm < 1) {
+    return `${trimTrailingZeros(mm.toFixed(2))}mm`;
+  }
   return `${Math.round(mm)}mm`;
 }
 
 function getScaleSegmentUnitCandidates() {
-  const candidates = [1, 2, 5];
+  const candidates = [0.05, 0.1, 0.2, 0.5, 1, 2, 5];
   const niceBases = [1, 2, 5];
   for (let exponent = 1; exponent <= 9; exponent += 1) {
     const factor = 10 ** exponent;
@@ -902,7 +909,7 @@ function getNiceScaleSegmentUnit(maxTotalPx = Number.POSITIVE_INFINITY) {
   const maxPreferredTotalPx = Math.min(220, maxTotalPx);
   const targetTotalPx = Math.min(180, maxPreferredTotalPx);
   const segmentCount = 5;
-  let bestUnit = 1;
+  let bestUnit = getScaleSegmentUnitCandidates()[0];
   let bestScore = Number.POSITIVE_INFINITY;
 
   getScaleSegmentUnitCandidates().forEach((unitMm) => {
@@ -1843,6 +1850,7 @@ function normalizeEntity(entity, options = {}) {
     return {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "pdfUnderlay",
+      enabled: entity.enabled !== false,
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       name: typeof entity.name === "string" && entity.name ? entity.name : "Imported PDF",
       x: normalizeUnitValue(entity.x, legacyUnits),
@@ -2063,6 +2071,7 @@ function normalizeDocument(raw) {
       ...source.pdfUnderlay,
       id: typeof source.pdfUnderlay.id === "string" ? source.pdfUnderlay.id : `ent-${normalizedEntities.length + 1}`,
       type: "pdfUnderlay",
+      enabled: true,
       layerId: layerIds.has(source.pdfUnderlay.layerId) ? source.pdfUnderlay.layerId : normalizedLayers[0].id,
     }, { legacyUnits });
     if (migratedPdf && !normalizedEntities.some((entity) => entity.type === "pdfUnderlay" && entity.imageDataUrl === migratedPdf.imageDataUrl)) {
@@ -3478,7 +3487,8 @@ function drawPdfUnderlayEntity(entity) {
   if (!pdfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
     return;
   }
-  pdfUnderlayApi.drawPdfUnderlay(ctx, { pdfUnderlay: { ...entity, enabled: true } }, worldToScreen);
+  entity.enabled = entity.enabled !== false;
+  pdfUnderlayApi.drawPdfUnderlay(ctx, { pdfUnderlay: entity }, worldToScreen);
   if (state.selectedEntityIds.includes(entity.id)) {
     const bounds = getEntityBoundsUnits(entity);
     if (bounds) {
@@ -10040,7 +10050,7 @@ async function importPdfUnderlayFromInput() {
     setStatus("Loading PDF underlay...");
     const nextUnderlay = await pdfUnderlayApi.loadPdfFileAsUnderlay(file, state.pdfUnderlay);
     pushUndoState();
-    const pdfEntity = normalizeEntity({ ...nextUnderlay, id: createEntityId(), type: "pdfUnderlay", layerId: state.activeLayerId }, { legacyUnits: false });
+    const pdfEntity = normalizeEntity({ ...nextUnderlay, id: createEntityId(), type: "pdfUnderlay", enabled: true, layerId: state.activeLayerId }, { legacyUnits: false });
     state.pdfUnderlay = pdfUnderlayApi.clearPdfUnderlay();
     if (pdfEntity) {
       state.entities.push(pdfEntity);
