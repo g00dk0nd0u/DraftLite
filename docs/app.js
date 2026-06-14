@@ -13,6 +13,7 @@ const DEFAULT_DIMENSION_EXTENSION_GAP_UNITS = 90;
 const DOUBLE_CLICK_MS = 320;
 const CLICK_SELECT_THRESHOLD_PX = 4;
 const THEME_STORAGE_KEY = "draftlite.theme";
+const FREE_OPERATION_GRID_MM = 10;
 
 const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
@@ -852,6 +853,15 @@ function roundWorldPoint(point) {
   };
 }
 
+function quantizeFreePointToGrid(point, gridMm = FREE_OPERATION_GRID_MM) {
+  if (!point) return point;
+  const gridUnits = Math.max(1, mmToUnits(gridMm));
+  return {
+    x: roundToUnit(Math.round(point.x / gridUnits) * gridUnits),
+    y: roundToUnit(Math.round(point.y / gridUnits) * gridUnits),
+  };
+}
+
 function roundRectBox(rect) {
   return {
     x: roundToGridUnit(rect.x),
@@ -1173,6 +1183,9 @@ function getSelectedEntityHandles(entity) {
   if (entity.type === "circle") {
     return [{ entityId: entity.id, type: "circleCenter", point: roundWorldPoint(entity.center) }];
   }
+  if (entity.type === "text") {
+    return [{ entityId: entity.id, type: "textCenter", point: roundWorldPoint({ x: entity.x, y: entity.y }) }];
+  }
   if (entity.type === "filledRegion") {
     return entity.points.map((point) => ({
       entityId: entity.id,
@@ -1320,9 +1333,9 @@ function collectSnapCandidates(worldPoint) {
   return candidates;
 }
 
-function getSnapPoint(worldPoint) {
+function resolveSnapCandidate(worldPoint) {
   const candidates = collectSnapCandidates(worldPoint);
-  const closestCandidate = candidates.reduce((best, candidate) => {
+  return candidates.reduce((best, candidate) => {
     if (candidate.distancePx > state.settings.snapTolerancePx) {
       return best;
     }
@@ -1339,6 +1352,10 @@ function getSnapPoint(worldPoint) {
     }
     return best;
   }, null);
+}
+
+function getSnapPoint(worldPoint, options = {}) {
+  const closestCandidate = resolveSnapCandidate(worldPoint);
 
   if (closestCandidate) {
     uiState.snapMarker = {
@@ -1349,7 +1366,9 @@ function getSnapPoint(worldPoint) {
   }
 
   uiState.snapMarker = null;
-  return roundWorldPoint(worldPoint);
+  return options.quantizeFree === true
+    ? quantizeFreePointToGrid(worldPoint)
+    : roundWorldPoint(worldPoint);
 }
 
 function collectAnchorSnapCandidates(worldPoint, excludeEntityIds = []) {
@@ -1470,7 +1489,7 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
     constrainedWorld = applyOrthoConstraint(uiState.mirrorDraft.firstPoint, constrainedWorld, orthoEnabled);
   }
 
-  return getSnapPoint(constrainedWorld);
+  return getSnapPoint(constrainedWorld, { quantizeFree: true });
 }
 
 function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
@@ -2564,9 +2583,42 @@ function getNormalizedEntityStyleProps(entity, options = {}) {
   return style;
 }
 
+function isDarkThemeActive() {
+  return document.body.dataset.theme === "dark";
+}
+
+function getDefaultRectangleFillColor() {
+  return normalizeColor(getCssVar("--rect-default-fill", "#f4d58a"));
+}
+
+function getRenderableColorForTheme(color, options = {}) {
+  const normalized = normalizeColor(color || options.fallback || "#2e3135");
+  if (!isDarkThemeActive()) {
+    return normalized;
+  }
+  const match = /^#([0-9a-f]{6})$/i.exec(normalized);
+  if (!match) {
+    return normalized;
+  }
+  const value = match[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const minLuminance = options.minLuminance ?? 0.38;
+  if (luminance >= minLuminance) {
+    return normalized;
+  }
+  const mix = Math.min(0.72, Math.max(0.32, minLuminance - luminance + 0.32));
+  const nr = Math.round(r + (255 - r) * mix);
+  const ng = Math.round(g + (255 - g) * mix);
+  const nb = Math.round(b + (255 - b) * mix);
+  return `#${[nr, ng, nb].map((component) => component.toString(16).padStart(2, "0")).join("")}`;
+}
+
 function getEntityStrokeColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return normalizeColor(entity.color || layer?.color || "#2e3135");
+  return getRenderableColorForTheme(entity.color || layer?.color || "#2e3135");
 }
 
 function getEntityOpacity(entity) {
@@ -3061,22 +3113,18 @@ function renderPropertiesPanel() {
 
     const geometryGrid = appendSection("Geometry");
     const fields = [
-            ["Width mm", "width"],
+      ["Width mm", "width"],
       ["Height mm", "height"],
-      ["Rotation", "rotation"],
     ];
     fields.forEach(([label, key]) => {
       const input = document.createElement("input");
       input.type = "number";
-      input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(rectDisplay[key]));
-      if (key === "rotation") {
-        input.disabled = true;
-      }
+      input.value = String(unitsToMm(rectDisplay[key]));
       input.addEventListener("change", () => {
         if (key === "rotation") return;
         const numericValue = Number(input.value);
         if (!Number.isFinite(numericValue)) {
-          input.value = key === "rotation" ? String(entity.rotation || 0) : String(unitsToMm(entity[key]));
+          input.value = String(unitsToMm(entity[key]));
           setStatus(`${label} must be a valid number.`);
           return;
         }
@@ -4198,7 +4246,7 @@ function withAlpha(colorHex, alpha) {
 }
 
 function getEntityFillStyle(entity, fallbackColor, alpha) {
-  return withAlpha(entity.fillColor || fallbackColor, alpha);
+  return withAlpha(getRenderableColorForTheme(entity.fillColor || fallbackColor, { minLuminance: 0.3 }), alpha);
 }
 
 function drawBlockInstanceEntity(entity) {
@@ -4240,7 +4288,7 @@ function drawTextEntity(entity) {
   if (!layer) return;
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const base = worldToScreen({ x: entity.x, y: entity.y });
-  const color = normalizeColor(entity.color || layer.color);
+  const color = getRenderableColorForTheme(entity.color || layer.color);
   const metricsUnits = getTextMetricsUnits(entity);
   const drawOffsetUnits = getTextDrawOffsetUnits(entity, metricsUnits);
   const localBoxUnits = getTextLocalBoxUnits(entity, metricsUnits);
@@ -4273,6 +4321,11 @@ function drawTextEntity(entity) {
     const width = (localBoxUnits.right - localBoxUnits.left) * state.view.zoom;
     const height = (localBoxUnits.bottom - localBoxUnits.top) * state.view.zoom;
     ctx.strokeRect(left - 4, top - 4, width + 8, height + 8);
+    ctx.fillStyle = "#fffaf2";
+    ctx.beginPath();
+    ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -4285,12 +4338,12 @@ function getDimensionDisplayText(entity) {
 
 function getDimensionGeometryColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return normalizeColor(layer?.color || "#2e3135");
+  return getRenderableColorForTheme(layer?.color || "#2e3135");
 }
 
 function getDimensionTextColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return normalizeColor(entity.color || layer?.color || "#2e3135");
+  return getRenderableColorForTheme(entity.color || layer?.color || "#2e3135");
 }
 
 function getDimensionTickRadiusPx(entity) {
@@ -5395,7 +5448,7 @@ function addRectangleEntity(startPoint, oppositePoint) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: getDefaultRectangleFillColor(), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -5425,7 +5478,7 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: getDefaultRectangleFillColor(), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -6378,7 +6431,7 @@ function applyTransformDraft() {
 }
 
 function resolveFreeDragPoint(worldPoint) {
-  return worldPoint;
+  return quantizeFreePointToGrid(worldPoint);
 }
 
 function updateSelectDragStatus(message) {
