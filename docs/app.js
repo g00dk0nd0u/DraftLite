@@ -1192,8 +1192,8 @@ function getBorrowableHandlePoints(entity) {
       { entityId: entity.id, type: "lineEndpoint", endpoint: "p2", point: roundWorldPoint(entity.p2) },
     ];
   }
-  if (entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay") {
-    const candidates = entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay"
+  if (entity.type === "rect" || entity.type === "pdfUnderlay") {
+    const candidates = entity.type === "pdfUnderlay"
       ? getUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
       : getRectMoveAnchorPoints(entity);
     return candidates.map((candidate) => ({
@@ -3433,6 +3433,25 @@ function resizeCanvas() {
   ctx.setTransform(uiState.dpr, 0, 0, uiState.dpr, 0, 0);
 }
 
+function isUnderlayEntity(entity) {
+  return Boolean(entity && (entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay"));
+}
+
+function drawUnderlayEntity(entity) {
+  if (entity.type === "pdfUnderlay") {
+    drawPdfUnderlayEntity(entity, { drawSelection: false });
+  } else if (entity.type === "dxfUnderlay") {
+    drawDxfUnderlayEntity(entity, { drawSelection: false });
+  }
+}
+
+function drawSelectedUnderlayOverlays() {
+  state.selectedEntityIds
+    .map(getEntityById)
+    .filter((entity) => isUnderlayEntity(entity) && isLayerVisible(entity.layerId) && entity.visible !== false)
+    .forEach(drawUnderlaySelectionOverlay);
+}
+
 function draw() {
   const width = uiState.canvasRect.width;
   const height = uiState.canvasRect.height;
@@ -3445,17 +3464,20 @@ function draw() {
   drawAxes(width, height);
 
   state.entities.forEach((entity) => {
+    if (!isLayerVisible(entity.layerId) || entity.visible === false || !isUnderlayEntity(entity)) {
+      return;
+    }
+    drawUnderlayEntity(entity);
+  });
+
+  state.entities.forEach((entity) => {
     if (!isLayerVisible(entity.layerId)) {
       return;
     }
-    if (entity.visible === false) {
+    if (entity.visible === false || isUnderlayEntity(entity)) {
       return;
     }
-    if (entity.type === "pdfUnderlay") {
-      drawPdfUnderlayEntity(entity);
-    } else if (entity.type === "dxfUnderlay") {
-      drawDxfUnderlayEntity(entity);
-    } else if (entity.type === "line") {
+    if (entity.type === "line") {
       drawLineEntity(entity);
     } else if (entity.type === "wire") {
       drawWireEntity(entity);
@@ -3477,6 +3499,8 @@ function draw() {
       drawBlockInstanceEntity(entity);
     }
   });
+
+  drawSelectedUnderlayOverlays();
 
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
@@ -3620,46 +3644,39 @@ function drawAxes(width, height) {
   ctx.restore();
 }
 
-function drawPdfUnderlayEntity(entity) {
+function drawPdfUnderlayEntity(entity, options = {}) {
   if (!pdfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
     return;
   }
   entity.enabled = entity.enabled !== false;
   pdfUnderlayApi.drawPdfUnderlay(ctx, { pdfUnderlay: entity }, worldToScreen);
-  if (state.selectedEntityIds.includes(entity.id)) {
-    const bounds = getEntityBoundsUnits(entity);
-    if (bounds) {
-      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
-      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
-      ctx.save();
-      ctx.strokeStyle = "#c2693e";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
-      ctx.restore();
-    }
-    drawSelectedEntityHandles(entity);
+  if (options.drawSelection !== false && state.selectedEntityIds.includes(entity.id)) {
+    drawUnderlaySelectionOverlay(entity);
   }
 }
 
-function drawDxfUnderlayEntity(entity) {
+function drawUnderlaySelectionOverlay(entity) {
+  const bounds = getEntityBoundsUnits(entity);
+  if (bounds) {
+    const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+    const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+    ctx.save();
+    ctx.strokeStyle = "#c2693e";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+    ctx.restore();
+  }
+  drawSelectedEntityHandles(entity);
+}
+
+function drawDxfUnderlayEntity(entity, options = {}) {
   if (!dxfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
     return;
   }
   dxfUnderlayApi.drawDxfUnderlay(ctx, entity, worldToScreen);
-  if (state.selectedEntityIds.includes(entity.id)) {
-    const bounds = getEntityBoundsUnits(entity);
-    if (bounds) {
-      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
-      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
-      ctx.save();
-      ctx.strokeStyle = "#c2693e";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
-      ctx.restore();
-    }
-    drawSelectedEntityHandles(entity);
+  if (options.drawSelection !== false && state.selectedEntityIds.includes(entity.id)) {
+    drawUnderlaySelectionOverlay(entity);
   }
 }
 
