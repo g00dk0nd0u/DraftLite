@@ -240,6 +240,7 @@ const uiState = {
   hoverBorrowedHandle: null,
   hoverRectEdge: null,
   deleteLayerDialogLayerId: null,
+  pdfReplaceTargetId: null,
   panning: false,
   panStartScreen: { x: 0, y: 0 },
   panStartView: { panX: 0, panY: 0 },
@@ -2920,17 +2921,6 @@ function renderPropertiesPanel() {
     addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "PDF underlay layer updated."));
 
     const geometryGrid = appendSection("Geometry");
-    [["X mm", "x"], ["Y mm", "y"]].forEach(([label, key]) => {
-      const input = document.createElement("input");
-      input.type = "number";
-      input.value = String(unitsToMm(entity[key]));
-      input.addEventListener("change", () => {
-        const value = Number(input.value);
-        if (!Number.isFinite(value)) { input.value = String(unitsToMm(entity[key])); return; }
-        pushUndoState(); entity[key] = mmToUnits(value); syncAfterStateChange();
-      });
-      addPropertyRow(geometryGrid, label, input);
-    });
     const scaleInput = document.createElement("input");
     scaleInput.type = "number"; scaleInput.min = "0.01"; scaleInput.step = "0.01"; scaleInput.value = String(entity.scale || 1);
     scaleInput.addEventListener("change", () => {
@@ -2945,18 +2935,10 @@ function renderPropertiesPanel() {
     opacityInput.type = "range"; opacityInput.min = "0"; opacityInput.max = "1"; opacityInput.step = "0.05"; opacityInput.value = String(entity.opacity ?? 0.45);
     opacityInput.addEventListener("change", () => { pushUndoState(); entity.opacity = clampNumber(Number(opacityInput.value), 0, 1, 0.45); syncAfterStateChange(); });
     addPropertyRow(appearanceGrid, "Opacity", opacityInput);
-    const visibleInput = document.createElement("input");
-    visibleInput.type = "checkbox"; visibleInput.checked = entity.visible !== false;
-    visibleInput.addEventListener("change", () => { pushUndoState(); entity.visible = visibleInput.checked; syncAfterStateChange(); });
-    addPropertyRow(appearanceGrid, "Visible", visibleInput);
-    const lockedInput = document.createElement("input");
-    lockedInput.type = "checkbox"; lockedInput.checked = Boolean(entity.locked);
-    lockedInput.addEventListener("change", () => { pushUndoState(); entity.locked = lockedInput.checked; syncAfterStateChange(); });
-    addPropertyRow(appearanceGrid, "Locked", lockedInput);
-    const clearButton = document.createElement("button");
-    clearButton.type = "button"; clearButton.className = "panel-button"; clearButton.textContent = "Clear PDF";
-    clearButton.addEventListener("click", () => { pushUndoState(); state.entities = state.entities.filter((item) => item.id !== entity.id); state.selectedEntityIds = []; syncAfterStateChange(); setStatus("PDF underlay cleared."); });
-    addPropertyRow(appearanceGrid, "Clear PDF", clearButton);
+    const linkButton = document.createElement("button");
+    linkButton.type = "button"; linkButton.className = "panel-button"; linkButton.textContent = "Select PDF";
+    linkButton.addEventListener("click", () => selectReplacementPdfForEntity(entity.id));
+    addPropertyRow(appearanceGrid, "Link", linkButton);
     return;
   }
   if (entity.type === "titleBlock" && titleBlockApi) {
@@ -10212,9 +10194,84 @@ function capitalize(value) {
 }
 
 
+
+function selectReplacementPdfForEntity(entityId) {
+  if (!importPdfInput) {
+    setStatus("PDF file input is not available.");
+    return;
+  }
+  const entity = getEntityById(entityId);
+  if (!entity || entity.type !== "pdfUnderlay") {
+    setStatus("Select a PDF underlay to relink.");
+    return;
+  }
+  uiState.pdfReplaceTargetId = entityId;
+  importPdfInput.value = "";
+  importPdfInput.click();
+}
+
+async function replaceSelectedPdfUnderlayFromInput(file, targetEntityId) {
+  const entity = getEntityById(targetEntityId);
+  if (!entity || entity.type !== "pdfUnderlay") {
+    setStatus("Select a PDF underlay to relink.");
+    return;
+  }
+  try {
+    if (!pdfUnderlayApi) {
+      setStatus("PDF.js is not loaded.");
+      return;
+    }
+    const fileType = typeof file.type === "string" ? file.type.toLowerCase() : "";
+    const fileName = typeof file.name === "string" ? file.name.toLowerCase() : "";
+    if (fileType !== "application/pdf" && !fileName.endsWith(".pdf")) {
+      setStatus("Please select a PDF file.");
+      return;
+    }
+    setStatus("Relinking PDF underlay...");
+    const currentSelection = state.selectedEntityIds.slice();
+    const loadedUnderlay = await pdfUnderlayApi.loadPdfFileAsUnderlay(file, entity);
+    const replacementEntity = normalizeEntity({
+      ...entity,
+      name: loadedUnderlay.name || file.name || entity.name || "Imported PDF",
+      widthUnits: loadedUnderlay.widthUnits,
+      heightUnits: loadedUnderlay.heightUnits,
+      imageBitmap: loadedUnderlay.imageBitmap,
+      imageDataUrl: loadedUnderlay.imageDataUrl,
+      enabled: true,
+    }, { legacyUnits: false });
+    if (!replacementEntity) {
+      setStatus("Failed to load PDF underlay.");
+      return;
+    }
+    pushUndoState();
+    state.entities = state.entities.map((item) => (item.id === entity.id ? replacementEntity : item));
+    state.selectedEntityIds = currentSelection.filter((id) => state.entities.some((item) => item.id === id));
+    if (!state.selectedEntityIds.includes(replacementEntity.id)) {
+      state.selectedEntityIds = [replacementEntity.id];
+    }
+    syncAfterStateChange();
+    setStatus(`PDF underlay relinked: ${file.name}`);
+  } catch (error) {
+    console.error(error);
+    const message = error && typeof error.message === "string" ? error.message : "";
+    if (message === "PDF.js is not loaded." || message === "Please select a PDF file.") {
+      setStatus(message);
+    } else {
+      setStatus("Failed to load PDF underlay.");
+    }
+  }
+}
+
 async function importPdfUnderlayFromInput() {
   const [file] = importPdfInput.files || [];
+  const replaceTargetId = uiState.pdfReplaceTargetId;
+  uiState.pdfReplaceTargetId = null;
   if (!file) {
+    return;
+  }
+  if (replaceTargetId) {
+    await replaceSelectedPdfUnderlayFromInput(file, replaceTargetId);
+    importPdfInput.value = "";
     return;
   }
   try {
@@ -11155,7 +11212,11 @@ function bindEvents() {
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());
   exportDxfButton.addEventListener("click", exportDxf);
   if (importPdfButton && importPdfInput) {
-    importPdfButton.addEventListener("click", () => importPdfInput.click());
+    importPdfButton.addEventListener("click", () => {
+      uiState.pdfReplaceTargetId = null;
+      importPdfInput.value = "";
+      importPdfInput.click();
+    });
   }
   if (linkDxfButton && linkDxfInput) {
     linkDxfButton.addEventListener("click", () => linkDxfInput.click());
