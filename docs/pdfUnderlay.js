@@ -2,7 +2,8 @@
 
 (function () {
   const DEFAULT_OPACITY = 0.45;
-  const PDFJS_CDN_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  const PDFJS_WORKER_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  const PDFJS_DIST_ASSET_BASE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/";
   const PDF_RENDER_SCALE = 3;
   const PDF_RENDER_MAX_DIMENSION = 4096;
   const DRAFTLITE_UNITS_PER_PDF_POINT = 25.4 / 72 / 0.1;
@@ -109,9 +110,9 @@
   function getPdfDocumentOptions(data) {
     return {
       data,
-      cMapUrl: `${PDFJS_CDN_BASE}cmaps/`,
+      cMapUrl: `${PDFJS_DIST_ASSET_BASE}cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: `${PDFJS_CDN_BASE}standard_fonts/`,
+      standardFontDataUrl: `${PDFJS_DIST_ASSET_BASE}standard_fonts/`,
       disableFontFace: false,
       useSystemFonts: true,
     };
@@ -127,7 +128,7 @@
     }
 
     if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN_BASE}pdf.worker.min.js`;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_WORKER_BASE}pdf.worker.min.js`;
     }
 
     const arrayBuffer = await file.arrayBuffer();
