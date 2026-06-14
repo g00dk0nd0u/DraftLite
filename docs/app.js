@@ -2629,7 +2629,11 @@ function getRenderableColorForTheme(color, options = {}) {
 
 function getEntityStrokeColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return getRenderableColorForTheme(entity.color || layer?.color || "#2e3135");
+  return normalizeColor(entity.color || layer?.color || "#2e3135");
+}
+
+function getRenderableEntityStrokeColor(entity) {
+  return getRenderableColorForTheme(getEntityStrokeColor(entity));
 }
 
 function getEntityOpacity(entity) {
@@ -3798,7 +3802,7 @@ function drawLineEntity(entity) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.moveTo(screenP1.x, screenP1.y);
@@ -3842,7 +3846,7 @@ function drawWireEntity(entity) {
     drawWirePath(entity.start, entity.end, entity.tension);
   }
 
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   drawWirePath(entity.start, entity.end, entity.tension);
   ctx.restore();
@@ -4098,7 +4102,7 @@ function drawRectEntity(entity) {
   ctx.globalAlpha = getEntityOpacity(entity);
   ctx.setLineDash(getEntityStrokeDash(entity));
   if (entity.fill !== false) {
-    ctx.fillStyle = getEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
+    ctx.fillStyle = getRenderableEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
     ctx.fill();
   }
@@ -4108,7 +4112,7 @@ function drawRectEntity(entity) {
     buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
     ctx.stroke();
   }
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
   ctx.stroke();
@@ -4118,7 +4122,7 @@ function drawRectEntity(entity) {
     ctx.save();
     ctx.globalAlpha = getEntityOpacity(entity);
     ctx.setLineDash([]);
-    ctx.fillStyle = normalizeOptionalColor(entity.color || "") || getEntityStrokeColor(entity) || layer.color;
+    ctx.fillStyle = getRenderableColorForTheme(normalizeOptionalColor(entity.color || "") || getEntityStrokeColor(entity) || layer.color);
     ctx.font = `${fontPx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -4163,7 +4167,7 @@ function drawTitleBlockEntity(entity) {
       return units * state.view.zoom;
     },
     isSelected: state.selectedEntityIds.includes(entity.id),
-    strokeColor: getEntityStrokeColor(entity),
+    strokeColor: getRenderableEntityStrokeColor(entity),
     mmToUnits,
     roundToUnit,
   });
@@ -4183,7 +4187,7 @@ function drawCircleEntity(entity) {
     ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
     ctx.stroke();
   }
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
@@ -4208,7 +4212,7 @@ function drawArcEntity(entity) {
     ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
     ctx.stroke();
   }
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
   ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
@@ -4230,7 +4234,7 @@ function drawFilledRegionEntity(entity) {
   }
   ctx.closePath();
   if (entity.fill !== false) {
-    ctx.fillStyle = getEntityFillStyle(entity, getEntityStrokeColor(entity), getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
+    ctx.fillStyle = getRenderableEntityFillStyle(entity, getEntityStrokeColor(entity), getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     ctx.fill();
   }
   if (isSelected) {
@@ -4238,7 +4242,7 @@ function drawFilledRegionEntity(entity) {
     ctx.lineWidth = 8;
     ctx.stroke();
   }
-  ctx.strokeStyle = getEntityStrokeColor(entity);
+  ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.stroke();
   drawSelectedEntityHandles(entity);
@@ -4257,6 +4261,10 @@ function withAlpha(colorHex, alpha) {
 }
 
 function getEntityFillStyle(entity, fallbackColor, alpha) {
+  return withAlpha(normalizeColor(entity.fillColor || fallbackColor), alpha);
+}
+
+function getRenderableEntityFillStyle(entity, fallbackColor, alpha) {
   return withAlpha(getRenderableColorForTheme(entity.fillColor || fallbackColor, { minLuminance: 0.3 }), alpha);
 }
 
@@ -4299,7 +4307,7 @@ function drawTextEntity(entity) {
   if (!layer) return;
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const base = worldToScreen({ x: entity.x, y: entity.y });
-  const color = getRenderableColorForTheme(entity.color || layer.color);
+  const color = getRenderableColorForTheme(normalizeColor(entity.color || layer.color));
   const metricsUnits = getTextMetricsUnits(entity);
   const drawOffsetUnits = getTextDrawOffsetUnits(entity, metricsUnits);
   const localBoxUnits = getTextLocalBoxUnits(entity, metricsUnits);
@@ -4349,12 +4357,20 @@ function getDimensionDisplayText(entity) {
 
 function getDimensionGeometryColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return getRenderableColorForTheme(layer?.color || "#2e3135");
+  return normalizeColor(layer?.color || "#2e3135");
+}
+
+function getRenderableDimensionGeometryColor(entity) {
+  return getRenderableColorForTheme(getDimensionGeometryColor(entity));
 }
 
 function getDimensionTextColor(entity) {
   const layer = getLayerById(entity.layerId);
-  return getRenderableColorForTheme(entity.color || layer?.color || "#2e3135");
+  return normalizeColor(entity.color || layer?.color || "#2e3135");
+}
+
+function getRenderableDimensionTextColor(entity) {
+  return getRenderableColorForTheme(getDimensionTextColor(entity));
 }
 
 function getDimensionTickRadiusPx(entity) {
@@ -4552,8 +4568,8 @@ function drawDimensionEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   const geometry = getDimensionScreenGeometry(entity);
   const isPreview = Boolean(entity.__isDimensionOffsetPreview);
-  const geometryColor = isPreview ? "rgba(194, 105, 62, 0.9)" : getDimensionGeometryColor(entity);
-  const textColor = isPreview ? "rgba(194, 105, 62, 0.95)" : getDimensionTextColor(entity);
+  const geometryColor = isPreview ? "rgba(194, 105, 62, 0.9)" : getRenderableDimensionGeometryColor(entity);
+  const textColor = isPreview ? "rgba(194, 105, 62, 0.95)" : getRenderableDimensionTextColor(entity);
   const lineWidth = isPreview ? 1.5 : 1;
   ctx.save();
   ctx.globalAlpha = isPreview ? 1 : getEntityOpacity(entity);
