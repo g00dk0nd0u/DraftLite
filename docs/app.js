@@ -885,9 +885,16 @@ function screenToWorld(point) {
   };
 }
 
-function getCssVar(name, fallback) {
-  const value = window.getComputedStyle(document.body).getPropertyValue(name).trim();
-  return value || fallback;
+function getCssVar(name, fallback = "") {
+  const bodyValue = window.getComputedStyle(document.body).getPropertyValue(name).trim();
+  if (bodyValue) {
+    return bodyValue;
+  }
+  const rootValue = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (rootValue) {
+    return rootValue;
+  }
+  return String(fallback || "").trim();
 }
 
 function trimTrailingZeros(value) {
