@@ -1482,7 +1482,7 @@ function applyOrthoConstraint(startPoint, worldPoint, orthoEnabled) {
   };
 }
 
-function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
+function getConstrainedWorldPoint(worldPoint, shiftKey) {
   let constrainedWorld = worldPoint;
   const orthoEnabled = !shiftKey;
 
@@ -1496,7 +1496,11 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
     constrainedWorld = applyOrthoConstraint(uiState.mirrorDraft.firstPoint, constrainedWorld, orthoEnabled);
   }
 
-  return getSnapPoint(constrainedWorld, { quantizeFree: true });
+  return constrainedWorld;
+}
+
+function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
+  return getSnapPoint(getConstrainedWorldPoint(worldPoint, shiftKey), { quantizeFree: true });
 }
 
 function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
@@ -5973,14 +5977,16 @@ function updateTransformDraftStatus(message) {
   renderStatusPanel();
 }
 
-function updateTransformDraft(worldPoint) {
+function updateTransformDraft(worldPoint, snappedWorldPoint = worldPoint, options = {}) {
   if (!uiState.transformDraft) {
     return;
   }
   if (uiState.transformDraft.numericInputBuffer) {
     return;
   }
-  uiState.transformDraft.currentPoint = worldPoint;
+  uiState.transformDraft.currentPoint = options.snapped
+    ? snappedWorldPoint
+    : getQuantizedDeltaPoint(uiState.transformDraft.startPoint, worldPoint);
   draw();
 }
 
@@ -6437,8 +6443,21 @@ function applyTransformDraft() {
   return true;
 }
 
-function resolveFreeDragPoint(worldPoint) {
-  return quantizeFreePointToGrid(worldPoint);
+function getQuantizedDeltaPoint(startPoint, worldPoint, gridMm = FREE_OPERATION_GRID_MM) {
+  const delta = quantizeFreePointToGrid({
+    x: worldPoint.x - startPoint.x,
+    y: worldPoint.y - startPoint.y,
+  }, gridMm);
+  return {
+    x: roundToUnit(startPoint.x + delta.x),
+    y: roundToUnit(startPoint.y + delta.y),
+  };
+}
+
+function resolveFreeDragPoint(worldPoint, startPoint = null) {
+  return startPoint
+    ? getQuantizedDeltaPoint(startPoint, worldPoint)
+    : quantizeFreePointToGrid(worldPoint);
 }
 
 function updateSelectDragStatus(message) {
@@ -6455,7 +6474,7 @@ function startSelectDragWithMode(worldPoint, mode = "move", options = {}) {
   const hasSnapAnchorPoint = Boolean(options.snapAnchorPoint);
   const startPoint = hasSnapAnchorPoint
     ? roundWorldPoint(options.snapAnchorPoint)
-    : resolveFreeDragPoint(worldPoint);
+    : roundWorldPoint(worldPoint);
 
   uiState.selectDragDraft = {
     mode,
@@ -6487,7 +6506,7 @@ function updateSelectDrag(worldPoint, snappedWorldPoint = worldPoint) {
     });
     uiState.selectDragDraft.currentPoint = getAnchorSnapPoint(freeAnchorPoint, uiState.selectDragDraft.entityIds) || freeAnchorPoint;
   } else {
-    uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint);
+    uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint, uiState.selectDragDraft.startPoint);
   }
   updateSelectDragStatus(`Drag ${uiState.selectDragDraft.mode} active.`);
   draw();
@@ -9288,7 +9307,10 @@ function onPointerMove(event) {
   }
   const screenPoint = getScreenPointFromEvent(event);
   const worldPoint = screenToWorld(screenPoint);
-  const snappedWorld = resolveConstrainedSnapPoint(worldPoint, event.shiftKey);
+  const constrainedWorld = getConstrainedWorldPoint(worldPoint, event.shiftKey);
+  const snapCandidate = resolveSnapCandidate(constrainedWorld);
+  const snappedWorld = snapCandidate ? snapCandidate.point : quantizeFreePointToGrid(constrainedWorld);
+  uiState.snapMarker = snapCandidate ? { kind: snapCandidate.kind, point: snapCandidate.point } : null;
   uiState.pointerWorld = worldPoint;
   uiState.hoverWorld = snappedWorld;
   pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
@@ -9308,7 +9330,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.transformDraft) {
-    updateTransformDraft(snappedWorld);
+    updateTransformDraft(constrainedWorld, snappedWorld, { snapped: Boolean(snapCandidate) });
     renderStatusPanel();
     return;
   }
@@ -9675,14 +9697,21 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       const mode = uiState.activeTool === "move" && (event.altKey || event.ctrlKey)
         ? "copy"
         : uiState.activeTool;
-      startTransformDraft(worldPoint, mode);
+      const baseSnapCandidate = resolveSnapCandidate(rawWorldPoint);
+      startTransformDraft(baseSnapCandidate ? baseSnapCandidate.point : roundWorldPoint(rawWorldPoint), mode);
       return;
     }
     if (uiState.transformDraft.numericInputBuffer) {
       applyTransformNumericEdit();
       return;
     }
-    uiState.transformDraft.currentPoint = worldPoint;
+    {
+      const constrainedPoint = getConstrainedWorldPoint(rawSnapWorldPoint, event.shiftKey);
+      const destinationSnapCandidate = resolveSnapCandidate(constrainedPoint);
+      uiState.transformDraft.currentPoint = destinationSnapCandidate
+        ? destinationSnapCandidate.point
+        : getQuantizedDeltaPoint(uiState.transformDraft.startPoint, constrainedPoint);
+    }
     applyTransformDraft();
     return;
   }
