@@ -10256,6 +10256,10 @@ async function replaceSelectedPdfUnderlayFromInput(file, targetEntityId) {
     const message = error && typeof error.message === "string" ? error.message : "";
     if (message === "PDF.js is not loaded." || message === "Please select a PDF file.") {
       setStatus(message);
+    } else if (message.includes("Font or CMap")) {
+      setStatus("Failed to load PDF underlay. Font or CMap resources may be unavailable.");
+    } else if (message.includes("PDF rendering failed")) {
+      setStatus("Failed to render PDF underlay.");
     } else {
       setStatus("Failed to load PDF underlay.");
     }
@@ -10301,6 +10305,10 @@ async function importPdfUnderlayFromInput() {
     const message = error && typeof error.message === "string" ? error.message : "";
     if (message === "PDF.js is not loaded." || message === "Please select a PDF file.") {
       setStatus(message);
+    } else if (message.includes("Font or CMap")) {
+      setStatus("Failed to load PDF underlay. Font or CMap resources may be unavailable.");
+    } else if (message.includes("PDF rendering failed")) {
+      setStatus("Failed to render PDF underlay.");
     } else {
       setStatus("Failed to load PDF underlay.");
     }

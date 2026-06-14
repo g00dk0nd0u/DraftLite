@@ -2,7 +2,9 @@
 
 (function () {
   const DEFAULT_OPACITY = 0.45;
-  const PDF_RENDER_SCALE = 2;
+  const PDFJS_CDN_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  const PDF_RENDER_SCALE = 3;
+  const PDF_RENDER_MAX_DIMENSION = 4096;
   const DRAFTLITE_UNITS_PER_PDF_POINT = 25.4 / 72 / 0.1;
   const SERIALIZABLE_KEYS = [
     "enabled",
@@ -94,6 +96,27 @@
     };
   }
 
+  function getPdfRenderScale(page) {
+    const unitViewport = page.getViewport({ scale: 1 });
+    const width = Number(unitViewport.width) || 0;
+    const height = Number(unitViewport.height) || 0;
+    if (width <= 0 || height <= 0) {
+      return PDF_RENDER_SCALE;
+    }
+    return Math.min(PDF_RENDER_SCALE, PDF_RENDER_MAX_DIMENSION / width, PDF_RENDER_MAX_DIMENSION / height);
+  }
+
+  function getPdfDocumentOptions(data) {
+    return {
+      data,
+      cMapUrl: `${PDFJS_CDN_BASE}cmaps/`,
+      cMapPacked: true,
+      standardFontDataUrl: `${PDFJS_CDN_BASE}standard_fonts/`,
+      disableFontFace: false,
+      useSystemFonts: true,
+    };
+  }
+
   async function loadPdfFileAsUnderlay(file, currentState) {
     const pdfjsLib = getPdfJs();
     if (!pdfjsLib) {
@@ -104,14 +127,32 @@
     }
 
     if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN_BASE}pdf.worker.min.js`;
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const page = await pdf.getPage(1);
+    let pdf = null;
+    try {
+      pdf = await pdfjsLib.getDocument(getPdfDocumentOptions(arrayBuffer)).promise;
+    } catch (error) {
+      console.error("PDF.js failed to load the PDF document. Font or CMap resources may also be unavailable.", error);
+      throw new Error("PDF rendering failed. Font or CMap resources may be unavailable.");
+    }
+
+    let page = null;
+    try {
+      page = await pdf.getPage(1);
+    } catch (error) {
+      console.error("PDF.js failed to read the first PDF underlay page.", error);
+      throw new Error("PDF rendering failed.");
+    }
+
     const { viewport: unitViewport, widthPoints, heightPoints } = getViewportPointDimensions(page);
-    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+    const renderScale = getPdfRenderScale(page);
+    if (renderScale < PDF_RENDER_SCALE) {
+      console.warn(`PDF underlay render scale reduced from ${PDF_RENDER_SCALE} to ${renderScale.toFixed(2)} to keep the canvas within ${PDF_RENDER_MAX_DIMENSION}px.`);
+    }
+    const viewport = page.getViewport({ scale: renderScale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(viewport.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height));
@@ -119,7 +160,16 @@
     if (!renderContext) {
       throw new Error("Failed to load PDF underlay.");
     }
-    await page.render({ canvasContext: renderContext, viewport }).promise;
+    renderContext.save();
+    renderContext.fillStyle = "#ffffff";
+    renderContext.fillRect(0, 0, canvas.width, canvas.height);
+    renderContext.restore();
+    try {
+      await page.render({ canvasContext: renderContext, viewport }).promise;
+    } catch (error) {
+      console.error("PDF.js failed while rendering the PDF underlay. Font or CMap loading may have failed.", error);
+      throw new Error("PDF rendering failed. Font or CMap resources may be unavailable.");
+    }
 
     const imageDataUrl = canvas.toDataURL("image/png");
     let imageBitmap = null;
@@ -131,8 +181,8 @@
       }
     }
 
-    const fallbackWidthPoints = unitViewport && unitViewport.width ? unitViewport.width : canvas.width / PDF_RENDER_SCALE;
-    const fallbackHeightPoints = unitViewport && unitViewport.height ? unitViewport.height : canvas.height / PDF_RENDER_SCALE;
+    const fallbackWidthPoints = unitViewport && unitViewport.width ? unitViewport.width : canvas.width / renderScale;
+    const fallbackHeightPoints = unitViewport && unitViewport.height ? unitViewport.height : canvas.height / renderScale;
     const widthUnits = Math.max(1, Math.round((widthPoints || fallbackWidthPoints) * DRAFTLITE_UNITS_PER_PDF_POINT));
     const heightUnits = Math.max(1, Math.round((heightPoints || fallbackHeightPoints) * DRAFTLITE_UNITS_PER_PDF_POINT));
 
