@@ -22,7 +22,7 @@
     return {
       enabled: false,
       visible: true,
-      locked: true,
+      locked: false,
       name: "",
       page: 1,
       opacity: DEFAULT_OPACITY,
@@ -58,7 +58,7 @@
     return {
       enabled: Boolean(raw.enabled),
       visible: raw.visible !== false,
-      locked: raw.locked !== false,
+      locked: Boolean(raw.locked),
       name: typeof raw.name === "string" ? raw.name : "",
       page: Math.max(1, Math.round(Number(raw.page) || 1)),
       opacity: clampNumber(raw.opacity, 0, 1, DEFAULT_OPACITY),
@@ -140,7 +140,7 @@
       ...(currentState || {}),
       enabled: true,
       visible: true,
-      locked: true,
+      locked: false,
       name: file.name || "Imported PDF",
       page: 1,
       opacity: currentState && Number.isFinite(Number(currentState.opacity)) ? currentState.opacity : DEFAULT_OPACITY,
