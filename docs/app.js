@@ -1812,6 +1812,8 @@ function normalizeEntity(entity, options = {}) {
     if (width <= 0 || height <= 0) {
       return null;
     }
+    const labelSize = normalizeUnitValue(entity.labelSize, legacyUnits);
+    const rawCornerRadius = normalizeUnitValue(entity.cornerRadius, legacyUnits);
     return {
       id: typeof entity.id === "string" ? entity.id : null,
       type: "rect",
@@ -1823,6 +1825,9 @@ function normalizeEntity(entity, options = {}) {
       rotation: 0,
       name: typeof entity.name === "string" ? entity.name : "Box",
       ...getNormalizedEntityStyleProps(entity, { supportsStroke: true, supportsFill: true }),
+      label: typeof entity.label === "string" ? entity.label : "",
+      labelSize: labelSize > 0 ? labelSize : mmToUnits(100),
+      cornerRadius: clampNumber(roundToUnit(rawCornerRadius), 0, Math.min(width, height) / 2, 0),
     };
   }
   if (entity.type === "circle") {
@@ -3084,6 +3089,7 @@ function renderPropertiesPanel() {
           }
           pushUndoState();
           entity[key] = nextUnits;
+          clampRectCornerRadius(entity);
           syncAfterStateChange();
           return;
         }
@@ -3094,6 +3100,53 @@ function renderPropertiesPanel() {
       addPropertyRow(geometryGrid, label, input);
     });
 
+
+    const textGrid = appendSection("Text");
+    const labelInput = document.createElement("input");
+    labelInput.type = "text";
+    labelInput.value = entity.label || "";
+    labelInput.addEventListener("change", () => {
+      pushUndoState();
+      entity.label = labelInput.value;
+      syncAfterStateChange();
+    });
+    addPropertyRow(textGrid, "Text", labelInput);
+
+    const labelSizeInput = document.createElement("input");
+    labelSizeInput.type = "number";
+    labelSizeInput.min = "0.1";
+    labelSizeInput.value = String(unitsToMm(entity.labelSize || mmToUnits(100)));
+    labelSizeInput.addEventListener("change", () => {
+      const labelSizeMm = Number(labelSizeInput.value);
+      if (!Number.isFinite(labelSizeMm) || labelSizeMm <= 0) {
+        labelSizeInput.value = String(unitsToMm(entity.labelSize || mmToUnits(100)));
+        setStatus("Text size mm must be greater than zero.");
+        return;
+      }
+      pushUndoState();
+      entity.labelSize = mmToUnits(labelSizeMm);
+      syncAfterStateChange();
+    });
+    addPropertyRow(textGrid, "Text size mm", labelSizeInput);
+
+    const shapeGrid = appendSection("Shape");
+    const cornerRadiusInput = document.createElement("input");
+    cornerRadiusInput.type = "number";
+    cornerRadiusInput.min = "0";
+    cornerRadiusInput.value = String(unitsToMm(entity.cornerRadius || 0));
+    cornerRadiusInput.addEventListener("change", () => {
+      const radiusMm = Number(cornerRadiusInput.value);
+      if (!Number.isFinite(radiusMm)) {
+        cornerRadiusInput.value = String(unitsToMm(entity.cornerRadius || 0));
+        setStatus("Corner radius mm must be a valid number.");
+        return;
+      }
+      pushUndoState();
+      entity.cornerRadius = clampRectCornerRadius({ ...entity, cornerRadius: mmToUnits(radiusMm) });
+      cornerRadiusInput.value = String(unitsToMm(entity.cornerRadius || 0));
+      syncAfterStateChange();
+    });
+    addPropertyRow(shapeGrid, "Corner radius mm", cornerRadiusInput);
     const appearanceGrid = appendSection("Appearance");
     const fillColor = document.createElement("input");
     fillColor.type = "color";
@@ -3933,6 +3986,34 @@ function drawBorrowedHoverHandle() {
   ctx.restore();
 }
 
+function clampRectCornerRadius(entity) {
+  if (!entity || entity.type !== "rect") {
+    return 0;
+  }
+  const maxRadius = Math.min(Math.abs(entity.width || 0), Math.abs(entity.height || 0)) / 2;
+  entity.cornerRadius = clampNumber(roundToUnit(entity.cornerRadius || 0), 0, maxRadius, 0);
+  return entity.cornerRadius;
+}
+
+function buildRoundedRectPath(ctx, x, y, width, height, radius) {
+  const left = Math.min(x, x + width);
+  const top = Math.min(y, y + height);
+  const w = Math.abs(width);
+  const h = Math.abs(height);
+  const r = Math.min(Math.max(0, Math.abs(radius) || 0), w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(left + r, top);
+  ctx.lineTo(left + w - r, top);
+  ctx.quadraticCurveTo(left + w, top, left + w, top + r);
+  ctx.lineTo(left + w, top + h - r);
+  ctx.quadraticCurveTo(left + w, top + h, left + w - r, top + h);
+  ctx.lineTo(left + r, top + h);
+  ctx.quadraticCurveTo(left, top + h, left, top + h - r);
+  ctx.lineTo(left, top + r);
+  ctx.quadraticCurveTo(left, top, left + r, top);
+  ctx.closePath();
+}
+
 function drawRectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer) return;
@@ -3944,12 +4025,14 @@ function drawRectEntity(entity) {
   const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
   const w = p2.x - p1.x;
   const h = p2.y - p1.y;
+  const radiusPx = Math.abs((entity.cornerRadius || 0) * state.view.zoom);
   ctx.save();
   if (edgeEditing && !isRectEdgePreview) {
     ctx.setLineDash([9, 6]);
     ctx.strokeStyle = "rgba(98, 73, 45, 0.82)";
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(p1.x, p1.y, w, h);
+    buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
+    ctx.stroke();
     ctx.restore();
     return;
   }
@@ -3957,16 +4040,32 @@ function drawRectEntity(entity) {
   ctx.setLineDash(getEntityStrokeDash(entity));
   if (entity.fill !== false) {
     ctx.fillStyle = getEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
-    ctx.fillRect(p1.x, p1.y, w, h);
+    buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
+    ctx.fill();
   }
   if (isSelected && !edgeHovered) {
     ctx.strokeStyle = "rgba(194, 105, 62, 0.28)";
     ctx.lineWidth = 10;
-    ctx.strokeRect(p1.x, p1.y, w, h);
+    buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
+    ctx.stroke();
   }
   ctx.strokeStyle = getEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
-  ctx.strokeRect(p1.x, p1.y, w, h);
+  buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
+  ctx.stroke();
+  const label = (entity.label || "").trim();
+  const fontPx = Math.abs((entity.labelSize || mmToUnits(100)) * state.view.zoom);
+  if (label && fontPx >= 1.5) {
+    ctx.save();
+    ctx.globalAlpha = getEntityOpacity(entity);
+    ctx.setLineDash([]);
+    ctx.fillStyle = normalizeOptionalColor(entity.color || "") || getEntityStrokeColor(entity) || layer.color;
+    ctx.font = `${fontPx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+    ctx.restore();
+  }
   if (edgeHovered) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
     if (hoveredEdge) {
@@ -4580,6 +4679,8 @@ function drawEntityPreview(entity) {
     drawArcEntity(entity);
   } else if (entity.type === "wire") {
     drawWireEntity(entity);
+  } else if (entity.type === "rect") {
+    drawRectEntity(entity);
   } else if (entity.type === "filledRegion") {
     drawFilledRegionEntity(entity);
   } else if (entity.type === "text") {
@@ -4889,6 +4990,7 @@ function applyRectEdgeEdit() {
   entity.y = nextRect.y;
   entity.width = nextRect.width;
   entity.height = nextRect.height;
+  clampRectCornerRadius(entity);
   uiState.rectEdgeEditDraft = null;
   state.selectedEntityIds = [];
   syncAfterStateChange();
@@ -5293,7 +5395,7 @@ function addRectangleEntity(startPoint, oppositePoint) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color) };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -5323,7 +5425,7 @@ function createRectangleMm(x1Mm, y1Mm, x2Mm, y2Mm) {
   }
 
   pushUndoState();
-  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color) };
+  const rect = { id: createEntityId(), type: "rect", layerId: state.activeLayerId, ...box, rotation: 0, name: "Box", fill: true, fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color), label: "", labelSize: mmToUnits(100), cornerRadius: 0 };
   state.entities.push(rect);
   state.selectedEntityIds = [rect.id];
   syncAfterStateChange();
@@ -7863,6 +7965,9 @@ function describeAgentTools() {
         color: { type: "string" },
         fillColor: { type: "string" },
         fill: { type: "boolean" },
+        label: { type: "string" },
+        labelSizeMm: { type: "number" },
+        cornerRadiusMm: { type: "number" },
       },
       required: ["x", "y", "width", "height"],
       additionalProperties: true,
@@ -8081,6 +8186,17 @@ function readAgentPositiveNumeric(command, key) {
   return value;
 }
 
+function readAgentOptionalPositiveUnits(command, key, fallbackUnits) {
+  if (!command || command[key] === undefined || command[key] === null || command[key] === "") {
+    return fallbackUnits;
+  }
+  const value = Number(command[key]);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${key} must be greater than zero when provided.`);
+  }
+  return mmToUnits(value);
+}
+
 function readAgentTextValue(command, key) {
   const value = typeof (command && command[key]) === "string" ? command[key].trim() : "";
   if (!value) {
@@ -8156,6 +8272,9 @@ function createAgentRectEntity(command) {
     fill: command.fill !== false,
     fillColor: normalizeColor(command.fillColor || command.color || layer.color),
     color: normalizeOptionalColor(command.color || ""),
+    label: typeof command.label === "string" ? command.label : "",
+    labelSize: readAgentOptionalPositiveUnits(command, "labelSizeMm", mmToUnits(100)),
+    cornerRadius: clampNumber(roundToUnit(mmToUnits(Number(command.cornerRadiusMm) || 0)), 0, Math.min(width, height) / 2, 0),
   };
 }
 
@@ -10664,7 +10783,8 @@ function collectDxfExportLines(entities = collectDxfExportEntities()) {
     entity.type === "line"
       ? [entity]
       : (entity.type === "rect"
-        ? rectToOutlineLines(entity)
+        // Rounded rectangle DXF output is intentionally deferred; canvas rendering supports cornerRadius.
+      ? rectToOutlineLines(entity)
         : (entity.type === "titleBlock" && titleBlockApi && typeof titleBlockApi.getDxfPrimitives === "function"
           ? titleBlockApi.getDxfPrimitives(entity, { roundToUnit, mmToUnits }).lines
         : (entity.type === "filledRegion"
@@ -10677,6 +10797,22 @@ function collectDxfExportTextEntities(entities = collectDxfExportEntities()) {
   return entities.flatMap((entity) => {
     if (entity.type === "text") {
       return [entity];
+    }
+    if (entity.type === "rect") {
+      const label = (entity.label || "").trim();
+      if (!label) {
+        return [];
+      }
+      return [{
+        type: "text",
+        layerId: entity.layerId,
+        x: entity.x + entity.width / 2,
+        y: entity.y + entity.height / 2,
+        height: entity.labelSize || mmToUnits(100),
+        text: label,
+        align: "center",
+        color: normalizeOptionalColor(entity.color || ""),
+      }];
     }
     if (entity.type === "dimension") {
       return [explodeDimensionToDxfPrimitives(entity).text];
