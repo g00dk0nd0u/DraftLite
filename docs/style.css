@@ -14,6 +14,9 @@
   --accent: #7a5e3e;
   --accent-strong: #5e4428;
   --accent-soft: rgba(122, 94, 62, 0.14);
+  --rect-default-fill: #f4d58a;
+  --layer-selected-bg: rgba(198, 186, 166, 0.58);
+  --layer-selected-border: rgba(122, 94, 62, 0.28);
   --danger: #875548;
   --selection: #bc6238;
   --canvas-bg: #e4ddd0;
@@ -51,6 +54,9 @@ body[data-theme="dark"] {
   --accent: #90a9c9;
   --accent-strong: #bbd0ea;
   --accent-soft: rgba(144, 169, 201, 0.2);
+  --rect-default-fill: #6b5428;
+  --layer-selected-bg: rgba(255, 190, 96, 0.18);
+  --layer-selected-border: rgba(255, 190, 96, 0.45);
   --danger: #9f7b82;
   --selection: #84b4dd;
   --canvas-bg: #2c3138;
@@ -582,6 +588,10 @@ body[data-panning="true"] #draftCanvas {
   padding: 10px 12px 12px;
 }
 
+.agent-io-panel {
+  display: none;
+}
+
 .agent-io-panel details {
   display: block;
 }
@@ -721,7 +731,8 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 }
 
 .layer-row.is-active {
-  background: linear-gradient(90deg, rgba(198,186,166,.58), rgba(198,186,166,.25));
+  background: linear-gradient(90deg, var(--layer-selected-bg), transparent);
+  border-bottom-color: var(--layer-selected-border);
 }
 
 .layer-name input[type="text"] {
