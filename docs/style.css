@@ -174,9 +174,27 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
 .ribbon-tabs-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ribbon-tabs { display: flex; align-items: center; gap: 2px; }
 .ribbon-tab {
-  appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer;
-  border-radius: 5px 5px 0 0; padding: 4px 8px; font-size: 0.74rem; font-weight: 600;
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 5px 5px 0 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  min-width: 72px;
+  min-height: 42px;
+  padding: 4px 4px;
+  gap: 2px;
+  text-align: center;
+  line-height: 1.05;
+  font-weight: 600;
 }
+.ribbon-tab-icon { display: block; font-size: 0.95rem; line-height: 1; }
+.ribbon-tab-label { display: block; font-size: 0.68rem; line-height: 1.05; }
 .ribbon-tab:hover { background: var(--surface-muted); color: var(--text); }
 .ribbon-tab.is-active { background: var(--surface); color: var(--text); border-color: var(--line); border-bottom-color: transparent; }
 .ribbon-shell { border-top: 1px solid var(--line); padding-top: 2px; }
@@ -234,6 +252,32 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
     background-color 140ms ease,
     color 140ms ease,
     transform 140ms ease;
+}
+
+.tool-button {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 58px;
+  min-width: 58px;
+  min-height: 50px;
+  padding: 4px 4px;
+  gap: 3px;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.05;
+}
+
+.tool-button .tool-icon {
+  display: block;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.tool-button span:not(.tool-icon) {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .tool-button[data-shortcut] {

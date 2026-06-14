@@ -302,6 +302,13 @@ function getSerializableState() {
   if (documentState.pdfUnderlay && pdfUnderlayApi && typeof pdfUnderlayApi.serializePdfUnderlayState === "function") {
     documentState.pdfUnderlay = pdfUnderlayApi.serializePdfUnderlayState(documentState.pdfUnderlay);
   }
+  documentState.entities = documentState.entities.map((entity) => {
+    if (!entity || entity.type !== "pdfUnderlay") {
+      return entity;
+    }
+    const { imageBitmap, _imageElement, ...serializableEntity } = entity;
+    return serializableEntity;
+  });
   return documentState;
 }
 
@@ -880,33 +887,41 @@ function formatScaleLabel(mm) {
   if (mm >= 1000) {
     return `${trimTrailingZeros((mm / 1000).toFixed(2))}m`;
   }
+  if (mm < 1) {
+    return `${trimTrailingZeros(mm.toFixed(2))}mm`;
+  }
   return `${Math.round(mm)}mm`;
 }
 
-function getNiceScaleSegmentUnit() {
+function getScaleSegmentUnitCandidates() {
+  const candidates = [0.05, 0.1, 0.2, 0.5, 1, 2, 5];
+  const niceBases = [1, 2, 5];
+  for (let exponent = 1; exponent <= 9; exponent += 1) {
+    const factor = 10 ** exponent;
+    niceBases.forEach((base) => candidates.push(base * factor));
+  }
+  return [...new Set(candidates)].sort((a, b) => a - b);
+}
+
+function getNiceScaleSegmentUnit(maxTotalPx = Number.POSITIVE_INFINITY) {
   const pxPerMm = state.view.zoom * (1 / UNIT_MM);
   const minTotalPx = 140;
-  const maxTotalPx = 220;
-  const targetTotalPx = 180;
-  const niceBases = [1, 2, 5];
-  let bestUnit = 100;
+  const maxPreferredTotalPx = Math.min(220, maxTotalPx);
+  const targetTotalPx = Math.min(180, maxPreferredTotalPx);
+  const segmentCount = 5;
+  let bestUnit = getScaleSegmentUnitCandidates()[0];
   let bestScore = Number.POSITIVE_INFINITY;
 
-  for (let exponent = 2; exponent <= 9; exponent += 1) {
-    const factor = 10 ** exponent;
-    for (const base of niceBases) {
-      const unitMm = base * factor;
-      const totalPx = unitMm * pxPerMm * 5;
-      const inRange = totalPx >= minTotalPx && totalPx <= maxTotalPx;
-      const score = inRange
-        ? Math.abs(totalPx - targetTotalPx)
-        : Math.abs(totalPx - targetTotalPx) + 1000;
-      if (score < bestScore) {
-        bestScore = score;
-        bestUnit = unitMm;
-      }
+  getScaleSegmentUnitCandidates().forEach((unitMm) => {
+    const totalPx = unitMm * pxPerMm * segmentCount;
+    if (totalPx > maxTotalPx) return;
+    const inRange = totalPx >= minTotalPx && totalPx <= maxPreferredTotalPx;
+    const score = inRange ? Math.abs(totalPx - targetTotalPx) : Math.abs(totalPx - targetTotalPx) + 1000;
+    if (score < bestScore) {
+      bestScore = score;
+      bestUnit = unitMm;
     }
-  }
+  });
 
   return bestUnit;
 }
@@ -940,7 +955,9 @@ function updateScaleBar() {
   }
 
   const segmentCount = 5;
-  const segmentMm = getNiceScaleSegmentUnit();
+  const viewportWidth = canvasViewport ? canvasViewport.getBoundingClientRect().width : window.innerWidth;
+  const maxTotalPx = Math.max(90, viewportWidth - 36);
+  const segmentMm = getNiceScaleSegmentUnit(maxTotalPx);
   const segmentPx = Math.max(18, mmToUnits(segmentMm) * state.view.zoom);
   const totalWidthPx = segmentPx * segmentCount;
 
@@ -1111,14 +1128,30 @@ function getRectMoveAnchorPoints(entity) {
   return getRectSnapPoints(entity).filter((candidate) => candidate.kind !== "center");
 }
 
+function getPdfUnderlayScaledSize(entity) {
+  const scale = Math.max(0.01, Number(entity.scale) || 1);
+  return {
+    width: Math.max(0, Math.round((Number(entity.widthUnits) || 0) * scale)),
+    height: Math.max(0, Math.round((Number(entity.heightUnits) || 0) * scale)),
+  };
+}
+
+function getPdfUnderlaySnapPoints(entity) {
+  const size = getPdfUnderlayScaledSize(entity);
+  return getRectSnapPoints({ x: entity.x, y: entity.y, width: size.width, height: size.height });
+}
+
 function getSelectedEntityHandles(entity) {
   if (!entity) {
     return [];
   }
-  if (entity.type === "rect") {
-    return getRectMoveAnchorPoints(entity).map((candidate) => ({
+  if (entity.type === "rect" || entity.type === "pdfUnderlay") {
+    const candidates = entity.type === "pdfUnderlay"
+      ? getPdfUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
+      : getRectMoveAnchorPoints(entity);
+    return candidates.map((candidate) => ({
       entityId: entity.id,
-      type: candidate.kind === "midpoint" ? "rectMidpoint" : "rectCorner",
+      type: candidate.kind === "midpoint" ? `${entity.type}Midpoint` : `${entity.type}Corner`,
       point: candidate.point,
     }));
   }
@@ -1145,10 +1178,13 @@ function getBorrowableHandlePoints(entity) {
       { entityId: entity.id, type: "lineEndpoint", endpoint: "p2", point: roundWorldPoint(entity.p2) },
     ];
   }
-  if (entity.type === "rect") {
-    return getRectMoveAnchorPoints(entity).map((candidate) => ({
+  if (entity.type === "rect" || entity.type === "pdfUnderlay") {
+    const candidates = entity.type === "pdfUnderlay"
+      ? getPdfUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
+      : getRectMoveAnchorPoints(entity);
+    return candidates.map((candidate) => ({
       entityId: entity.id,
-      type: candidate.kind === "midpoint" ? "rectMidpoint" : "rectCorner",
+      type: candidate.kind === "midpoint" ? `${entity.type}Midpoint` : `${entity.type}Corner`,
       point: candidate.point,
     }));
   }
@@ -1169,6 +1205,12 @@ function collectSnapCandidates(worldPoint) {
   const candidates = state.entities
     .filter((entity) => isLayerVisible(entity.layerId))
     .flatMap((entity) => {
+      if (entity.visible === false) {
+        return [];
+      }
+      if (entity.type === "pdfUnderlay") {
+        return getPdfUnderlaySnapPoints(entity).map((c) => ({ ...c, distancePx: distanceScreenPx(worldPoint, c.point) }));
+      }
       if (entity.type === "line") {
         const midpoint = getLineMidpoint(entity);
         return [
@@ -1610,12 +1652,13 @@ function isLayerVisible(layerId) {
 }
 
 function isEntityVisible(entity) {
-  return Boolean(entity && isLayerVisible(entity.layerId));
+  return Boolean(entity && entity.visible !== false && isLayerVisible(entity.layerId));
 }
 
 function canSelectEntity(entity) {
   const layer = getLayerById(entity.layerId);
   if (!layer || !layer.visible || layer.locked) return false;
+  if (entity.visible === false || entity.locked) return false;
   if (entity.type === "blockInstance") return Boolean(getBlockDefinitionById(entity.blockId));
   return true;
 }
@@ -1801,6 +1844,26 @@ function normalizeEntity(entity, options = {}) {
       return normalizedTextEntity;
     }
     return migrateLegacyTextEntityToCenter(normalizedTextEntity);
+  }
+
+  if (entity.type === "pdfUnderlay") {
+    return {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "pdfUnderlay",
+      enabled: entity.enabled !== false,
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      name: typeof entity.name === "string" && entity.name ? entity.name : "Imported PDF",
+      x: normalizeUnitValue(entity.x, legacyUnits),
+      y: normalizeUnitValue(entity.y, legacyUnits),
+      scale: clampNumber(Number(entity.scale), 0.01, 100, 1),
+      widthUnits: Math.max(1, normalizeUnitValue(entity.widthUnits, legacyUnits)),
+      heightUnits: Math.max(1, normalizeUnitValue(entity.heightUnits, legacyUnits)),
+      opacity: clampNumber(Number(entity.opacity), 0, 1, 0.45),
+      visible: entity.visible !== false,
+      locked: Boolean(entity.locked),
+      imageBitmap: entity.imageBitmap || null,
+      imageDataUrl: typeof entity.imageDataUrl === "string" ? entity.imageDataUrl : null,
+    };
   }
 
   if (entity.type === "blockInstance") {
@@ -2003,6 +2066,19 @@ function normalizeDocument(raw) {
         }))
     : [];
 
+  if (pdfUnderlayApi && source && source.pdfUnderlay && source.pdfUnderlay.enabled) {
+    const migratedPdf = normalizeEntity({
+      ...source.pdfUnderlay,
+      id: typeof source.pdfUnderlay.id === "string" ? source.pdfUnderlay.id : `ent-${normalizedEntities.length + 1}`,
+      type: "pdfUnderlay",
+      enabled: true,
+      layerId: layerIds.has(source.pdfUnderlay.layerId) ? source.pdfUnderlay.layerId : normalizedLayers[0].id,
+    }, { legacyUnits });
+    if (migratedPdf && !normalizedEntities.some((entity) => entity.type === "pdfUnderlay" && entity.imageDataUrl === migratedPdf.imageDataUrl)) {
+      normalizedEntities.push(migratedPdf);
+    }
+  }
+
   const selectedEntityIds = Array.isArray(source && source.selectedEntityIds)
     ? source.selectedEntityIds.filter((id) => normalizedEntities.some((entity) => entity.id === id))
     : [];
@@ -2044,7 +2120,7 @@ function normalizeDocument(raw) {
     selectedEntityIds,
     groups: normalizedGroups,
     blockDefinitions: normalizedBlockDefinitions,
-    pdfUnderlay: pdfUnderlayApi ? pdfUnderlayApi.normalizePdfUnderlayState(source && source.pdfUnderlay) : null,
+    pdfUnderlay: pdfUnderlayApi ? pdfUnderlayApi.createInitialPdfUnderlayState() : null,
     view: {
       zoom: clampNumber(
         legacyUnits && source && source.view && Number.isFinite(Number(source.view.zoom))
@@ -2111,7 +2187,8 @@ function applyTheme(theme) {
   const nextTheme = theme === "dark" ? "dark" : "light";
   document.body.dataset.theme = nextTheme;
   if (themeToggleButton) {
-    themeToggleButton.textContent = nextTheme === "dark" ? "Light" : "Dark";
+    const themeLabel = themeToggleButton.querySelector(".tool-label") || themeToggleButton;
+    themeLabel.textContent = nextTheme === "dark" ? "Light" : "Dark";
   }
 }
 
@@ -2697,6 +2774,56 @@ function renderPropertiesPanel() {
   }
 
   const entity = selectedEntities[0];
+  if (entity.type === "pdfUnderlay") {
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("PDF Underlay"));
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = entity.name || "Imported PDF";
+    nameInput.addEventListener("change", () => { pushUndoState(); entity.name = nameInput.value || "Imported PDF"; syncAfterStateChange(); });
+    addPropertyRow(generalGrid, "Name", nameInput);
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "PDF underlay layer updated."));
+
+    const geometryGrid = appendSection("Geometry");
+    [["X mm", "x"], ["Y mm", "y"]].forEach(([label, key]) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = String(unitsToMm(entity[key]));
+      input.addEventListener("change", () => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) { input.value = String(unitsToMm(entity[key])); return; }
+        pushUndoState(); entity[key] = mmToUnits(value); syncAfterStateChange();
+      });
+      addPropertyRow(geometryGrid, label, input);
+    });
+    const scaleInput = document.createElement("input");
+    scaleInput.type = "number"; scaleInput.min = "0.01"; scaleInput.step = "0.01"; scaleInput.value = String(entity.scale || 1);
+    scaleInput.addEventListener("change", () => {
+      const value = Number(scaleInput.value);
+      if (!Number.isFinite(value) || value <= 0) { scaleInput.value = String(entity.scale || 1); return; }
+      pushUndoState(); entity.scale = clampNumber(value, 0.01, 100, 1); syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Scale", scaleInput);
+
+    const appearanceGrid = appendSection("Appearance");
+    const opacityInput = document.createElement("input");
+    opacityInput.type = "range"; opacityInput.min = "0"; opacityInput.max = "1"; opacityInput.step = "0.05"; opacityInput.value = String(entity.opacity ?? 0.45);
+    opacityInput.addEventListener("change", () => { pushUndoState(); entity.opacity = clampNumber(Number(opacityInput.value), 0, 1, 0.45); syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Opacity", opacityInput);
+    const visibleInput = document.createElement("input");
+    visibleInput.type = "checkbox"; visibleInput.checked = entity.visible !== false;
+    visibleInput.addEventListener("change", () => { pushUndoState(); entity.visible = visibleInput.checked; syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Visible", visibleInput);
+    const lockedInput = document.createElement("input");
+    lockedInput.type = "checkbox"; lockedInput.checked = Boolean(entity.locked);
+    lockedInput.addEventListener("change", () => { pushUndoState(); entity.locked = lockedInput.checked; syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Locked", lockedInput);
+    const clearButton = document.createElement("button");
+    clearButton.type = "button"; clearButton.className = "panel-button"; clearButton.textContent = "Clear PDF";
+    clearButton.addEventListener("click", () => { pushUndoState(); state.entities = state.entities.filter((item) => item.id !== entity.id); state.selectedEntityIds = []; syncAfterStateChange(); setStatus("PDF underlay cleared."); });
+    addPropertyRow(appearanceGrid, "Clear PDF", clearButton);
+    return;
+  }
   if (entity.type === "titleBlock" && titleBlockApi) {
     titleBlockApi.buildTitleBlockProperties({
       container: propertiesPanel,
@@ -3176,7 +3303,7 @@ function draw() {
   const height = uiState.canvasRect.height;
 
   ctx.clearRect(0, 0, width, height);
-  if (pdfUnderlayApi && state.pdfUnderlay) {
+  if (pdfUnderlayApi && state.pdfUnderlay && !state.entities.some((entity) => entity.type === "pdfUnderlay")) {
     pdfUnderlayApi.drawPdfUnderlay(ctx, state, worldToScreen);
   }
   drawGrid();
@@ -3186,7 +3313,12 @@ function draw() {
     if (!isLayerVisible(entity.layerId)) {
       return;
     }
-    if (entity.type === "line") {
+    if (entity.visible === false) {
+      return;
+    }
+    if (entity.type === "pdfUnderlay") {
+      drawPdfUnderlayEntity(entity);
+    } else if (entity.type === "line") {
       drawLineEntity(entity);
     } else if (entity.type === "wire") {
       drawWireEntity(entity);
@@ -3349,6 +3481,28 @@ function drawAxes(width, height) {
     ctx.fill();
   }
   ctx.restore();
+}
+
+function drawPdfUnderlayEntity(entity) {
+  if (!pdfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
+    return;
+  }
+  entity.enabled = entity.enabled !== false;
+  pdfUnderlayApi.drawPdfUnderlay(ctx, { pdfUnderlay: entity }, worldToScreen);
+  if (state.selectedEntityIds.includes(entity.id)) {
+    const bounds = getEntityBoundsUnits(entity);
+    if (bounds) {
+      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+      ctx.save();
+      ctx.strokeStyle = "#c2693e";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+      ctx.restore();
+    }
+    drawSelectedEntityHandles(entity);
+  }
 }
 
 function drawLineEntity(entity) {
@@ -4248,8 +4402,8 @@ function drawTransformPreview(transformDraft) {
       drawSolidPreviewLineEntity(previewLine);
     } else if (entity.type === "wire") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
-    } else if (entity.type === "rect") {
-      drawRectEntity({ ...entity, x: entity.x + offset.dx, y: entity.y + offset.dy });
+    } else if (entity.type === "rect" || entity.type === "pdfUnderlay") {
+      drawEntityPreview(applyOffsetToEntity(entity, offset));
     } else if (entity.type === "blockInstance") {
       drawBlockInstanceEntity(applyOffsetToEntity(entity, offset));
     } else if (entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "titleBlock") {
@@ -4259,7 +4413,9 @@ function drawTransformPreview(transformDraft) {
 }
 
 function drawEntityPreview(entity) {
-  if (entity.type === "circle") {
+  if (entity.type === "pdfUnderlay") {
+    drawPdfUnderlayEntity(entity);
+  } else if (entity.type === "circle") {
     drawCircleEntity(entity);
   } else if (entity.type === "arc") {
     drawArcEntity(entity);
@@ -5453,7 +5609,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "wire" || entity.type === "rect" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "wire" || entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -5523,7 +5679,7 @@ function applyOffsetToEntity(entity, offset) {
       endRef: null,
     };
   }
-  if (entity.type === "rect" || entity.type === "titleBlock") {
+  if (entity.type === "rect" || entity.type === "titleBlock" || entity.type === "pdfUnderlay") {
     return {
       ...entity,
       x: roundToUnit(entity.x + offset.dx),
@@ -6638,6 +6794,16 @@ function selectEntitiesByWindow(selectionWindow) {
         const rl={left:Math.min(p1.x,p2.x),right:Math.max(p1.x,p2.x),top:Math.min(p1.y,p2.y),bottom:Math.max(p1.y,p2.y)};
         return rect.isCrossing ? !(rl.right < rect.left || rl.left > rect.right || rl.bottom < rect.top || rl.top > rect.bottom) : (rl.left>=rect.left && rl.right<=rect.right && rl.top>=rect.top && rl.bottom<=rect.bottom);
       }
+      if (entity.type === "pdfUnderlay") {
+        const bounds = getEntityBoundsUnits(entity);
+        if (!bounds) return false;
+        const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+        const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+        const box = { left: Math.min(p1.x, p2.x), right: Math.max(p1.x, p2.x), top: Math.min(p1.y, p2.y), bottom: Math.max(p1.y, p2.y) };
+        return rect.isCrossing
+          ? !(box.right < rect.left || box.left > rect.right || box.bottom < rect.top || box.top > rect.bottom)
+          : (box.left >= rect.left && box.right <= rect.right && box.top >= rect.top && box.bottom <= rect.bottom);
+      }
       if (entity.type === "blockInstance") {
         const bounds = getBlockInstanceBoundsUnits(entity);
         if (!bounds) {
@@ -6771,6 +6937,10 @@ function hitTestEntity(entity, worldPoint) {
   }
   if (entity.type === "wire") {
     return hitTestWireEntity(entity, worldPoint);
+  }
+  if (entity.type === "pdfUnderlay") {
+    const bounds = getEntityBoundsUnits(entity);
+    return Boolean(bounds && entity.visible !== false && worldPoint.x >= bounds.minX && worldPoint.x <= bounds.maxX && worldPoint.y >= bounds.minY && worldPoint.y <= bounds.maxY);
   }
   if (entity.type === "rect") {
     const p = worldToScreen(worldPoint);
@@ -7271,6 +7441,10 @@ function getEntityBoundsUnits(entity) {
       maxX: entity.x + entity.width,
       maxY: entity.y + entity.height,
     };
+  }
+  if (entity.type === "pdfUnderlay") {
+    const size = getPdfUnderlayScaledSize(entity);
+    return { minX: entity.x, minY: entity.y, maxX: entity.x + size.width, maxY: entity.y + size.height };
   }
   if (entity.type === "circle" || entity.type === "arc") {
     return {
@@ -9876,7 +10050,12 @@ async function importPdfUnderlayFromInput() {
     setStatus("Loading PDF underlay...");
     const nextUnderlay = await pdfUnderlayApi.loadPdfFileAsUnderlay(file, state.pdfUnderlay);
     pushUndoState();
-    state.pdfUnderlay = nextUnderlay;
+    const pdfEntity = normalizeEntity({ ...nextUnderlay, id: createEntityId(), type: "pdfUnderlay", enabled: true, layerId: state.activeLayerId }, { legacyUnits: false });
+    state.pdfUnderlay = pdfUnderlayApi.clearPdfUnderlay();
+    if (pdfEntity) {
+      state.entities.push(pdfEntity);
+      state.selectedEntityIds = [pdfEntity.id];
+    }
     syncAfterStateChange();
     setStatus(`PDF underlay loaded: ${file.name}`);
   } catch (error) {
@@ -9893,11 +10072,14 @@ async function importPdfUnderlayFromInput() {
 }
 
 function clearPdfUnderlay() {
-  if (!pdfUnderlayApi || !state.pdfUnderlay || !state.pdfUnderlay.enabled) {
+  const hasPdfEntities = state.entities.some((entity) => entity.type === "pdfUnderlay");
+  if (!hasPdfEntities && (!pdfUnderlayApi || !state.pdfUnderlay || !state.pdfUnderlay.enabled)) {
     setStatus("No PDF underlay loaded.");
     return;
   }
   pushUndoState();
+  state.entities = state.entities.filter((entity) => entity.type !== "pdfUnderlay");
+  state.selectedEntityIds = state.selectedEntityIds.filter((id) => getEntityById(id));
   state.pdfUnderlay = pdfUnderlayApi.clearPdfUnderlay();
   syncAfterStateChange();
   setStatus("PDF underlay cleared.");
