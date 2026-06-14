@@ -25,12 +25,14 @@ const zoomReadout = document.getElementById("zoomReadout");
 const statusReadout = document.getElementById("statusReadout");
 const loadJsonInput = document.getElementById("loadJsonInput");
 const importPdfInput = document.getElementById("importPdfInput");
+const linkDxfInput = document.getElementById("linkDxfInput");
 const scaleBar = document.getElementById("scaleBar");
 const scaleBarTrack = document.getElementById("scaleBarTrack");
 const scaleBarLabels = document.getElementById("scaleBarLabels");
 const scaleBarLines = Array.from(document.querySelectorAll(".scale-bar-line"));
 const titleBlockApi = window.DraftLiteTitleBlock || null;
 const pdfUnderlayApi = window.DraftLitePdfUnderlay || null;
+const dxfUnderlayApi = window.DraftLiteDxfUnderlay || null;
 
 const toolButtons = {
   select: document.getElementById("toolSelectButton"),
@@ -64,6 +66,7 @@ const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
 const importPdfButton = document.getElementById("importPdfButton");
+const linkDxfButton = document.getElementById("linkDxfButton");
 const explodeButton = document.getElementById("explodeButton");
 const addLayerButton = document.getElementById("addLayerButton");
 const deleteLayerButton = document.getElementById("deleteLayerButton");
@@ -1141,13 +1144,24 @@ function getPdfUnderlaySnapPoints(entity) {
   return getRectSnapPoints({ x: entity.x, y: entity.y, width: size.width, height: size.height });
 }
 
+function getUnderlaySnapPoints(entity) {
+  if (entity.type === "pdfUnderlay") {
+    return getPdfUnderlaySnapPoints(entity);
+  }
+  const bounds = getEntityBoundsUnits(entity);
+  if (!bounds) {
+    return [];
+  }
+  return getRectSnapPoints({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
+}
+
 function getSelectedEntityHandles(entity) {
   if (!entity) {
     return [];
   }
-  if (entity.type === "rect" || entity.type === "pdfUnderlay") {
-    const candidates = entity.type === "pdfUnderlay"
-      ? getPdfUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
+  if (entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay") {
+    const candidates = entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay"
+      ? getUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
       : getRectMoveAnchorPoints(entity);
     return candidates.map((candidate) => ({
       entityId: entity.id,
@@ -1180,7 +1194,7 @@ function getBorrowableHandlePoints(entity) {
   }
   if (entity.type === "rect" || entity.type === "pdfUnderlay") {
     const candidates = entity.type === "pdfUnderlay"
-      ? getPdfUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
+      ? getUnderlaySnapPoints(entity).filter((candidate) => candidate.kind !== "center")
       : getRectMoveAnchorPoints(entity);
     return candidates.map((candidate) => ({
       entityId: entity.id,
@@ -1716,6 +1730,39 @@ function shouldMigrateLegacyUnits(raw, source) {
   return !hasExplicitCurrentUnit || !hasFileVersion || unitMm === LEGACY_UNIT_MM;
 }
 
+function normalizeDxfUnderlayPrimitive(primitive) {
+  if (!primitive || typeof primitive !== "object") {
+    return null;
+  }
+  const layer = typeof primitive.layer === "string" ? primitive.layer : "0";
+  if (primitive.kind === "line") {
+    const x1 = roundToUnit(primitive.x1);
+    const y1 = roundToUnit(primitive.y1);
+    const x2 = roundToUnit(primitive.x2);
+    const y2 = roundToUnit(primitive.y2);
+    return [x1, y1, x2, y2].every(Number.isFinite) ? { kind: "line", x1, y1, x2, y2, layer } : null;
+  }
+  if (primitive.kind === "polyline") {
+    const points = Array.isArray(primitive.points)
+      ? primitive.points.map((point) => normalizePoint(point, false)).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).slice(0, 20000)
+      : [];
+    return points.length >= 2 ? { kind: "polyline", points, closed: Boolean(primitive.closed), layer } : null;
+  }
+  if (primitive.kind === "circle" || primitive.kind === "arc") {
+    const cx = roundToUnit(primitive.cx);
+    const cy = roundToUnit(primitive.cy);
+    const r = Math.max(0, roundToUnit(primitive.r));
+    if (![cx, cy, r].every(Number.isFinite) || r <= 0) {
+      return null;
+    }
+    if (primitive.kind === "circle") {
+      return { kind: "circle", cx, cy, r, layer };
+    }
+    return { kind: "arc", cx, cy, r, startDeg: Number(primitive.startDeg) || 0, endDeg: Number(primitive.endDeg) || 0, layer };
+  }
+  return null;
+}
+
 function normalizeEntity(entity, options = {}) {
   if (!entity || !entity.type) {
     return null;
@@ -1844,6 +1891,39 @@ function normalizeEntity(entity, options = {}) {
       return normalizedTextEntity;
     }
     return migrateLegacyTextEntityToCenter(normalizedTextEntity);
+  }
+
+  if (entity.type === "dxfUnderlay") {
+    const rawPrimitives = Array.isArray(entity.primitives) ? entity.primitives : [];
+    const primitives = rawPrimitives.map(normalizeDxfUnderlayPrimitive).filter(Boolean).slice(0, 50000);
+    const stats = entity.stats && typeof entity.stats === "object" ? entity.stats : {};
+    const normalized = {
+      id: typeof entity.id === "string" ? entity.id : null,
+      type: "dxfUnderlay",
+      layerId: typeof entity.layerId === "string" ? entity.layerId : null,
+      name: typeof entity.name === "string" && entity.name ? entity.name : "DXF Underlay",
+      sourceName: typeof entity.sourceName === "string" ? entity.sourceName : "Linked DXF",
+      x: normalizeUnitValue(entity.x, legacyUnits),
+      y: normalizeUnitValue(entity.y, legacyUnits),
+      scale: clampNumber(Number(entity.scale), 0.01, 100, 1),
+      rotation: 0,
+      opacity: clampNumber(Number(entity.opacity), 0, 1, 0.45),
+      visible: entity.visible !== false,
+      locked: Boolean(entity.locked),
+      unitMm: Number.isFinite(Number(entity.unitMm)) ? Number(entity.unitMm) : 1,
+      primitives,
+      bounds: entity.bounds && typeof entity.bounds === "object" ? entity.bounds : null,
+      stats: {
+        primitiveCount: Number(stats.primitiveCount) || primitives.length,
+        skippedCount: Number(stats.skippedCount) || 0,
+        warnings: Array.isArray(stats.warnings) ? stats.warnings.slice(0, 20) : [],
+        truncated: Boolean(stats.truncated),
+      },
+    };
+    if (!normalized.bounds && dxfUnderlayApi && typeof dxfUnderlayApi.getDxfUnderlayBounds === "function") {
+      normalized.bounds = dxfUnderlayApi.getDxfUnderlayBounds(normalized);
+    }
+    return normalized;
   }
 
   if (entity.type === "pdfUnderlay") {
@@ -2774,6 +2854,61 @@ function renderPropertiesPanel() {
   }
 
   const entity = selectedEntities[0];
+  if (entity.type === "dxfUnderlay") {
+    const stats = dxfUnderlayApi && typeof dxfUnderlayApi.getDxfUnderlayStats === "function" ? dxfUnderlayApi.getDxfUnderlayStats(entity) : entity.stats || {};
+    const generalGrid = appendSection("General");
+    addPropertyRow(generalGrid, "Type", createReadOnlyText("DXF Underlay"));
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = entity.name || "DXF Underlay";
+    nameInput.addEventListener("change", () => { pushUndoState(); entity.name = nameInput.value || "DXF Underlay"; syncAfterStateChange(); });
+    addPropertyRow(generalGrid, "Name", nameInput);
+    addPropertyRow(generalGrid, "Source file", createReadOnlyText(entity.sourceName || "Linked DXF"));
+    addPropertyRow(generalGrid, "Layer", createLayerSelect(entity, "DXF underlay layer updated."));
+    const geometryGrid = appendSection("Geometry");
+    [["X mm", "x"], ["Y mm", "y"]].forEach(([label, key]) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = String(unitsToMm(entity[key]));
+      input.addEventListener("change", () => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) { input.value = String(unitsToMm(entity[key])); return; }
+        pushUndoState(); entity[key] = mmToUnits(value); syncAfterStateChange();
+      });
+      addPropertyRow(geometryGrid, label, input);
+    });
+    const scaleInput = document.createElement("input");
+    scaleInput.type = "number"; scaleInput.min = "0.01"; scaleInput.step = "0.01"; scaleInput.value = String(entity.scale || 1);
+    scaleInput.addEventListener("change", () => {
+      const value = Number(scaleInput.value);
+      if (!Number.isFinite(value) || value <= 0) { scaleInput.value = String(entity.scale || 1); return; }
+      pushUndoState(); entity.scale = clampNumber(value, 0.01, 100, 1); syncAfterStateChange();
+    });
+    addPropertyRow(geometryGrid, "Scale", scaleInput);
+    const appearanceGrid = appendSection("Appearance");
+    const opacityInput = document.createElement("input");
+    opacityInput.type = "range"; opacityInput.min = "0"; opacityInput.max = "1"; opacityInput.step = "0.05"; opacityInput.value = String(entity.opacity ?? 0.45);
+    opacityInput.addEventListener("change", () => { pushUndoState(); entity.opacity = clampNumber(Number(opacityInput.value), 0, 1, 0.45); syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Opacity", opacityInput);
+    const visibleInput = document.createElement("input");
+    visibleInput.type = "checkbox"; visibleInput.checked = entity.visible !== false;
+    visibleInput.addEventListener("change", () => { pushUndoState(); entity.visible = visibleInput.checked; syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Visible", visibleInput);
+    const lockedInput = document.createElement("input");
+    lockedInput.type = "checkbox"; lockedInput.checked = Boolean(entity.locked);
+    lockedInput.addEventListener("change", () => { pushUndoState(); entity.locked = lockedInput.checked; syncAfterStateChange(); });
+    addPropertyRow(appearanceGrid, "Locked", lockedInput);
+    const infoGrid = appendSection("DXF Link");
+    addPropertyRow(infoGrid, "Primitive count", createReadOnlyText(String(stats.primitiveCount || entity.primitives.length)));
+    addPropertyRow(infoGrid, "Skipped count", createReadOnlyText(String(stats.skippedCount || 0)));
+    addPropertyRow(infoGrid, "Warnings", createReadOnlyText((stats.warnings || []).join("; ") || "None"));
+    const clearButton = document.createElement("button");
+    clearButton.type = "button"; clearButton.className = "panel-button"; clearButton.textContent = "Clear DXF";
+    clearButton.addEventListener("click", () => { pushUndoState(); state.entities = state.entities.filter((item) => item.id !== entity.id); state.selectedEntityIds = []; syncAfterStateChange(); setStatus("DXF underlay cleared."); });
+    addPropertyRow(infoGrid, "Clear DXF", clearButton);
+    return;
+  }
+
   if (entity.type === "pdfUnderlay") {
     const generalGrid = appendSection("General");
     addPropertyRow(generalGrid, "Type", createReadOnlyText("PDF Underlay"));
@@ -3298,6 +3433,25 @@ function resizeCanvas() {
   ctx.setTransform(uiState.dpr, 0, 0, uiState.dpr, 0, 0);
 }
 
+function isUnderlayEntity(entity) {
+  return Boolean(entity && (entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay"));
+}
+
+function drawUnderlayEntity(entity) {
+  if (entity.type === "pdfUnderlay") {
+    drawPdfUnderlayEntity(entity, { drawSelection: false });
+  } else if (entity.type === "dxfUnderlay") {
+    drawDxfUnderlayEntity(entity, { drawSelection: false });
+  }
+}
+
+function drawSelectedUnderlayOverlays() {
+  state.selectedEntityIds
+    .map(getEntityById)
+    .filter((entity) => isUnderlayEntity(entity) && isLayerVisible(entity.layerId) && entity.visible !== false)
+    .forEach(drawUnderlaySelectionOverlay);
+}
+
 function draw() {
   const width = uiState.canvasRect.width;
   const height = uiState.canvasRect.height;
@@ -3310,15 +3464,20 @@ function draw() {
   drawAxes(width, height);
 
   state.entities.forEach((entity) => {
+    if (!isLayerVisible(entity.layerId) || entity.visible === false || !isUnderlayEntity(entity)) {
+      return;
+    }
+    drawUnderlayEntity(entity);
+  });
+
+  state.entities.forEach((entity) => {
     if (!isLayerVisible(entity.layerId)) {
       return;
     }
-    if (entity.visible === false) {
+    if (entity.visible === false || isUnderlayEntity(entity)) {
       return;
     }
-    if (entity.type === "pdfUnderlay") {
-      drawPdfUnderlayEntity(entity);
-    } else if (entity.type === "line") {
+    if (entity.type === "line") {
       drawLineEntity(entity);
     } else if (entity.type === "wire") {
       drawWireEntity(entity);
@@ -3340,6 +3499,8 @@ function draw() {
       drawBlockInstanceEntity(entity);
     }
   });
+
+  drawSelectedUnderlayOverlays();
 
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
@@ -3483,25 +3644,39 @@ function drawAxes(width, height) {
   ctx.restore();
 }
 
-function drawPdfUnderlayEntity(entity) {
+function drawPdfUnderlayEntity(entity, options = {}) {
   if (!pdfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
     return;
   }
   entity.enabled = entity.enabled !== false;
   pdfUnderlayApi.drawPdfUnderlay(ctx, { pdfUnderlay: entity }, worldToScreen);
-  if (state.selectedEntityIds.includes(entity.id)) {
-    const bounds = getEntityBoundsUnits(entity);
-    if (bounds) {
-      const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
-      const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
-      ctx.save();
-      ctx.strokeStyle = "#c2693e";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
-      ctx.restore();
-    }
-    drawSelectedEntityHandles(entity);
+  if (options.drawSelection !== false && state.selectedEntityIds.includes(entity.id)) {
+    drawUnderlaySelectionOverlay(entity);
+  }
+}
+
+function drawUnderlaySelectionOverlay(entity) {
+  const bounds = getEntityBoundsUnits(entity);
+  if (bounds) {
+    const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+    const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+    ctx.save();
+    ctx.strokeStyle = "#c2693e";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+    ctx.restore();
+  }
+  drawSelectedEntityHandles(entity);
+}
+
+function drawDxfUnderlayEntity(entity, options = {}) {
+  if (!dxfUnderlayApi || entity.visible === false || entity.opacity <= 0) {
+    return;
+  }
+  dxfUnderlayApi.drawDxfUnderlay(ctx, entity, worldToScreen);
+  if (options.drawSelection !== false && state.selectedEntityIds.includes(entity.id)) {
+    drawUnderlaySelectionOverlay(entity);
   }
 }
 
@@ -4402,7 +4577,7 @@ function drawTransformPreview(transformDraft) {
       drawSolidPreviewLineEntity(previewLine);
     } else if (entity.type === "wire") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
-    } else if (entity.type === "rect" || entity.type === "pdfUnderlay") {
+    } else if (entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay") {
       drawEntityPreview(applyOffsetToEntity(entity, offset));
     } else if (entity.type === "blockInstance") {
       drawBlockInstanceEntity(applyOffsetToEntity(entity, offset));
@@ -4415,6 +4590,8 @@ function drawTransformPreview(transformDraft) {
 function drawEntityPreview(entity) {
   if (entity.type === "pdfUnderlay") {
     drawPdfUnderlayEntity(entity);
+  } else if (entity.type === "dxfUnderlay") {
+    drawDxfUnderlayEntity(entity);
   } else if (entity.type === "circle") {
     drawCircleEntity(entity);
   } else if (entity.type === "arc") {
@@ -5609,7 +5786,7 @@ function scheduleGripNumericPreview() {
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
-    .filter((entity) => entity && (entity.type === "line" || entity.type === "wire" || entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
+    .filter((entity) => entity && (entity.type === "line" || entity.type === "wire" || entity.type === "rect" || entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay" || entity.type === "titleBlock" || entity.type === "circle" || entity.type === "arc" || entity.type === "filledRegion" || entity.type === "text" || entity.type === "dimension" || entity.type === "blockInstance") && canSelectEntity(entity));
 }
 
 function canStartTransformTool() {
@@ -5679,7 +5856,7 @@ function applyOffsetToEntity(entity, offset) {
       endRef: null,
     };
   }
-  if (entity.type === "rect" || entity.type === "titleBlock" || entity.type === "pdfUnderlay") {
+  if (entity.type === "rect" || entity.type === "titleBlock" || entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay") {
     return {
       ...entity,
       x: roundToUnit(entity.x + offset.dx),
@@ -6938,7 +7115,8 @@ function hitTestEntity(entity, worldPoint) {
   if (entity.type === "wire") {
     return hitTestWireEntity(entity, worldPoint);
   }
-  if (entity.type === "pdfUnderlay") {
+  if (entity.type === "pdfUnderlay" || entity.type === "dxfUnderlay") {
+    if (entity.locked || entity.visible === false) return false;
     const bounds = getEntityBoundsUnits(entity);
     return Boolean(bounds && entity.visible !== false && worldPoint.x >= bounds.minX && worldPoint.x <= bounds.maxX && worldPoint.y >= bounds.minY && worldPoint.y <= bounds.maxY);
   }
@@ -7445,6 +7623,9 @@ function getEntityBoundsUnits(entity) {
   if (entity.type === "pdfUnderlay") {
     const size = getPdfUnderlayScaledSize(entity);
     return { minX: entity.x, minY: entity.y, maxX: entity.x + size.width, maxY: entity.y + size.height };
+  }
+  if (entity.type === "dxfUnderlay") {
+    return dxfUnderlayApi && typeof dxfUnderlayApi.getDxfUnderlayBounds === "function" ? dxfUnderlayApi.getDxfUnderlayBounds(entity) : null;
   }
   if (entity.type === "circle" || entity.type === "arc") {
     return {
@@ -10071,6 +10252,72 @@ async function importPdfUnderlayFromInput() {
   }
 }
 
+async function linkDxfUnderlayFromInput() {
+  const [file] = linkDxfInput.files || [];
+  if (!file) {
+    setStatus("No DXF file selected.");
+    return;
+  }
+  try {
+    if (!dxfUnderlayApi || typeof dxfUnderlayApi.parseDxfText !== "function") {
+      setStatus("DXF underlay parser is not loaded.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setStatus("DXF file exceeds the 8MB safety limit.");
+      return;
+    }
+    const fileName = typeof file.name === "string" ? file.name : "Linked DXF";
+    if (!fileName.toLowerCase().endsWith(".dxf")) {
+      setStatus("Please select a DXF file.");
+      return;
+    }
+    setStatus("Linking DXF underlay...");
+    const text = await file.text();
+    const result = dxfUnderlayApi.parseDxfText(text);
+    if (!result || !result.ok) {
+      const message = result && result.error ? result.error : "Failed to link DXF underlay.";
+      console.warn("DXF underlay link failed", result);
+      setStatus(message);
+      return;
+    }
+    const stats = result.stats || {};
+    const dxfEntity = normalizeEntity({
+      id: createEntityId(),
+      type: "dxfUnderlay",
+      layerId: state.activeLayerId,
+      name: fileName.replace(/\.dxf$/i, "") || "DXF Underlay",
+      sourceName: fileName,
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+      opacity: 0.45,
+      visible: true,
+      locked: false,
+      unitMm: result.unitMm || 1,
+      primitives: result.primitives || [],
+      bounds: result.bounds || null,
+      stats,
+    }, { legacyUnits: false });
+    if (!dxfEntity || !dxfEntity.primitives.length) {
+      setStatus("DXF contains no supported underlay primitives.");
+      return;
+    }
+    pushUndoState();
+    state.entities.push(dxfEntity);
+    state.selectedEntityIds = [dxfEntity.id];
+    syncAfterStateChange();
+    const warningSuffix = stats.truncated ? " (truncated by safety limits)" : "";
+    setStatus(`DXF underlay linked: ${dxfEntity.primitives.length} primitives, ${stats.skippedCount || 0} skipped${warningSuffix}.`);
+  } catch (error) {
+    console.warn(error);
+    setStatus("Failed to link DXF underlay.");
+  } finally {
+    linkDxfInput.value = "";
+  }
+}
+
 function clearPdfUnderlay() {
   const hasPdfEntities = state.entities.some((entity) => entity.type === "pdfUnderlay");
   if (!hasPdfEntities && (!pdfUnderlayApi || !state.pdfUnderlay || !state.pdfUnderlay.enabled)) {
@@ -10909,6 +11156,10 @@ function bindEvents() {
   exportDxfButton.addEventListener("click", exportDxf);
   if (importPdfButton && importPdfInput) {
     importPdfButton.addEventListener("click", () => importPdfInput.click());
+  }
+  if (linkDxfButton && linkDxfInput) {
+    linkDxfButton.addEventListener("click", () => linkDxfInput.click());
+    linkDxfInput.addEventListener("change", linkDxfUnderlayFromInput);
   }
   explodeButton.addEventListener("click", explodeSelectedRects);
   addLayerButton.addEventListener("click", addLayer);
