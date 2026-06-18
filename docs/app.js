@@ -1,6 +1,7 @@
 "use strict";
 
 const STORAGE_KEY = "draftlite.autosave.v1";
+const CUSTOM_LIBRARY_STORAGE_KEY = "draftlite.customLibrary.v1";
 const CURRENT_FILE_VERSION = 2;
 const UNIT_MM = 0.1;
 const LEGACY_UNIT_MM = 0.5;
@@ -20,6 +21,11 @@ const viewport = document.getElementById("canvasViewport");
 const sidebar = document.querySelector(".sidebar");
 const layerList = document.getElementById("layerList");
 const propertiesPanel = document.getElementById("propertiesPanel");
+const libraryPanel = document.getElementById("libraryPanel");
+const addToLibraryButton = document.getElementById("addToLibraryButton");
+const exportLibraryButton = document.getElementById("exportLibraryButton");
+const importLibraryButton = document.getElementById("importLibraryButton");
+const importLibraryInput = document.getElementById("importLibraryInput");
 const toolReadout = document.getElementById("toolReadout");
 const pointerReadout = document.getElementById("pointerReadout");
 const zoomReadout = document.getElementById("zoomReadout");
@@ -204,6 +210,7 @@ let history = {
 };
 let entityClipboard = null;
 let pasteSequence = 0;
+let blockLibrary = { default: [], repo: [], local: [] };
 
 const uiState = {
   activeTool: "select",
@@ -250,6 +257,7 @@ const uiState = {
   pinchDraft: null,
   touchGestureActive: false,
   lastMiddleClickTime: 0,
+  libraryPlacementItemId: null,
   canvasRect: canvas.getBoundingClientRect(),
   dpr: window.devicePixelRatio || 1,
 };
@@ -394,6 +402,7 @@ function clearTransientState() {
   uiState.hoverMoveAnchor = null;
   uiState.hoverBorrowedHandle = null;
   uiState.hoverRectEdge = null;
+  uiState.libraryPlacementItemId = null;
   document.body.style.cursor = "";
   clearLinePreviewTimer();
   clearGripPreviewTimer();
@@ -2013,6 +2022,227 @@ function normalizeEntity(entity, options = {}) {
   return null;
 }
 
+function slugifyLibraryId(value) {
+  return String(value || "library-item").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "library-item";
+}
+
+function validateLibraryItem(item, source) {
+  if (!item || typeof item.id !== "string" || typeof item.name !== "string" || typeof item.category !== "string" || !Array.isArray(item.entities)) {
+    console.warn("Skipping invalid library item.", item);
+    return null;
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    description: typeof item.description === "string" ? item.description : "",
+    source,
+    basePoint: normalizePoint(item.basePoint || { x: 0, y: 0 }, false),
+    entities: item.entities.map((entity) => normalizeEntity({ ...entity, layerId: entity.layerId || state.activeLayerId }, false)).filter(Boolean),
+  };
+}
+
+function validateLibraryItems(items, source) {
+  if (!Array.isArray(items)) {
+    console.warn("Library JSON must be an array.", items);
+    return [];
+  }
+  return items.map((item) => validateLibraryItem(item, source)).filter((item) => item && item.entities.length);
+}
+
+async function fetchLibraryJson(path, source, optional = false) {
+  try {
+    const response = await fetch(path, { cache: "no-cache" });
+    if (!response.ok) {
+      if (optional && response.status === 404) return [];
+      console.warn(`Library fetch failed: ${path}`, response.status);
+      return [];
+    }
+    return validateLibraryItems(await response.json(), source);
+  } catch (error) {
+    console.warn(`Library fetch failed: ${path}`, error);
+    return [];
+  }
+}
+
+function loadLocalLibrary() {
+  try {
+    return validateLibraryItems(JSON.parse(localStorage.getItem(CUSTOM_LIBRARY_STORAGE_KEY) || "[]"), "local");
+  } catch (error) {
+    console.warn("Local library restore failed.", error);
+    return [];
+  }
+}
+
+function saveLocalLibrary() {
+  localStorage.setItem(CUSTOM_LIBRARY_STORAGE_KEY, JSON.stringify(blockLibrary.local, null, 2));
+}
+
+function getAllLibraryItems() {
+  return [...blockLibrary.default, ...blockLibrary.repo, ...blockLibrary.local];
+}
+
+function getLibraryItemById(id) {
+  return getAllLibraryItems().find((item) => item.id === id) || null;
+}
+
+function renderLibraryPanel() {
+  if (!libraryPanel) return;
+  libraryPanel.innerHTML = "";
+  const items = getAllLibraryItems();
+  if (!items.length) {
+    libraryPanel.textContent = "No library items loaded.";
+    return;
+  }
+  const grouped = new Map();
+  items.forEach((item) => {
+    if (!grouped.has(item.category)) grouped.set(item.category, []);
+    grouped.get(item.category).push(item);
+  });
+  [...grouped.keys()].sort().forEach((category) => {
+    const details = document.createElement("details");
+    details.className = "library-category";
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = category;
+    details.appendChild(summary);
+    grouped.get(category).forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "library-item";
+      const main = document.createElement("button");
+      main.type = "button";
+      main.className = "library-item-main";
+      main.dataset.testid = `library-item-${item.id}`;
+      main.innerHTML = `<span class="library-item-name"></span><span class="library-item-meta"></span>`;
+      main.querySelector(".library-item-name").textContent = item.name;
+      main.querySelector(".library-item-meta").innerHTML = `${item.category} <span class="library-source-badge">${item.source}</span>`;
+      main.addEventListener("click", () => startLibraryPlacement(item.id));
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "panel-button library-delete-button";
+      del.textContent = "Delete";
+      del.disabled = item.source !== "local";
+      del.addEventListener("click", () => deleteLocalLibraryItem(item.id));
+      row.append(main, del);
+      details.appendChild(row);
+    });
+    libraryPanel.appendChild(details);
+  });
+}
+
+async function initializeBlockLibrary() {
+  blockLibrary.local = loadLocalLibrary();
+  renderLibraryPanel();
+  const [defaults, repo] = await Promise.all([
+    fetchLibraryJson("library/defaultLibrary.json", "default"),
+    fetchLibraryJson("library/repoLibrary.json", "repo", true),
+  ]);
+  blockLibrary.default = defaults;
+  blockLibrary.repo = repo;
+  renderLibraryPanel();
+}
+
+function startLibraryPlacement(itemId) {
+  setActiveTool("libraryPlace");
+  uiState.libraryPlacementItemId = itemId;
+  const item = getLibraryItemById(itemId);
+  setStatus(`Library placement: ${item ? item.name : itemId}. Click canvas to place.`);
+}
+
+function ensureLibraryBlockDefinition(item) {
+  const existing = state.blockDefinitions.find((block) => block.libraryItemId === item.id);
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const definition = { id: createBlockId(), name: item.name, libraryItemId: item.id, entities: deepClone(item.entities), createdAt: now, updatedAt: now };
+  state.blockDefinitions.push(definition);
+  return definition;
+}
+
+function placeLibraryItemAt(item, point) {
+  if (!canDrawOnActiveLayer()) return false;
+  pushUndoState();
+  const definition = ensureLibraryBlockDefinition(item);
+  const instance = { id: createEntityId(), type: "blockInstance", layerId: state.activeLayerId, blockId: definition.id, x: roundToGridUnit(point.x), y: roundToGridUnit(point.y), name: definition.name };
+  state.entities.push(instance);
+  state.selectedEntityIds = [instance.id];
+  uiState.libraryPlacementItemId = null;
+  setActiveTool("select");
+  syncAfterStateChange();
+  setStatus(`${item.name} placed as a block instance.`);
+  return true;
+}
+
+function getSelectedEntitiesForLibrary() {
+  return expandSelectionWithGroups(state.selectedEntityIds)
+    .map(getEntityById)
+    .filter((entity) => entity && canSelectEntity(entity))
+    .flatMap((entity) => entity.type === "blockInstance" ? getBlockInstanceRenderableEntities(entity) : [entity]);
+}
+
+function addSelectionToLibrary() {
+  const selected = getSelectedEntitiesForLibrary();
+  if (!selected.length) { alert("Select entities or a block instance first."); return false; }
+  const name = (prompt("Library item name", "Custom Block") || "").trim();
+  if (!name) return false;
+  const category = (prompt("Category", "Custom") || "").trim() || "Custom";
+  const description = (prompt("Description", "") || "").trim();
+  const bounds = getBoundsForEntities(selected);
+  if (!bounds) return false;
+  const basePoint = { x: bounds.minX, y: bounds.minY };
+  const id = `${slugifyLibraryId(name)}-${Date.now()}`;
+  const item = { id, name, category, description, source: "local", basePoint: { x: 0, y: 0 }, entities: selected.map((entity) => entityToBlockRelative(entity, basePoint)) };
+  blockLibrary.local.push(item);
+  saveLocalLibrary();
+  renderLibraryPanel();
+  setStatus(`${name} added to local library.`);
+  return true;
+}
+
+function deleteLocalLibraryItem(id) {
+  blockLibrary.local = blockLibrary.local.filter((item) => item.id !== id);
+  saveLocalLibrary();
+  renderLibraryPanel();
+  setStatus("Local library item deleted.");
+}
+
+function exportLocalLibrary() {
+  const blob = new Blob([JSON.stringify(blockLibrary.local, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "draftlite-custom-library.json";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function uniqueImportedLibraryId(id, used) {
+  let candidate = id;
+  let suffix = 1;
+  while (used.has(candidate)) {
+    candidate = `${id}-${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function importLibraryFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const imported = validateLibraryItems(JSON.parse(reader.result), "local");
+      const used = new Set(getAllLibraryItems().map((item) => item.id));
+      imported.forEach((item) => { item.id = uniqueImportedLibraryId(item.id, used); blockLibrary.local.push(item); });
+      saveLocalLibrary();
+      renderLibraryPanel();
+      setStatus(`${imported.length} library item(s) imported.`);
+    } catch (error) {
+      alert("Import failed: invalid library JSON.");
+      console.warn("Library import failed.", error);
+    }
+  };
+  reader.readAsText(file);
+}
+
 
 function createBlockId() {
   const id = `block-${state.nextBlockNumber}`;
@@ -2164,6 +2394,7 @@ function normalizeDocument(raw) {
             entities: normalizedChildren,
             createdAt: typeof block.createdAt === "string" ? block.createdAt : now,
             updatedAt: typeof block.updatedAt === "string" ? block.updatedAt : now,
+            libraryItemId: typeof block.libraryItemId === "string" ? block.libraryItemId : "",
           };
         })
         .filter((block) => block.entities.length > 0)
@@ -2351,6 +2582,7 @@ function syncAfterStateChange(autosave = true) {
   renderStatusPanel();
   syncUndoRedoButtons();
   syncToolButtons();
+  renderLibraryPanel();
   if (autosave) {
     saveToLocalStorage();
   }
@@ -9659,6 +9891,11 @@ function onCanvasMouseDown(event) {
 
 function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   const worldPoint = resolveConstrainedSnapPoint(rawSnapWorldPoint, event.shiftKey);
+  if (uiState.activeTool === "libraryPlace") {
+    const item = getLibraryItemById(uiState.libraryPlacementItemId);
+    if (item) placeLibraryItemAt(item, getSnapPoint(rawSnapWorldPoint));
+    return;
+  }
   if (uiState.activeTool === "line") {
     handleLineToolClick(worldPoint);
     return;
@@ -11508,6 +11745,10 @@ function bindEvents() {
   if (agentCommandInput) {
     agentCommandInput.addEventListener("keydown", onAgentCommandInputKeyDown);
   }
+  if (addToLibraryButton) addToLibraryButton.addEventListener("click", addSelectionToLibrary);
+  if (exportLibraryButton) exportLibraryButton.addEventListener("click", exportLocalLibrary);
+  if (importLibraryButton && importLibraryInput) importLibraryButton.addEventListener("click", () => importLibraryInput.click());
+  if (importLibraryInput) importLibraryInput.addEventListener("change", () => { const [file] = importLibraryInput.files || []; if (file) importLibraryFromFile(file); importLibraryInput.value = ""; });
   ribbonTabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveRibbonTab(tab.dataset.ribbonTab));
   });
@@ -11548,6 +11789,7 @@ setActiveRibbonTab("architecture");
 applyAgentModeIfNeeded();
 initializeTheme();
 initializeView();
+initializeBlockLibrary();
 
 window.DraftLiteDebug = {
   getState() {

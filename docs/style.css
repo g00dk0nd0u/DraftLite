@@ -584,7 +584,8 @@ body[data-panning="true"] #draftCanvas {
 }
 
 .layers-subpanel .layer-list,
-.properties-subpanel .properties-panel {
+.properties-subpanel .properties-panel,
+.library-subpanel .library-panel {
   padding: 10px 12px 12px;
 }
 
@@ -1057,3 +1058,63 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 }
 
 .toolbar-group + .toolbar-group { border-left: 1px solid var(--line); padding-left: 8px; }
+
+
+.library-actions {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+.library-panel {
+  display: grid;
+  gap: 8px;
+}
+.library-category {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.library-category summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.library-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+}
+.library-item-main {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.library-item-name {
+  display: block;
+  font-weight: 650;
+}
+.library-item-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.library-source-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.68rem;
+}
+.library-delete-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
