@@ -42,3 +42,10 @@
 6. Hide one child layer.
 7. Export DXF.
 8. Confirm hidden child-layer geometry is not exported.
+
+## Persistent Block Library
+
+- `docs/library/defaultLibrary.json` contains the read-only default symbols loaded at startup.
+- `docs/library/repoLibrary.json` contains repo-managed shared symbols. To share exported custom symbols with everyone, replace or extend this JSON in the repository and commit it.
+- Symbols added through the UI are stored only in browser `localStorage` under `draftlite.customLibrary.v1` and can be deleted, exported, and imported.
+- GitHub Pages cannot write directly back to `repoLibrary.json`; repo-wide library updates must be committed through the repository workflow.
