@@ -130,8 +130,10 @@
           <section class="panel sidebar-main-panel">
             <section class="sidebar-subpanel layers-subpanel">
               <div class="panel-header">
-                <button id="layersPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="layerList" title="Toggle Layers panel">▾</button>
-                <h2>Layers</h2>
+                <div class="panel-title-row">
+                  <h2>Layers</h2>
+                  <button id="layersPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="layerList" title="Toggle Layers panel">▾</button>
+                </div>
                 <div class="panel-actions">
                   <button id="addLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Add layer" title="Add layer" data-testid="add-layer-button">+</button>
                   <button id="deleteLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Delete active layer" title="Delete active layer" data-testid="delete-layer-button">-</button>
@@ -142,23 +144,30 @@
 
             <section class="sidebar-subpanel properties-subpanel">
               <div class="panel-header">
-                <button id="propertiesPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="propertiesPanel" title="Toggle Properties panel">▾</button>
-                <h2>Properties</h2>
+                <div class="panel-title-row">
+                  <h2>Properties</h2>
+                  <button id="propertiesPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="propertiesPanel" title="Toggle Properties panel">▾</button>
+                </div>
               </div>
               <div id="propertiesPanel" class="properties-panel"></div>
             </section>
 
             <section class="sidebar-subpanel library-subpanel">
               <div class="panel-header">
-                <h2>Library</h2>
+                <div class="panel-title-row">
+                  <h2>Library</h2>
+                  <button id="libraryPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="libraryPanelBody" title="Toggle Library panel">▾</button>
+                </div>
               </div>
-              <div class="library-actions">
-                <button id="addToLibraryButton" class="panel-button" type="button" data-testid="add-to-library-button">Add to Library</button>
-                <button id="exportLibraryButton" class="panel-button" type="button" data-testid="export-library-button">Export Library</button>
-                <button id="importLibraryButton" class="panel-button" type="button" data-testid="import-library-button">Import Library</button>
-                <input id="importLibraryInput" type="file" accept="application/json,.json" hidden>
+              <div id="libraryPanelBody" class="library-panel-body">
+                <div class="library-actions">
+                  <button id="addToLibraryButton" class="panel-button" type="button" data-testid="add-to-library-button">Add to Library</button>
+                  <button id="exportLibraryButton" class="panel-button" type="button" data-testid="export-library-button">Export Library</button>
+                  <button id="importLibraryButton" class="panel-button" type="button" data-testid="import-library-button">Import Library</button>
+                  <input id="importLibraryInput" type="file" accept="application/json,.json" hidden>
+                </div>
+                <div id="libraryPanel" class="library-panel" data-testid="library-panel"></div>
               </div>
-              <div id="libraryPanel" class="library-panel" data-testid="library-panel"></div>
             </section>
 
             <section class="sidebar-subpanel agent-io-panel">
