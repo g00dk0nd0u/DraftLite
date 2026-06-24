@@ -2157,25 +2157,17 @@ function getLibraryItemById(id) {
   return getAllLibraryItems().find((item) => item.id === id) || null;
 }
 
+function syncPanelToggle(toggle, body, isOpen) {
+  if (!toggle || !body) return;
+  body.hidden = !isOpen;
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  toggle.textContent = isOpen ? "▾" : "◂";
+}
+
 function syncSidebarPanelVisibility() {
-  if (layerList && layersPanelToggle) {
-    const isOpen = uiState.sidebarPanelsOpen.layers;
-    layerList.hidden = !isOpen;
-    layersPanelToggle.setAttribute("aria-expanded", String(isOpen));
-    layersPanelToggle.textContent = isOpen ? "▾" : "▸";
-  }
-  if (propertiesPanel && propertiesPanelToggle) {
-    const isOpen = uiState.sidebarPanelsOpen.properties;
-    propertiesPanel.hidden = !isOpen;
-    propertiesPanelToggle.setAttribute("aria-expanded", String(isOpen));
-    propertiesPanelToggle.textContent = isOpen ? "▾" : "▸";
-  }
-  if (libraryPanelBody && libraryPanelToggle) {
-    const isOpen = uiState.sidebarPanelsOpen.library;
-    libraryPanelBody.hidden = !isOpen;
-    libraryPanelToggle.setAttribute("aria-expanded", String(isOpen));
-    libraryPanelToggle.textContent = isOpen ? "▾" : "▸";
-  }
+  syncPanelToggle(layersPanelToggle, layerList, uiState.sidebarPanelsOpen.layers);
+  syncPanelToggle(propertiesPanelToggle, propertiesPanel, uiState.sidebarPanelsOpen.properties);
+  syncPanelToggle(libraryPanelToggle, libraryPanelBody, uiState.sidebarPanelsOpen.library);
 }
 
 function toggleSidebarPanel(panelName) {
