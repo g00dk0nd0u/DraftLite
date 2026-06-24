@@ -333,6 +333,26 @@ body[data-theme="dark"][data-agent-mode="true"] .agent-mode-banner {
   font-size: 0.85rem;
 }
 
+.panel-toggle-button {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.panel-toggle-button:hover {
+  border-color: var(--line);
+  background: var(--button-hover-bg);
+  color: var(--text);
+}
+
 .tool-button:hover,
 .panel-button:hover {
   border-color: var(--line-strong);
@@ -584,6 +604,10 @@ body[data-panning="true"] #draftCanvas {
   font-size: 0.92rem;
   font-weight: 500;
   letter-spacing: 0.005em;
+}
+
+.panel-toggle-button + h2 {
+  margin-right: auto;
 }
 
 .layers-subpanel .layer-list,
@@ -1086,10 +1110,10 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 }
 .library-item {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-top: 1px solid var(--line);
 }
 .library-item-main {
@@ -1105,20 +1129,22 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   font-size: 0.78rem;
   font-weight: 400;
 }
-.library-item-meta {
-  display: block;
-  color: var(--muted);
-  font-size: 0.74rem;
-}
+.library-item-meta,
 .library-source-badge {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 0.68rem;
+  display: none;
 }
-.library-delete-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.library-delete-icon-button {
+  width: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.library-delete-icon-button:hover {
+  opacity: 1;
 }

@@ -130,6 +130,7 @@
           <section class="panel sidebar-main-panel">
             <section class="sidebar-subpanel layers-subpanel">
               <div class="panel-header">
+                <button id="layersPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="layerList" title="Toggle Layers panel">▾</button>
                 <h2>Layers</h2>
                 <div class="panel-actions">
                   <button id="addLayerButton" class="panel-button panel-icon-button" type="button" aria-label="Add layer" title="Add layer" data-testid="add-layer-button">+</button>
@@ -137,6 +138,14 @@
                 </div>
               </div>
               <div id="layerList" class="layer-list"></div>
+            </section>
+
+            <section class="sidebar-subpanel properties-subpanel">
+              <div class="panel-header">
+                <button id="propertiesPanelToggle" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="propertiesPanel" title="Toggle Properties panel">▾</button>
+                <h2>Properties</h2>
+              </div>
+              <div id="propertiesPanel" class="properties-panel"></div>
             </section>
 
             <section class="sidebar-subpanel library-subpanel">
@@ -150,13 +159,6 @@
                 <input id="importLibraryInput" type="file" accept="application/json,.json" hidden>
               </div>
               <div id="libraryPanel" class="library-panel" data-testid="library-panel"></div>
-            </section>
-
-            <section class="sidebar-subpanel properties-subpanel">
-              <div class="panel-header">
-                <h2>Properties</h2>
-              </div>
-              <div id="propertiesPanel" class="properties-panel"></div>
             </section>
 
             <section class="sidebar-subpanel agent-io-panel">
