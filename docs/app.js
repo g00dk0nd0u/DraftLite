@@ -260,6 +260,8 @@ const uiState = {
   touchGestureActive: false,
   lastMiddleClickTime: 0,
   libraryPlacementItemId: null,
+  libraryPlacementPreviewPoint: null,
+  libraryPlacementPointerInsideCanvas: false,
   sidebarPanelsOpen: { layers: true, properties: true },
   libraryCategoryOpen: new Set(),
   canvasRect: canvas.getBoundingClientRect(),
@@ -407,6 +409,8 @@ function clearTransientState() {
   uiState.hoverBorrowedHandle = null;
   uiState.hoverRectEdge = null;
   uiState.libraryPlacementItemId = null;
+  uiState.libraryPlacementPreviewPoint = null;
+  uiState.libraryPlacementPointerInsideCanvas = false;
   document.body.style.cursor = "";
   clearLinePreviewTimer();
   clearGripPreviewTimer();
@@ -2184,8 +2188,10 @@ async function initializeBlockLibrary() {
 function startLibraryPlacement(itemId) {
   setActiveTool("libraryPlace");
   uiState.libraryPlacementItemId = itemId;
+  uiState.libraryPlacementPreviewPoint = null;
+  uiState.libraryPlacementPointerInsideCanvas = false;
   const item = getLibraryItemById(itemId);
-  setStatus(`Library placement: ${item ? item.name : itemId}. Click canvas to place.`);
+  setStatus(`Library placement: ${item ? item.name : itemId}. Move cursor over canvas, then click to place. Esc to cancel.`);
 }
 
 function ensureLibraryBlockDefinition(item) {
@@ -2205,6 +2211,8 @@ function placeLibraryItemAt(item, point) {
   state.entities.push(instance);
   state.selectedEntityIds = [instance.id];
   uiState.libraryPlacementItemId = null;
+  uiState.libraryPlacementPreviewPoint = null;
+  uiState.libraryPlacementPointerInsideCanvas = false;
   setActiveTool("select");
   syncAfterStateChange();
   setStatus(`${item.name} placed as a block instance.`);
@@ -2314,6 +2322,19 @@ function getBlockInstanceRenderableEntities(instance) {
   const definition = getBlockInstanceDefinition(instance);
   if (!definition) return [];
   return definition.entities.map((child) => entityFromBlockRelative(child, instance));
+}
+
+function getLibraryPlacementPoint(worldPoint, shiftKey = false) {
+  void shiftKey;
+  return getSnapPoint(worldPoint);
+}
+
+function getLibraryPreviewEntities(item, point) {
+  if (!item || !Array.isArray(item.entities) || !point) return [];
+  const offset = { dx: point.x, dy: point.y };
+  return item.entities
+    .map((entity) => applyOffsetToEntity({ ...deepClone(entity), layerId: state.activeLayerId }, offset))
+    .filter(Boolean);
 }
 
 function getBlockInstanceBoundsUnits(instance) {
@@ -3896,6 +3917,10 @@ function draw() {
   if (uiState.dimensionDraft) {
     drawDimensionDraftPreview(uiState.dimensionDraft);
   }
+
+  if (uiState.activeTool === "libraryPlace" && uiState.libraryPlacementItemId && uiState.libraryPlacementPreviewPoint) {
+    drawLibraryPlacementPreview();
+  }
   if (uiState.mirrorDraft && uiState.mirrorDraft.firstPoint) {
     drawMirrorAxisDraft(uiState.mirrorDraft.firstPoint, getMirrorAxisSecondPoint(uiState.pointerWorld));
   }
@@ -4573,6 +4598,106 @@ function drawBlockInstanceEntity(entity) {
       ctx.restore();
     }
   }
+}
+
+function drawLibraryPlacementPreview() {
+  const item = getLibraryItemById(uiState.libraryPlacementItemId);
+  const point = uiState.libraryPlacementPreviewPoint;
+  if (!item || !point) return;
+
+  const previewEntities = getLibraryPreviewEntities(item, point);
+  previewEntities.forEach(drawLibraryPreviewEntity);
+
+  const bounds = getBoundsForEntities(previewEntities);
+  if (bounds) {
+    drawLibraryPreviewBounds(bounds);
+  }
+}
+
+function drawLibraryPreviewEntity(entity) {
+  if (!entity || entity.visible === false) return;
+  if (entity.type === "blockInstance") {
+    getBlockInstanceRenderableEntities(entity).forEach(drawLibraryPreviewEntity);
+    return;
+  }
+  if (entity.type === "dimension") {
+    drawDimensionEntity({ ...entity, __isDimensionOffsetPreview: true });
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.9)";
+  ctx.fillStyle = "rgba(194, 105, 62, 0.12)";
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.setLineDash([8, 6]);
+
+  if (entity.type === "line") {
+    const p1 = worldToScreen(entity.p1);
+    const p2 = worldToScreen(entity.p2);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+  } else if (entity.type === "wire") {
+    drawWirePath(entity.start, entity.end, entity.tension);
+  } else if (entity.type === "rect") {
+    const p1 = worldToScreen({ x: entity.x, y: entity.y });
+    const p2 = worldToScreen({ x: entity.x + entity.width, y: entity.y + entity.height });
+    const radiusPx = Math.abs((entity.cornerRadius || 0) * state.view.zoom);
+    buildRoundedRectPath(ctx, p1.x, p1.y, p2.x - p1.x, p2.y - p1.y, radiusPx);
+    if (entity.fill !== false) ctx.fill();
+    ctx.stroke();
+  } else if (entity.type === "circle") {
+    const center = worldToScreen(entity.center);
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, Math.max(1, Math.abs(entity.radius * state.view.zoom)), 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (entity.type === "arc") {
+    const center = worldToScreen(entity.center);
+    const startRad = (entity.startAngleDeg || 0) * Math.PI / 180;
+    const endRad = (entity.endAngleDeg || 0) * Math.PI / 180;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, Math.max(1, Math.abs(entity.radius * state.view.zoom)), startRad, endRad);
+    ctx.stroke();
+  } else if (entity.type === "filledRegion" && Array.isArray(entity.points) && entity.points.length >= 3) {
+    const points = entity.points.map(worldToScreen);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    if (entity.fill !== false) ctx.fill();
+    ctx.stroke();
+  } else if (entity.type === "text") {
+    const base = worldToScreen({ x: entity.x, y: entity.y });
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.72;
+    ctx.font = `${Math.max(8, Math.abs((entity.height || mmToUnits(250)) * state.view.zoom))}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.textAlign = entity.align || "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "rgba(194, 105, 62, 0.9)";
+    ctx.fillText(entity.text || "", base.x, base.y);
+  }
+  ctx.restore();
+}
+
+function drawLibraryPreviewBounds(bounds) {
+  const p1 = worldToScreen({ x: bounds.minX, y: bounds.minY });
+  const p2 = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(194, 105, 62, 0.8)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(
+    Math.min(p1.x, p2.x),
+    Math.min(p1.y, p2.y),
+    Math.abs(p2.x - p1.x),
+    Math.abs(p2.y - p1.y)
+  );
+  ctx.restore();
 }
 
 function drawTextEntity(entity) {
@@ -9591,10 +9716,29 @@ function onPointerMove(event) {
     uiState.dimensionEndpointEditDraft ||
     uiState.rectEdgeEditDraft ||
     uiState.dimensionOffsetEditDraft;
+  const screenPoint = getScreenPointFromEvent(event);
+  if (uiState.activeTool === "libraryPlace" && !startedCanvasInteraction) {
+    if (isSidebarEventTarget(event) || !isScreenPointInsideCanvas(screenPoint)) {
+      uiState.libraryPlacementPreviewPoint = null;
+      uiState.libraryPlacementPointerInsideCanvas = false;
+      uiState.snapMarker = null;
+    } else {
+      const worldPoint = screenToWorld(screenPoint);
+      const constrainedWorld = getConstrainedWorldPoint(worldPoint, event.shiftKey);
+      const placementPoint = getLibraryPlacementPoint(constrainedWorld, event.shiftKey);
+      uiState.pointerWorld = worldPoint;
+      uiState.hoverWorld = placementPoint;
+      uiState.libraryPlacementPointerInsideCanvas = true;
+      uiState.libraryPlacementPreviewPoint = placementPoint;
+      pointerReadout.textContent = `X: ${unitsToMm(placementPoint.x)} mm, Y: ${unitsToMm(placementPoint.y)} mm`;
+    }
+    draw();
+    renderStatusPanel();
+    return;
+  }
   if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
     return;
   }
-  const screenPoint = getScreenPointFromEvent(event);
   const worldPoint = screenToWorld(screenPoint);
   const constrainedWorld = getConstrainedWorldPoint(worldPoint, event.shiftKey);
   const snapCandidate = resolveSnapCandidate(constrainedWorld);
@@ -9748,6 +9892,13 @@ function getScreenPointFromEvent(event) {
     x: event.clientX - uiState.canvasRect.left,
     y: event.clientY - uiState.canvasRect.top,
   };
+}
+
+function isScreenPointInsideCanvas(screenPoint) {
+  return screenPoint.x >= 0
+    && screenPoint.y >= 0
+    && screenPoint.x <= uiState.canvasRect.width
+    && screenPoint.y <= uiState.canvasRect.height;
 }
 
 function getTouchCenterAndDistance(touchA, touchB) {
@@ -9934,7 +10085,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   const worldPoint = resolveConstrainedSnapPoint(rawSnapWorldPoint, event.shiftKey);
   if (uiState.activeTool === "libraryPlace") {
     const item = getLibraryItemById(uiState.libraryPlacementItemId);
-    if (item) placeLibraryItemAt(item, getSnapPoint(rawSnapWorldPoint));
+    if (item) placeLibraryItemAt(item, getLibraryPlacementPoint(rawSnapWorldPoint, event.shiftKey));
     return;
   }
   if (uiState.activeTool === "line") {
