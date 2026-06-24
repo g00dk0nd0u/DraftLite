@@ -10085,7 +10085,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   const worldPoint = resolveConstrainedSnapPoint(rawSnapWorldPoint, event.shiftKey);
   if (uiState.activeTool === "libraryPlace") {
     const item = getLibraryItemById(uiState.libraryPlacementItemId);
-    if (item) placeLibraryItemAt(item, getLibraryPlacementPoint(rawSnapWorldPoint, event.shiftKey));
+    if (item) {
+      const placementPoint = uiState.libraryPlacementPreviewPoint
+        || getLibraryPlacementPoint(rawSnapWorldPoint, event.shiftKey);
+      placeLibraryItemAt(item, placementPoint);
+    }
     return;
   }
   if (uiState.activeTool === "line") {
