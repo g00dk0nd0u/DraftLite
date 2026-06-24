@@ -20,7 +20,9 @@ const canvas = document.getElementById("draftCanvas");
 const viewport = document.getElementById("canvasViewport");
 const sidebar = document.querySelector(".sidebar");
 const layerList = document.getElementById("layerList");
+const layersPanelToggle = document.getElementById("layersPanelToggle");
 const propertiesPanel = document.getElementById("propertiesPanel");
+const propertiesPanelToggle = document.getElementById("propertiesPanelToggle");
 const libraryPanel = document.getElementById("libraryPanel");
 const addToLibraryButton = document.getElementById("addToLibraryButton");
 const exportLibraryButton = document.getElementById("exportLibraryButton");
@@ -258,6 +260,8 @@ const uiState = {
   touchGestureActive: false,
   lastMiddleClickTime: 0,
   libraryPlacementItemId: null,
+  sidebarPanelsOpen: { layers: true, properties: true },
+  libraryCategoryOpen: new Set(),
   canvasRect: canvas.getBoundingClientRect(),
   dpr: window.devicePixelRatio || 1,
 };
@@ -2086,6 +2090,26 @@ function getLibraryItemById(id) {
   return getAllLibraryItems().find((item) => item.id === id) || null;
 }
 
+function syncSidebarPanelVisibility() {
+  if (layerList && layersPanelToggle) {
+    const isOpen = uiState.sidebarPanelsOpen.layers;
+    layerList.hidden = !isOpen;
+    layersPanelToggle.setAttribute("aria-expanded", String(isOpen));
+    layersPanelToggle.textContent = isOpen ? "▾" : "▸";
+  }
+  if (propertiesPanel && propertiesPanelToggle) {
+    const isOpen = uiState.sidebarPanelsOpen.properties;
+    propertiesPanel.hidden = !isOpen;
+    propertiesPanelToggle.setAttribute("aria-expanded", String(isOpen));
+    propertiesPanelToggle.textContent = isOpen ? "▾" : "▸";
+  }
+}
+
+function toggleSidebarPanel(panelName) {
+  uiState.sidebarPanelsOpen[panelName] = !uiState.sidebarPanelsOpen[panelName];
+  syncSidebarPanelVisibility();
+}
+
 function renderLibraryPanel() {
   if (!libraryPanel) return;
   libraryPanel.innerHTML = "";
@@ -2102,7 +2126,14 @@ function renderLibraryPanel() {
   [...grouped.keys()].sort().forEach((category) => {
     const details = document.createElement("details");
     details.className = "library-category";
-    details.open = true;
+    details.open = uiState.libraryCategoryOpen.has(category);
+    details.addEventListener("toggle", () => {
+      if (details.open) {
+        uiState.libraryCategoryOpen.add(category);
+      } else {
+        uiState.libraryCategoryOpen.delete(category);
+      }
+    });
     const summary = document.createElement("summary");
     summary.textContent = category;
     details.appendChild(summary);
@@ -2113,17 +2144,25 @@ function renderLibraryPanel() {
       main.type = "button";
       main.className = "library-item-main";
       main.dataset.testid = `library-item-${item.id}`;
-      main.innerHTML = `<span class="library-item-name"></span><span class="library-item-meta"></span>`;
-      main.querySelector(".library-item-name").textContent = item.name;
-      main.querySelector(".library-item-meta").innerHTML = `${item.category} <span class="library-source-badge">${item.source}</span>`;
+      const name = document.createElement("span");
+      name.className = "library-item-name";
+      name.textContent = item.name;
+      main.appendChild(name);
       main.addEventListener("click", () => startLibraryPlacement(item.id));
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "panel-button library-delete-button";
-      del.textContent = "Delete";
-      del.disabled = item.source !== "local";
-      del.addEventListener("click", () => deleteLocalLibraryItem(item.id));
-      row.append(main, del);
+      row.appendChild(main);
+      if (item.source === "local") {
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "panel-button library-delete-button library-delete-icon-button";
+        del.textContent = "×";
+        del.setAttribute("aria-label", `Delete ${item.name} from library`);
+        del.title = "Delete";
+        del.addEventListener("click", (event) => {
+          event.stopPropagation();
+          deleteLocalLibraryItem(item.id);
+        });
+        row.appendChild(del);
+      }
       details.appendChild(row);
     });
     libraryPanel.appendChild(details);
@@ -2596,6 +2635,7 @@ function ensureActiveLayer() {
 
 function renderLayersPanel() {
   layerList.innerHTML = "";
+  syncSidebarPanelVisibility();
   const header = document.createElement("div");
   header.className = "layer-table-header";
   const appendHeaderCell = (className, textContent, title) => {
@@ -3031,6 +3071,7 @@ function handleMatchPropertiesToolClick(worldPoint) {
 
 function renderPropertiesPanel() {
   propertiesPanel.innerHTML = "";
+  syncSidebarPanelVisibility();
 
   const appendSection = (title) => {
     const section = document.createElement("section");
@@ -11745,6 +11786,9 @@ function bindEvents() {
   if (agentCommandInput) {
     agentCommandInput.addEventListener("keydown", onAgentCommandInputKeyDown);
   }
+  if (layersPanelToggle) layersPanelToggle.addEventListener("click", () => toggleSidebarPanel("layers"));
+  if (propertiesPanelToggle) propertiesPanelToggle.addEventListener("click", () => toggleSidebarPanel("properties"));
+  syncSidebarPanelVisibility();
   if (addToLibraryButton) addToLibraryButton.addEventListener("click", addSelectionToLibrary);
   if (exportLibraryButton) exportLibraryButton.addEventListener("click", exportLocalLibrary);
   if (importLibraryButton && importLibraryInput) importLibraryButton.addEventListener("click", () => importLibraryInput.click());
