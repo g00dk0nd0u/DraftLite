@@ -2086,8 +2086,69 @@ function saveLocalLibrary() {
   localStorage.setItem(CUSTOM_LIBRARY_STORAGE_KEY, JSON.stringify(blockLibrary.local, null, 2));
 }
 
+function normalizeLibraryItemName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeLibraryCategory(value) {
+  return String(value || "Custom").trim().toLowerCase();
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function normalizeLibraryFingerprintValue(value) {
+  if (Array.isArray(value)) return value.map(normalizeLibraryFingerprintValue);
+  if (value && typeof value === "object") {
+    const ignoredKeys = new Set(["id", "layerId", "selected", "source"]);
+    return Object.keys(value).sort().reduce((result, key) => {
+      if (!ignoredKeys.has(key)) {
+        result[key] = normalizeLibraryFingerprintValue(value[key]);
+      }
+      return result;
+    }, {});
+  }
+  return value;
+}
+
+function getLibraryItemFingerprint(item) {
+  return stableStringify({
+    name: normalizeLibraryItemName(item && item.name),
+    category: normalizeLibraryCategory(item && item.category),
+    entities: normalizeLibraryFingerprintValue((item && item.entities) || []),
+  });
+}
+
+function dedupeLocalLibraryItems() {
+  const seen = new Set([
+    ...blockLibrary.default.map(getLibraryItemFingerprint),
+    ...blockLibrary.repo.map(getLibraryItemFingerprint),
+  ]);
+  const before = blockLibrary.local.length;
+  blockLibrary.local = blockLibrary.local.filter((item) => {
+    const fingerprint = getLibraryItemFingerprint(item);
+    if (seen.has(fingerprint)) return false;
+    seen.add(fingerprint);
+    return true;
+  });
+  if (blockLibrary.local.length !== before) saveLocalLibrary();
+}
+
 function getAllLibraryItems() {
-  return [...blockLibrary.default, ...blockLibrary.repo, ...blockLibrary.local];
+  const seen = new Set();
+  const result = [];
+  [...blockLibrary.default, ...blockLibrary.repo, ...blockLibrary.local].forEach((item) => {
+    const fingerprint = getLibraryItemFingerprint(item);
+    if (seen.has(fingerprint)) return;
+    seen.add(fingerprint);
+    result.push(item);
+  });
+  return result;
 }
 
 function getLibraryItemById(id) {
@@ -2182,6 +2243,7 @@ async function initializeBlockLibrary() {
   ]);
   blockLibrary.default = defaults;
   blockLibrary.repo = repo;
+  dedupeLocalLibraryItems();
   renderLibraryPanel();
 }
 
@@ -2238,6 +2300,11 @@ function addSelectionToLibrary() {
   const basePoint = { x: bounds.minX, y: bounds.minY };
   const id = `${slugifyLibraryId(name)}-${Date.now()}`;
   const item = { id, name, category, description, source: "local", basePoint: { x: 0, y: 0 }, entities: selected.map((entity) => entityToBlockRelative(entity, basePoint)) };
+  const fingerprint = getLibraryItemFingerprint(item);
+  if (getAllLibraryItems().some((libraryItem) => getLibraryItemFingerprint(libraryItem) === fingerprint)) {
+    setStatus(`${name} already exists in the library.`);
+    return false;
+  }
   blockLibrary.local.push(item);
   saveLocalLibrary();
   renderLibraryPanel();
@@ -2278,10 +2345,23 @@ function importLibraryFromFile(file) {
     try {
       const imported = validateLibraryItems(JSON.parse(reader.result), "local");
       const used = new Set(getAllLibraryItems().map((item) => item.id));
-      imported.forEach((item) => { item.id = uniqueImportedLibraryId(item.id, used); blockLibrary.local.push(item); });
-      saveLocalLibrary();
+      const fingerprints = new Set(getAllLibraryItems().map(getLibraryItemFingerprint));
+      let addedCount = 0;
+      let skippedCount = 0;
+      imported.forEach((item) => {
+        const fingerprint = getLibraryItemFingerprint(item);
+        if (fingerprints.has(fingerprint)) {
+          skippedCount += 1;
+          return;
+        }
+        fingerprints.add(fingerprint);
+        item.id = uniqueImportedLibraryId(item.id, used);
+        blockLibrary.local.push(item);
+        addedCount += 1;
+      });
+      if (addedCount) saveLocalLibrary();
       renderLibraryPanel();
-      setStatus(`${imported.length} library item(s) imported.`);
+      setStatus(`${addedCount} library item(s) imported. ${skippedCount} duplicate(s) skipped.`);
     } catch (error) {
       alert("Import failed: invalid library JSON.");
       console.warn("Library import failed.", error);
