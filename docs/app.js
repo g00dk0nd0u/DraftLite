@@ -4671,14 +4671,36 @@ function drawLibraryPreviewEntity(entity) {
     if (entity.fill !== false) ctx.fill();
     ctx.stroke();
   } else if (entity.type === "text") {
-    const base = worldToScreen({ x: entity.x, y: entity.y });
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 0.72;
-    ctx.font = `${Math.max(8, Math.abs((entity.height || mmToUnits(250)) * state.view.zoom))}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    ctx.textAlign = entity.align || "left";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "rgba(194, 105, 62, 0.9)";
-    ctx.fillText(entity.text || "", base.x, base.y);
+    drawLibraryPreviewTextEntity(entity);
+  }
+  ctx.restore();
+}
+
+function drawLibraryPreviewTextEntity(entity) {
+  const base = worldToScreen({ x: entity.x, y: entity.y });
+  const metricsUnits = getTextMetricsUnits(entity);
+  const drawOffsetUnits = getTextDrawOffsetUnits(entity, metricsUnits);
+  const fontPx = Math.abs(metricsUnits.heightUnits * state.view.zoom);
+  const rotationDeg = entity.rotation || 0;
+  const rotationRad = (rotationDeg * Math.PI) / 180;
+
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.setLineDash([]);
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = entity.align || "left";
+  ctx.fillStyle = "rgba(194, 105, 62, 0.9)";
+  ctx.translate(base.x, base.y);
+  if (rotationDeg) {
+    ctx.rotate(-rotationRad);
+  }
+  if (fontPx >= 1.5) {
+    ctx.font = `${fontPx}px sans-serif`;
+    ctx.fillText(
+      entity.text || "",
+      drawOffsetUnits.x * state.view.zoom,
+      drawOffsetUnits.y * state.view.zoom,
+    );
   }
   ctx.restore();
 }
