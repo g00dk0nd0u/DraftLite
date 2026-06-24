@@ -24,6 +24,8 @@ const layersPanelToggle = document.getElementById("layersPanelToggle");
 const propertiesPanel = document.getElementById("propertiesPanel");
 const propertiesPanelToggle = document.getElementById("propertiesPanelToggle");
 const libraryPanel = document.getElementById("libraryPanel");
+const libraryPanelBody = document.getElementById("libraryPanelBody");
+const libraryPanelToggle = document.getElementById("libraryPanelToggle");
 const addToLibraryButton = document.getElementById("addToLibraryButton");
 const exportLibraryButton = document.getElementById("exportLibraryButton");
 const importLibraryButton = document.getElementById("importLibraryButton");
@@ -262,7 +264,7 @@ const uiState = {
   libraryPlacementItemId: null,
   libraryPlacementPreviewPoint: null,
   libraryPlacementPointerInsideCanvas: false,
-  sidebarPanelsOpen: { layers: true, properties: true },
+  sidebarPanelsOpen: { layers: true, properties: true, library: true },
   libraryCategoryOpen: new Set(),
   canvasRect: canvas.getBoundingClientRect(),
   dpr: window.devicePixelRatio || 1,
@@ -2167,6 +2169,12 @@ function syncSidebarPanelVisibility() {
     propertiesPanel.hidden = !isOpen;
     propertiesPanelToggle.setAttribute("aria-expanded", String(isOpen));
     propertiesPanelToggle.textContent = isOpen ? "▾" : "▸";
+  }
+  if (libraryPanelBody && libraryPanelToggle) {
+    const isOpen = uiState.sidebarPanelsOpen.library;
+    libraryPanelBody.hidden = !isOpen;
+    libraryPanelToggle.setAttribute("aria-expanded", String(isOpen));
+    libraryPanelToggle.textContent = isOpen ? "▾" : "▸";
   }
 }
 
@@ -12045,6 +12053,7 @@ function bindEvents() {
   }
   if (layersPanelToggle) layersPanelToggle.addEventListener("click", () => toggleSidebarPanel("layers"));
   if (propertiesPanelToggle) propertiesPanelToggle.addEventListener("click", () => toggleSidebarPanel("properties"));
+  if (libraryPanelToggle) libraryPanelToggle.addEventListener("click", () => toggleSidebarPanel("library"));
   syncSidebarPanelVisibility();
   if (addToLibraryButton) addToLibraryButton.addEventListener("click", addSelectionToLibrary);
   if (exportLibraryButton) exportLibraryButton.addEventListener("click", exportLocalLibrary);
