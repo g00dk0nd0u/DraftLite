@@ -32,6 +32,8 @@
 - Default verification scope is:
   - `node --check docs/app.js`
   - `git diff --check`
+- If `docs/core/units.js` or `docs/core/geometry.js` is changed, also run:
+  - `node scripts/check_core.js`
 - Do not perform GUI/manual browser verification unless the user explicitly asks.
 - Do not use Playwright, Chrome automation, temporary browser scripts, or GUI automation unless explicitly instructed.
 - The user will manually verify GUI behavior in the browser.
