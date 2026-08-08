@@ -15,7 +15,7 @@ A lightweight browser-based 2D drafting tool for architectural details and resid
 - **Selection and modification:** Window/Crossing and additive selection, grip and rectangle-edge editing, Move, Copy, drag move/copy, Rotate, Mirror, line-to-line Align, Extend, radius-0 Fillet/Join, Delete, and rectangle Explode.
 - **Organization and reuse:** layers and properties; Group/Ungroup; reusable Block definitions and instances; and a persistent Library with built-in, repository, and local items plus JSON import/export.
 - **Annotation and layout:** Text annotation, Aligned Dimension, and configurable Title Blocks with canvas, PNG, PDF, and DXF output paths.
-- **References:** PDF Underlay import and replacement, plus linked DXF Underlays with reload/replacement support.
+- **References:** PDF Underlay import and replacement, plus linked DXF Underlays.
 - **Documents and interchange:** local autosave, compatible JSON save/load (including legacy document migration), and conservative R12/AC1009 ASCII DXF export.
 - **Agent integration:** Agent IO exposes drawing and group data for AI-assisted inspection, export, copying, and reuse.
 - **Interface:** compact toolbar, layer and properties sidebars, coarse 1 m dot grid, and persisted light/dark theme.
@@ -76,7 +76,7 @@ The `docs/core/units.js` and `docs/core/geometry.js` classic scripts begin the i
 
 ## Run
 
-Open `docs/index.html` directly in a browser. No npm, build step, or external library is required.
+Open `docs/index.html` directly in a browser. No npm or build step is required. PDF Underlay uses PDF.js loaded from cdnjs.
 
 For optional local HTTP serving:
 
