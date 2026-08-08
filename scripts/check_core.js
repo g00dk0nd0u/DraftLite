@@ -102,6 +102,49 @@ assert.equal(geometry.offsetLineTowardPoint(horizontal, 0, { x: 5, y: 7 }), null
 assert.equal(geometry.offsetLineTowardPoint(horizontal, -10, { x: 5, y: 7 }), null);
 assert.equal(geometry.offsetLineTowardPoint(horizontal, 10, { x: 5, y: 0 }), null);
 
+const trimTarget = { p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 } };
+const trimBoundary = { p1: { x: 50, y: -50 }, p2: { x: 50, y: 50 } };
+assertLine(
+  geometry.trimLineAtBoundary(trimTarget, trimBoundary, { x: 25, y: 0 }),
+  { p1: { x: 50, y: 0 }, p2: { x: 100, y: 0 } },
+  "trim clicked p1 side"
+);
+assertLine(
+  geometry.trimLineAtBoundary(trimTarget, trimBoundary, { x: 75, y: 0 }),
+  { p1: { x: 0, y: 0 }, p2: { x: 50, y: 0 } },
+  "trim clicked p2 side"
+);
+assertLine(
+  geometry.trimLineAtBoundary({ p1: { x: 100, y: 0 }, p2: { x: 0, y: 0 } }, trimBoundary, { x: 25, y: 0 }),
+  { p1: { x: 100, y: 0 }, p2: { x: 50, y: 0 } },
+  "trim reversed target physical left side"
+);
+const diagonalTrim = geometry.trimLineAtBoundary(
+  { p1: { x: 0, y: 0 }, p2: { x: 101, y: 101 } },
+  trimBoundary,
+  { x: 20, y: 20 }
+);
+assertLine(
+  diagonalTrim,
+  { p1: { x: 50, y: 50 }, p2: { x: 101, y: 101 } },
+  "diagonal trim"
+);
+assert.equal(Number.isInteger(diagonalTrim.p1.x), true);
+assert.equal(Number.isInteger(diagonalTrim.p1.y), true);
+assert.equal(geometry.trimLineAtBoundary(trimTarget, parallelHorizontal, { x: 25, y: 0 }), null);
+assert.equal(geometry.trimLineAtBoundary(zeroLength, trimBoundary, { x: 2, y: 2 }), null);
+assert.equal(geometry.trimLineAtBoundary(trimTarget, zeroLength, { x: 25, y: 0 }), null);
+assert.equal(geometry.trimLineAtBoundary(
+  { p1: { x: 0, y: 0 }, p2: { x: 40, y: 0 } }, trimBoundary, { x: 20, y: 0 }
+), null);
+assert.equal(geometry.trimLineAtBoundary(
+  trimTarget, { p1: { x: 50, y: 10 }, p2: { x: 50, y: 20 } }, { x: 25, y: 0 }
+), null);
+assert.equal(geometry.trimLineAtBoundary(
+  trimTarget, { p1: { x: 0, y: -50 }, p2: { x: 0, y: 50 } }, { x: 25, y: 0 }
+), null);
+assert.equal(geometry.trimLineAtBoundary(trimTarget, trimBoundary, { x: 50, y: 0 }), null);
+
 const rect = { left: 0, right: 10, top: 0, bottom: 10 };
 assert.equal(geometry.isPointInsideRect({ x: 0, y: 5 }, rect), true);
 assert.equal(geometry.isPointInsideRect({ x: 5, y: 5 }, rect), true);

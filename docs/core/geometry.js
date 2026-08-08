@@ -88,6 +88,49 @@
       },
     };
   }
+
+  function trimLineAtBoundary(targetLine, boundaryLine, targetPickPoint) {
+    const targetDx = targetLine.p2.x - targetLine.p1.x;
+    const targetDy = targetLine.p2.y - targetLine.p1.y;
+    const boundaryDx = boundaryLine.p2.x - boundaryLine.p1.x;
+    const boundaryDy = boundaryLine.p2.y - boundaryLine.p1.y;
+    const targetLengthSq = targetDx * targetDx + targetDy * targetDy;
+    const boundaryLengthSq = boundaryDx * boundaryDx + boundaryDy * boundaryDy;
+    const epsilon = 0.000001;
+    if (targetLengthSq === 0 || boundaryLengthSq === 0) {
+      return null;
+    }
+
+    const denominator = targetDx * boundaryDy - targetDy * boundaryDx;
+    if (Math.abs(denominator) <= epsilon) {
+      return null;
+    }
+    const originDx = boundaryLine.p1.x - targetLine.p1.x;
+    const originDy = boundaryLine.p1.y - targetLine.p1.y;
+    const t = (originDx * boundaryDy - originDy * boundaryDx) / denominator;
+    const u = (originDx * targetDy - originDy * targetDx) / denominator;
+    if (t <= epsilon || t >= 1 - epsilon || u < -epsilon || u > 1 + epsilon) {
+      return null;
+    }
+
+    const pickT = ((targetPickPoint.x - targetLine.p1.x) * targetDx
+      + (targetPickPoint.y - targetLine.p1.y) * targetDy) / targetLengthSq;
+    if (Math.abs(pickT - t) <= epsilon) {
+      return null;
+    }
+    const intersection = {
+      x: roundToUnit(targetLine.p1.x + targetDx * t),
+      y: roundToUnit(targetLine.p1.y + targetDy * t),
+    };
+    const matchesP1 = intersection.x === targetLine.p1.x && intersection.y === targetLine.p1.y;
+    const matchesP2 = intersection.x === targetLine.p2.x && intersection.y === targetLine.p2.y;
+    if (matchesP1 || matchesP2) {
+      return null;
+    }
+    return pickT < t
+      ? { p1: intersection, p2: { ...targetLine.p2 } }
+      : { p1: { ...targetLine.p1 }, p2: intersection };
+  }
   
     
     
@@ -166,6 +209,7 @@
     areLinesParallel,
     projectPointToInfiniteLineRaw,
     offsetLineTowardPoint,
+    trimLineAtBoundary,
     isPointInsideRect,
     orientation,
     onSegment,
