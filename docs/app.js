@@ -14,6 +14,7 @@ const {
   pointFromCenterRadiusAngle,
   areLinesParallel,
   projectPointToInfiniteLineRaw,
+  offsetLineTowardPoint,
   isPointInsideRect,
   orientation,
   onSegment,
@@ -85,6 +86,7 @@ const toolButtons = {
   mirror: document.getElementById("mirrorButton"),
   align: document.getElementById("alignButton"),
   extend: document.getElementById("extendButton"),
+  offset: document.getElementById("offsetButton"),
   fillet: document.getElementById("filletButton"),
 };
 
@@ -162,6 +164,7 @@ const MODIFY_REPEAT_TOOL_IDS = new Set([
   "mirror",
   "align",
   "extend",
+  "offset",
   "fillet",
 ]);
 
@@ -253,6 +256,7 @@ const uiState = {
   dimensionOffsetEditDraft: null,
   alignDraft: null,
   extendDraft: null,
+  offsetDraft: null,
   filletDraft: null,
   mirrorDraft: null,
   dimensionDraft: null,
@@ -401,7 +405,7 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.mirrorDraft) {
+  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.offsetDraft || uiState.mirrorDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
@@ -419,6 +423,7 @@ function clearTransientState() {
   uiState.alignDraft = null;
   uiState.mirrorDraft = null;
   uiState.extendDraft = null;
+  uiState.offsetDraft = null;
   uiState.filletDraft = null;
   uiState.dimensionDraft = null;
   uiState.matchPropertiesSourceId = null;
@@ -456,6 +461,7 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.alignDraft)
     || Boolean(uiState.mirrorDraft)
     || Boolean(uiState.extendDraft)
+    || Boolean(uiState.offsetDraft)
     || Boolean(uiState.filletDraft)
     || Boolean(uiState.dimensionDraft)
     || Boolean(uiState.matchPropertiesSourceId)
@@ -520,6 +526,7 @@ function isCommandInProgress() {
     || uiState.alignDraft
     || uiState.mirrorDraft
     || uiState.extendDraft
+    || uiState.offsetDraft
     || uiState.filletDraft
     || uiState.dimensionDraft
     || uiState.matchPropertiesSourceId
@@ -1656,6 +1663,14 @@ function cancelExtend(message = "Extend cancelled.") {
   uiState.extendDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
+  setStatus(message);
+}
+
+function cancelOffset(message = "Offset cancelled.") {
+  state.selectedEntityIds = [];
+  uiState.offsetDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
   setStatus(message);
 }
 
@@ -3980,6 +3995,15 @@ function draw() {
 
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
+  }
+  if (uiState.offsetDraft && uiState.offsetDraft.sourceEntityId) {
+    const sourceLine = getEntityById(uiState.offsetDraft.sourceEntityId);
+    const previewGeometry = sourceLine && canSelectEntity(sourceLine)
+      ? offsetLineTowardPoint(sourceLine, uiState.offsetDraft.distanceUnits, uiState.pointerWorld)
+      : null;
+    if (previewGeometry) {
+      drawPreviewLineEntity({ ...sourceLine, ...previewGeometry });
+    }
   }
   if (uiState.wireDraft) {
     drawDraftWire(uiState.wireDraft);
@@ -7316,6 +7340,68 @@ function handleExtendToolClick(worldPoint) {
   applyExtend(uiState.extendDraft.boundaryEntityId, targetEntity.id);
 }
 
+function confirmOffsetDistance() {
+  const draft = uiState.offsetDraft;
+  if (!draft || draft.distanceUnits !== null) {
+    return false;
+  }
+  const distanceMm = Number.parseFloat(draft.numericInputBuffer);
+  const distanceUnits = mmToUnits(distanceMm);
+  if (!draft.numericInputBuffer || !Number.isFinite(distanceMm) || distanceMm <= 0 || distanceUnits <= 0) {
+    setStatus("Offset: enter a positive distance in mm.");
+    return false;
+  }
+  draft.distanceUnits = distanceUnits;
+  setStatus("Offset: pick source line");
+  draw();
+  renderStatusPanel();
+  return true;
+}
+
+function handleOffsetToolClick(worldPoint) {
+  const draft = uiState.offsetDraft;
+  if (!draft || draft.distanceUnits === null) {
+    setStatus("Offset: enter distance in mm");
+    return;
+  }
+
+  if (!draft.sourceEntityId) {
+    const targetEntity = findFilletTargetAtPoint(worldPoint);
+    if (!targetEntity) {
+      setStatus("Offset: line only. Pick a visible, unlocked line.");
+      return;
+    }
+    draft.sourceEntityId = targetEntity.id;
+    state.selectedEntityIds = [targetEntity.id];
+    syncAfterStateChange(false);
+    setStatus("Offset: pick side");
+    return;
+  }
+
+  const sourceLine = getEntityById(draft.sourceEntityId);
+  const geometry = sourceLine && canSelectEntity(sourceLine)
+    ? offsetLineTowardPoint(sourceLine, draft.distanceUnits, worldPoint)
+    : null;
+  if (!geometry) {
+    setStatus("Offset: pick a side away from the source line.");
+    return;
+  }
+
+  pushUndoState();
+  state.entities.push({
+    ...sourceLine,
+    id: createEntityId(),
+    p1: geometry.p1,
+    p2: geometry.p2,
+  });
+  const distanceMm = Number(unitsToMm(draft.distanceUnits).toFixed(1));
+  state.selectedEntityIds = [];
+  uiState.offsetDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus(`Offset applied: ${distanceMm} mm.`);
+}
+
 function getInfiniteLineIntersection(lineA, lineB) {
   const x1 = lineA.p1.x;
   const y1 = lineA.p1.y;
@@ -10161,6 +10247,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     return;
   }
 
+  if (uiState.activeTool === "offset") {
+    handleOffsetToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
+
   if (uiState.activeTool === "fillet") {
     handleFilletToolClick(roundWorldPoint(rawWorldPoint));
     return;
@@ -10814,6 +10905,15 @@ function setActiveTool(tool, options = {}) {
   }
   if (tool === "extend") {
     setStatus("Extend: pick boundary line");
+    return;
+  }
+  if (tool === "offset") {
+    uiState.offsetDraft = {
+      numericInputBuffer: "",
+      distanceUnits: null,
+      sourceEntityId: null,
+    };
+    setStatus("Offset: enter distance in mm");
     return;
   }
   if (tool === "mirror") {
@@ -11585,6 +11685,12 @@ function onKeyDown(event) {
     return;
   }
 
+  if (event.key === "Escape" && uiState.offsetDraft && !textInputActive) {
+    event.preventDefault();
+    cancelOffset();
+    return;
+  }
+
   if (event.key === "Escape") {
     if (textInputActive) {
       return;
@@ -11600,6 +11706,34 @@ function onKeyDown(event) {
     }
     if (shouldIgnoreSpaceRepeat(event)) {
       event.preventDefault();
+      return;
+    }
+  }
+
+
+  if (uiState.offsetDraft && uiState.offsetDraft.distanceUnits === null && !textInputActive) {
+    if (/^\d$/.test(event.key) || (event.key === "." && !uiState.offsetDraft.numericInputBuffer.includes("."))) {
+      event.preventDefault();
+      uiState.offsetDraft.numericInputBuffer += event.key;
+      setStatus(`Offset: enter distance in mm (${uiState.offsetDraft.numericInputBuffer})`);
+      draw();
+      renderStatusPanel();
+      return;
+    }
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      uiState.offsetDraft.numericInputBuffer = uiState.offsetDraft.numericInputBuffer.slice(0, -1);
+      const suffix = uiState.offsetDraft.numericInputBuffer
+        ? ` (${uiState.offsetDraft.numericInputBuffer})`
+        : "";
+      setStatus(`Offset: enter distance in mm${suffix}`);
+      draw();
+      renderStatusPanel();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      confirmOffsetDistance();
       return;
     }
   }
@@ -11863,6 +11997,7 @@ function bindEvents() {
   toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
+  toolButtons.offset.addEventListener("click", () => setActiveTool("offset"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
