@@ -60,6 +60,34 @@
       y: line.p1.y + dy * t,
     };
   }
+
+  function offsetLineTowardPoint(line, distanceUnits, sidePoint) {
+    const dx = line.p2.x - line.p1.x;
+    const dy = line.p2.y - line.p1.y;
+    const length = Math.hypot(dx, dy);
+    if (length === 0 || !Number.isFinite(distanceUnits) || distanceUnits <= 0) {
+      return null;
+    }
+
+    const cross = dx * (sidePoint.y - line.p1.y) - dy * (sidePoint.x - line.p1.x);
+    if (cross === 0) {
+      return null;
+    }
+
+    const sign = cross > 0 ? 1 : -1;
+    const offsetX = (-dy / length) * distanceUnits * sign;
+    const offsetY = (dx / length) * distanceUnits * sign;
+    return {
+      p1: {
+        x: roundToUnit(line.p1.x + offsetX),
+        y: roundToUnit(line.p1.y + offsetY),
+      },
+      p2: {
+        x: roundToUnit(line.p2.x + offsetX),
+        y: roundToUnit(line.p2.y + offsetY),
+      },
+    };
+  }
   
     
     
@@ -137,6 +165,7 @@
     pointFromCenterRadiusAngle,
     areLinesParallel,
     projectPointToInfiniteLineRaw,
+    offsetLineTowardPoint,
     isPointInsideRect,
     orientation,
     onSegment,

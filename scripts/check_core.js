@@ -57,6 +57,51 @@ assertClose(projected.x, 5, "projected x coordinate");
 assertClose(projected.y, 0, "projected y coordinate");
 assert.equal(geometry.projectPointToInfiniteLineRaw({ x: 5, y: 7 }, zeroLength), null);
 
+function assertLine(actual, expected, message) {
+  assert.ok(actual, `${message} should produce a line`);
+  assert.equal(actual.p1.x, expected.p1.x, `${message} p1.x`);
+  assert.equal(actual.p1.y, expected.p1.y, `${message} p1.y`);
+  assert.equal(actual.p2.x, expected.p2.x, `${message} p2.x`);
+  assert.equal(actual.p2.y, expected.p2.y, `${message} p2.y`);
+}
+
+const offsetSourceHorizontal = { p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 } };
+assertLine(
+  geometry.offsetLineTowardPoint(offsetSourceHorizontal, 10, { x: 50, y: 50 }),
+  { p1: { x: 0, y: 10 }, p2: { x: 100, y: 10 } },
+  "horizontal positive offset"
+);
+assertLine(
+  geometry.offsetLineTowardPoint(offsetSourceHorizontal, 10, { x: 50, y: -50 }),
+  { p1: { x: 0, y: -10 }, p2: { x: 100, y: -10 } },
+  "horizontal negative offset"
+);
+const offsetSourceVertical = { p1: { x: 0, y: 0 }, p2: { x: 0, y: 100 } };
+assertLine(
+  geometry.offsetLineTowardPoint(offsetSourceVertical, 10, { x: -50, y: 50 }),
+  { p1: { x: -10, y: 0 }, p2: { x: -10, y: 100 } },
+  "vertical left offset"
+);
+assertLine(
+  geometry.offsetLineTowardPoint(offsetSourceVertical, 10, { x: 50, y: 50 }),
+  { p1: { x: 10, y: 0 }, p2: { x: 10, y: 100 } },
+  "vertical right offset"
+);
+assertLine(
+  geometry.offsetLineTowardPoint({ p1: { x: 100, y: 0 }, p2: { x: 0, y: 0 } }, 10, { x: 50, y: 50 }),
+  { p1: { x: 100, y: 10 }, p2: { x: 0, y: 10 } },
+  "reversed horizontal offset"
+);
+assertLine(
+  geometry.offsetLineTowardPoint({ p1: { x: 0, y: 0 }, p2: { x: 100, y: 100 } }, 10, { x: 0, y: 100 }),
+  { p1: { x: -7, y: 7 }, p2: { x: 93, y: 107 } },
+  "diagonal offset"
+);
+assert.equal(geometry.offsetLineTowardPoint(zeroLength, 10, { x: 5, y: 7 }), null);
+assert.equal(geometry.offsetLineTowardPoint(horizontal, 0, { x: 5, y: 7 }), null);
+assert.equal(geometry.offsetLineTowardPoint(horizontal, -10, { x: 5, y: 7 }), null);
+assert.equal(geometry.offsetLineTowardPoint(horizontal, 10, { x: 5, y: 0 }), null);
+
 const rect = { left: 0, right: 10, top: 0, bottom: 10 };
 assert.equal(geometry.isPointInsideRect({ x: 0, y: 5 }, rect), true);
 assert.equal(geometry.isPointInsideRect({ x: 5, y: 5 }, rect), true);
