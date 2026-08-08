@@ -1,6 +1,13 @@
 "use strict";
 
-const { unitsToMm, mmToUnits, legacyUnitsToCurrentUnits, roundToUnit } = window.DraftLiteUnits;
+const {
+  UNIT_MM,
+  LEGACY_UNIT_MM,
+  unitsToMm,
+  mmToUnits,
+  legacyUnitsToCurrentUnits,
+  roundToUnit,
+} = window.DraftLiteUnits;
 const {
   rotatePoint,
   normalizeAngleDeg,
@@ -18,8 +25,6 @@ const {
 const STORAGE_KEY = "draftlite.autosave.v1";
 const CUSTOM_LIBRARY_STORAGE_KEY = "draftlite.customLibrary.v1";
 const CURRENT_FILE_VERSION = 2;
-const UNIT_MM = 0.1;
-const LEGACY_UNIT_MM = 0.5;
 const GRID_MAJOR_MM = 1000;
 const GRID_MAJOR_UNIT = mmToUnits(GRID_MAJOR_MM);
 const DEFAULT_ZOOM = 0.024;

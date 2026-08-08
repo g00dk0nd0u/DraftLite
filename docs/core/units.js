@@ -21,6 +21,8 @@
   }
 
   window.DraftLiteUnits = Object.freeze({
+    UNIT_MM,
+    LEGACY_UNIT_MM,
     unitsToMm,
     mmToUnits,
     legacyUnitsToCurrentUnits,
