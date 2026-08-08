@@ -3998,7 +3998,7 @@ function draw() {
   }
   if (uiState.offsetDraft && uiState.offsetDraft.sourceEntityId) {
     const sourceLine = getEntityById(uiState.offsetDraft.sourceEntityId);
-    const previewGeometry = sourceLine
+    const previewGeometry = sourceLine && canSelectEntity(sourceLine)
       ? offsetLineTowardPoint(sourceLine, uiState.offsetDraft.distanceUnits, uiState.pointerWorld)
       : null;
     if (previewGeometry) {
@@ -7366,8 +7366,8 @@ function handleOffsetToolClick(worldPoint) {
   }
 
   if (!draft.sourceEntityId) {
-    const targetEntity = findSelectableEntityAtPoint(worldPoint);
-    if (!targetEntity || targetEntity.type !== "line") {
+    const targetEntity = findFilletTargetAtPoint(worldPoint);
+    if (!targetEntity) {
       setStatus("Offset: line only. Pick a visible, unlocked line.");
       return;
     }
@@ -7394,7 +7394,7 @@ function handleOffsetToolClick(worldPoint) {
     p1: geometry.p1,
     p2: geometry.p2,
   });
-  const distanceMm = unitsToMm(draft.distanceUnits);
+  const distanceMm = Number(unitsToMm(draft.distanceUnits).toFixed(1));
   state.selectedEntityIds = [];
   uiState.offsetDraft = null;
   uiState.activeTool = "select";
