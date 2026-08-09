@@ -442,6 +442,19 @@ summary:focus-visible {
   display: none;
 }
 
+.command-guide {
+  flex: 0 0 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .canvas-meta {
   display: flex;
   flex-wrap: wrap;

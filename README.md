@@ -18,7 +18,7 @@ A lightweight browser-based 2D drafting tool for architectural details and resid
 - **References:** PDF Underlay import and replacement, plus linked DXF Underlays.
 - **Documents and interchange:** local autosave, compatible JSON save/load (including legacy document migration), conservative R12/AC1009 ASCII DXF export, and drawing-level PDF export from Manage / File using a visible Title Block.
 - **Agent integration:** Agent IO exposes drawing and group data for AI-assisted inspection, export, copying, and reuse.
-- **Interface:** compact toolbar, layer and properties sidebars, coarse 1 m dot grid, and persisted light/dark theme.
+- **Interface:** compact toolbar, layer and properties sidebars, a persistent concise command guide for multi-step Modify tools, coarse 1 m dot grid, and persisted light/dark theme.
 
 ## Current MVP scope
 
@@ -97,4 +97,5 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 
 - Stabilization sequence Issues #69–#72 completed.
 - Completed: chained Multi-target Align — Issue #83.
-- Current: drawing-level PDF export — Issue #85.
+- Completed: drawing-level PDF export — Issue #85.
+- Current: concise multi-step command guide — Issue #87.
