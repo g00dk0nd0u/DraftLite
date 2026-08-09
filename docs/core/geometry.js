@@ -131,6 +131,110 @@
       ? { p1: intersection, p2: { ...targetLine.p2 } }
       : { p1: { ...targetLine.p1 }, p2: intersection };
   }
+
+  function filletLinesWithRadius(firstLine, firstPickPoint, secondLine, secondPickPoint, radiusUnits) {
+    const epsilon = 0.000001;
+    if (!Number.isFinite(radiusUnits) || radiusUnits <= 0 || !Number.isInteger(radiusUnits)) {
+      return null;
+    }
+
+    const firstVector = {
+      x: firstLine.p2.x - firstLine.p1.x,
+      y: firstLine.p2.y - firstLine.p1.y,
+    };
+    const secondVector = {
+      x: secondLine.p2.x - secondLine.p1.x,
+      y: secondLine.p2.y - secondLine.p1.y,
+    };
+    const firstLength = Math.hypot(firstVector.x, firstVector.y);
+    const secondLength = Math.hypot(secondVector.x, secondVector.y);
+    if (firstLength <= epsilon || secondLength <= epsilon) {
+      return null;
+    }
+
+    const denominator = firstVector.x * secondVector.y - firstVector.y * secondVector.x;
+    if (Math.abs(denominator) / (firstLength * secondLength) <= epsilon) {
+      return null;
+    }
+    const originDelta = {
+      x: secondLine.p1.x - firstLine.p1.x,
+      y: secondLine.p1.y - firstLine.p1.y,
+    };
+    const firstT = (originDelta.x * secondVector.y - originDelta.y * secondVector.x) / denominator;
+    const intersection = {
+      x: firstLine.p1.x + firstVector.x * firstT,
+      y: firstLine.p1.y + firstVector.y * firstT,
+    };
+
+    function getKeepRay(line, pickPoint) {
+      const projected = projectPointToInfiniteLineRaw(pickPoint, line);
+      if (!projected) return null;
+      const fromIntersection = {
+        x: projected.x - intersection.x,
+        y: projected.y - intersection.y,
+      };
+      const length = Math.hypot(fromIntersection.x, fromIntersection.y);
+      if (length <= epsilon) return null;
+      return { x: fromIntersection.x / length, y: fromIntersection.y / length };
+    }
+
+    const u1 = getKeepRay(firstLine, firstPickPoint);
+    const u2 = getKeepRay(secondLine, secondPickPoint);
+    if (!u1 || !u2) return null;
+    const dot = Math.max(-1, Math.min(1, u1.x * u2.x + u1.y * u2.y));
+    const theta = Math.acos(dot);
+    if (theta <= epsilon || Math.PI - theta <= epsilon) return null;
+    const tangentDistance = radiusUnits / Math.tan(theta / 2);
+    const centerDistance = radiusUnits / Math.sin(theta / 2);
+    if (!Number.isFinite(tangentDistance) || !Number.isFinite(centerDistance)) return null;
+
+    const bisector = { x: u1.x + u2.x, y: u1.y + u2.y };
+    const bisectorLength = Math.hypot(bisector.x, bisector.y);
+    if (bisectorLength <= epsilon) return null;
+    const tangent1 = {
+      x: roundToUnit(intersection.x + u1.x * tangentDistance),
+      y: roundToUnit(intersection.y + u1.y * tangentDistance),
+    };
+    const tangent2 = {
+      x: roundToUnit(intersection.x + u2.x * tangentDistance),
+      y: roundToUnit(intersection.y + u2.y * tangentDistance),
+    };
+    const center = {
+      x: roundToUnit(intersection.x + (bisector.x / bisectorLength) * centerDistance),
+      y: roundToUnit(intersection.y + (bisector.y / bisectorLength) * centerDistance),
+    };
+
+    function getRetainedLine(line, ray, tangent) {
+      const p1Distance = (line.p1.x - intersection.x) * ray.x + (line.p1.y - intersection.y) * ray.y;
+      const p2Distance = (line.p2.x - intersection.x) * ray.x + (line.p2.y - intersection.y) * ray.y;
+      const keepP1 = p1Distance > p2Distance;
+      const farDistance = keepP1 ? p1Distance : p2Distance;
+      if (farDistance <= tangentDistance + epsilon) return null;
+      const retained = keepP1
+        ? { p1: { ...line.p1 }, p2: tangent }
+        : { p1: tangent, p2: { ...line.p2 } };
+      if (retained.p1.x === retained.p2.x && retained.p1.y === retained.p2.y) return null;
+      return retained;
+    }
+
+    const retainedFirst = getRetainedLine(firstLine, u1, tangent1);
+    const retainedSecond = getRetainedLine(secondLine, u2, tangent2);
+    if (!retainedFirst || !retainedSecond) return null;
+
+    const firstAngle = normalizeAngleDeg(Math.atan2(tangent1.y - center.y, tangent1.x - center.x) * 180 / Math.PI);
+    const secondAngle = normalizeAngleDeg(Math.atan2(tangent2.y - center.y, tangent2.x - center.x) * 180 / Math.PI);
+    const forwardSweep = (secondAngle - firstAngle + 360) % 360;
+    return {
+      firstLine: retainedFirst,
+      secondLine: retainedSecond,
+      arc: {
+        center,
+        radius: roundToUnit(radiusUnits),
+        startAngleDeg: forwardSweep <= 180 ? firstAngle : secondAngle,
+        endAngleDeg: forwardSweep <= 180 ? secondAngle : firstAngle,
+      },
+    };
+  }
   
     
     
@@ -210,6 +314,7 @@
     projectPointToInfiniteLineRaw,
     offsetLineTowardPoint,
     trimLineAtBoundary,
+    filletLinesWithRadius,
     isPointInsideRect,
     orientation,
     onSegment,

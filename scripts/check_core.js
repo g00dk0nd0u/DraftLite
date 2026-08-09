@@ -180,6 +180,69 @@ assert.equal(geometry.isScreenPointInsideRect({ x: 10, y: 5 }, rect), true);
 assert.equal(geometry.isScreenPointInsideRect({ x: 5, y: 5 }, rect), true);
 assert.equal(geometry.isScreenPointInsideRect({ x: 5, y: 11 }, rect), false);
 
+const filletHorizontal = { p1: { x: -100, y: 0 }, p2: { x: 100, y: 0 } };
+const filletVertical = { p1: { x: 0, y: -100 }, p2: { x: 0, y: 100 } };
+function assertFilletPoint(actual, expected, message) {
+  assert.equal(actual.x, expected.x, `${message} x`);
+  assert.equal(actual.y, expected.y, `${message} y`);
+}
+function assertMinorFilletArc(arc, message) {
+  const sweep = (arc.endAngleDeg - arc.startAngleDeg + 360) % 360;
+  assert.ok(sweep > 0 && sweep <= 180, `${message} should be a minor arc`);
+}
+
+const lowerRightFillet = geometry.filletLinesWithRadius(
+  filletHorizontal, { x: 75, y: 0 }, filletVertical, { x: 0, y: 75 }, 10
+);
+assert.ok(lowerRightFillet, "lower-right fillet should succeed");
+assertLine(lowerRightFillet.firstLine, { p1: { x: 10, y: 0 }, p2: { x: 100, y: 0 } }, "lower-right first line");
+assertLine(lowerRightFillet.secondLine, { p1: { x: 0, y: 10 }, p2: { x: 0, y: 100 } }, "lower-right second line");
+assertFilletPoint(lowerRightFillet.arc.center, { x: 10, y: 10 }, "lower-right center");
+assert.equal(lowerRightFillet.arc.radius, 10);
+assertMinorFilletArc(lowerRightFillet.arc, "lower-right arc");
+
+const oppositeFillet = geometry.filletLinesWithRadius(
+  filletHorizontal, { x: -75, y: 0 }, filletVertical, { x: 0, y: -75 }, 10
+);
+assertFilletPoint(oppositeFillet.firstLine.p2, { x: -10, y: 0 }, "opposite first tangent");
+assertFilletPoint(oppositeFillet.secondLine.p2, { x: 0, y: -10 }, "opposite second tangent");
+assertFilletPoint(oppositeFillet.arc.center, { x: -10, y: -10 }, "opposite center");
+
+const reversedFillet = geometry.filletLinesWithRadius(
+  { p1: filletHorizontal.p2, p2: filletHorizontal.p1 }, { x: 75, y: 0 },
+  { p1: filletVertical.p2, p2: filletVertical.p1 }, { x: 0, y: 75 }, 10
+);
+assertFilletPoint(reversedFillet.firstLine.p2, { x: 10, y: 0 }, "reversed first tangent");
+assertFilletPoint(reversedFillet.secondLine.p2, { x: 0, y: 10 }, "reversed second tangent");
+assertFilletPoint(reversedFillet.arc.center, lowerRightFillet.arc.center, "reversed center");
+
+const diagonalFillet = geometry.filletLinesWithRadius(
+  { p1: { x: -100, y: 0 }, p2: { x: 100, y: 0 } }, { x: 75, y: 0 },
+  { p1: { x: -100, y: -100 }, p2: { x: 100, y: 100 } }, { x: 75, y: 75 }, 10
+);
+assert.ok(diagonalFillet, "diagonal fillet should succeed");
+[
+  diagonalFillet.firstLine.p1, diagonalFillet.firstLine.p2,
+  diagonalFillet.secondLine.p1, diagonalFillet.secondLine.p2,
+  diagonalFillet.arc.center,
+].forEach((point) => {
+  assert.equal(Number.isInteger(point.x), true);
+  assert.equal(Number.isInteger(point.y), true);
+});
+assert.equal(Number.isInteger(diagonalFillet.arc.radius), true);
+assert.ok(diagonalFillet.firstLine.p1.x !== diagonalFillet.firstLine.p2.x
+  || diagonalFillet.firstLine.p1.y !== diagonalFillet.firstLine.p2.y);
+assert.ok(diagonalFillet.secondLine.p1.x !== diagonalFillet.secondLine.p2.x
+  || diagonalFillet.secondLine.p1.y !== diagonalFillet.secondLine.p2.y);
+
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 75, y: 0 }, parallelHorizontal, { x: 75, y: 5 }, 10), null);
+assert.equal(geometry.filletLinesWithRadius(zeroLength, { x: 2, y: 2 }, filletVertical, { x: 0, y: 75 }, 10), null);
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 75, y: 0 }, zeroLength, { x: 2, y: 2 }, 10), null);
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 75, y: 0 }, filletVertical, { x: 0, y: 75 }, 0), null);
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 75, y: 0 }, filletVertical, { x: 0, y: 75 }, -10), null);
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 0, y: 0 }, filletVertical, { x: 0, y: 75 }, 10), null);
+assert.equal(geometry.filletLinesWithRadius(filletHorizontal, { x: 75, y: 0 }, filletVertical, { x: 0, y: 75 }, 100), null);
+
 const dxf = context.window.DraftLiteDxfCore;
 assert.ok(dxf, "DraftLiteDxfCore namespace should exist");
 assert.equal(Object.isFrozen(dxf), true);
