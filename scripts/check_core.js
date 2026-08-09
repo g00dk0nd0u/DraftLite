@@ -8,7 +8,7 @@ const vm = require("node:vm");
 const rootDir = path.resolve(__dirname, "..");
 const context = vm.createContext({ window: {} });
 
-for (const relativePath of ["docs/core/units.js", "docs/core/geometry.js"]) {
+for (const relativePath of ["docs/core/units.js", "docs/core/geometry.js", "docs/core/dxf.js"]) {
   const filePath = path.join(rootDir, relativePath);
   const source = fs.readFileSync(filePath, "utf8");
   vm.runInContext(source, context, { filename: filePath });
@@ -179,5 +179,24 @@ assert.equal(geometry.isPointInPolygon({ x: 15, y: 5 }, square), false);
 assert.equal(geometry.isScreenPointInsideRect({ x: 10, y: 5 }, rect), true);
 assert.equal(geometry.isScreenPointInsideRect({ x: 5, y: 5 }, rect), true);
 assert.equal(geometry.isScreenPointInsideRect({ x: 5, y: 11 }, rect), false);
+
+const dxf = context.window.DraftLiteDxfCore;
+assert.ok(dxf, "DraftLiteDxfCore namespace should exist");
+assert.equal(Object.isFrozen(dxf), true);
+assert.equal(dxf.dxfXUnitsToMm(10), 1);
+assert.equal(dxf.dxfYUnitsToMm(10), -1);
+assert.equal(dxf.dxfAngleDegFromCanvasAngle(0), 0);
+assert.equal(dxf.dxfAngleDegFromCanvasAngle(90), 270);
+assert.equal(dxf.dxfAngleDegFromCanvasAngle(-90), 90);
+assert.equal(dxf.dxfAngleDegFromCanvasAngle(450), 270);
+
+const dxfArcAngles = dxf.getDxfArcAngles(0, 90);
+assert.equal(dxfArcAngles.start, 270);
+assert.equal(dxfArcAngles.end, 0);
+
+assert.equal(dxf.sanitizeDxfLayerName("A B/C"), "A_B_C");
+assert.equal(dxf.sanitizeDxfLayerName(""), "0");
+assert.equal(dxf.sanitizeDxfText("  A\nB\tC\u0001日本語  "), "A B C???");
+assert.equal(dxf.formatDxfNumber(1.23456), "1.235");
 
 console.log("DraftLite core checks passed.");
