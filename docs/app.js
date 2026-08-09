@@ -78,6 +78,8 @@ const titleBlockApi = window.DraftLiteTitleBlock || null;
 const pdfUnderlayApi = window.DraftLitePdfUnderlay || null;
 const DEFAULT_LINE_WEIGHT_MM = 0.25;
 const LINE_WEIGHT_PRESETS_MM = [0.13, 0.18, 0.25, 0.35, 0.50, 0.70];
+const DEFAULT_LINE_TYPE = "continuous";
+const LINE_TYPE_PRESETS = ["continuous", "dashed", "center", "hidden"];
 const dxfUnderlayApi = window.DraftLiteDxfUnderlay || null;
 
 const toolButtons = {
@@ -381,6 +383,7 @@ function createInitialState() {
         name: "Layer 1",
         color: "#2e3135",
         lineWeightMm: DEFAULT_LINE_WEIGHT_MM,
+        lineType: DEFAULT_LINE_TYPE,
         visible: true,
         locked: false,
       },
@@ -1840,6 +1843,7 @@ function normalizeLayer(layer, index) {
     name: typeof layer.name === "string" && layer.name.trim() ? layer.name.trim() : `Layer ${index + 1}`,
     color: typeof layer.color === "string" && layer.color ? layer.color : "#2e3135",
     lineWeightMm: normalizeLineWeightMm(layer.lineWeightMm),
+    lineType: normalizeLineType(layer.lineType),
     visible: layer.visible !== false,
     locked: Boolean(layer.locked),
   };
@@ -1850,12 +1854,33 @@ function normalizeLineWeightMm(value) {
   return LINE_WEIGHT_PRESETS_MM.includes(numeric) ? numeric : DEFAULT_LINE_WEIGHT_MM;
 }
 
+function normalizeLineType(value) {
+  return LINE_TYPE_PRESETS.includes(value) ? value : DEFAULT_LINE_TYPE;
+}
+
 function getLayerLineWeightMm(layerId) {
   return normalizeLineWeightMm(getLayerById(layerId)?.lineWeightMm);
 }
 
 function getCanvasLineWidthForLayer(layerId, baseWidth = 1) {
   return baseWidth * getLayerLineWeightMm(layerId) / DEFAULT_LINE_WEIGHT_MM;
+}
+
+function getLayerLineType(layerId) {
+  return normalizeLineType(getLayerById(layerId)?.lineType);
+}
+
+function getCanvasDashForLineType(lineType) {
+  switch (normalizeLineType(lineType)) {
+    case "dashed": return [8, 6];
+    case "center": return [16, 4, 3, 4];
+    case "hidden": return [4, 4];
+    default: return [];
+  }
+}
+
+function getLayerStrokeDash(layerId) {
+  return getCanvasDashForLineType(getLayerLineType(layerId));
 }
 
 function normalizeUnitValue(value, legacyUnits) {
@@ -2874,6 +2899,7 @@ function renderLayersPanel() {
   appendHeaderCell("layer-header-icon", "👁", "Visible");
   appendHeaderCell("layer-header-name", "Name");
   appendHeaderCell("layer-header-weight", "Weight", "Line weight");
+  appendHeaderCell("layer-header-type", "Type", "Line type");
   appendHeaderCell("layer-header-icon", "🔒", "Lock");
   const colorHeader = document.createElement("div");
   colorHeader.className = "layer-header-color";
@@ -2913,6 +2939,25 @@ function renderLayersPanel() {
       syncAfterStateChange();
       setStatus(`${layer.name} line weight: ${nextWeight.toFixed(2)} mm.`);
     });
+    const lineTypeSelect = document.createElement("select");
+    lineTypeSelect.className = "layer-line-type";
+    lineTypeSelect.setAttribute("aria-label", `${layer.name} line type`);
+    LINE_TYPE_PRESETS.forEach((lineType) => {
+      const option = document.createElement("option");
+      option.value = lineType;
+      option.textContent = lineType.charAt(0).toUpperCase() + lineType.slice(1);
+      lineTypeSelect.appendChild(option);
+    });
+    lineTypeSelect.value = normalizeLineType(layer.lineType);
+    lineTypeSelect.addEventListener("change", (event) => {
+      event.stopPropagation();
+      const nextLineType = normalizeLineType(lineTypeSelect.value);
+      if (nextLineType === layer.lineType) return;
+      pushUndoState();
+      layer.lineType = nextLineType;
+      syncAfterStateChange();
+      setStatus(`${layer.name} line type: ${lineTypeSelect.options[lineTypeSelect.selectedIndex].text}.`);
+    });
     const visibleInput = document.createElement("input"); visibleInput.type = "checkbox"; visibleInput.checked = layer.visible;
     visibleInput.addEventListener("change", () => { pushUndoState(); layer.visible = visibleInput.checked; syncAfterStateChange(); setStatus(`${layer.name} ${layer.visible ? "shown" : "hidden"}.`); });
     const lockInput = document.createElement("input"); lockInput.type = "checkbox"; lockInput.checked = layer.locked;
@@ -2928,7 +2973,7 @@ function renderLayersPanel() {
     settingsButton.title = "Layer settings";
     settingsButton.setAttribute("aria-label", "Layer settings");
     settingsButton.addEventListener("click", () => { setStatus("Layer settings are not implemented yet."); });
-    row.append(activeRadio, visibleInput, nameWrap, lineWeightSelect, lockInput, colorWrap, settingsButton);
+    row.append(activeRadio, visibleInput, nameWrap, lineWeightSelect, lineTypeSelect, lockInput, colorWrap, settingsButton);
     layerList.appendChild(row);
   });
 }
@@ -3172,7 +3217,14 @@ function getEntityStrokeDash(entity) {
   if (entity.dashed === true || entity.lineStyle === "dashed") {
     return [8, 6];
   }
-  return [];
+  return getLayerStrokeDash(entity.layerId);
+}
+
+function getEntityLineTypeForExport(entity) {
+  if (normalizeOptionalDash(entity.dash) || entity.dashed === true || entity.lineStyle === "dashed") {
+    return "dashed";
+  }
+  return getLayerLineType(entity.layerId);
 }
 
 function getEntityFillOpacity(entity, baseAlpha) {
@@ -4368,9 +4420,9 @@ function drawLineEntity(entity) {
   ctx.globalAlpha = getEntityOpacity(entity);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.setLineDash(getEntityStrokeDash(entity));
 
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.22)";
     ctx.lineWidth = 10;
     ctx.beginPath();
@@ -4379,6 +4431,7 @@ function drawLineEntity(entity) {
     ctx.stroke();
   }
 
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
@@ -4387,6 +4440,7 @@ function drawLineEntity(entity) {
   ctx.stroke();
 
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.fillStyle = "#fffaf2";
     [screenP1, screenP2].forEach((point, index) => {
       const endpoint = index === 0 ? "p1" : "p2";
@@ -4415,14 +4469,15 @@ function drawWireEntity(entity) {
   ctx.globalAlpha = getEntityOpacity(entity);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.setLineDash(getEntityStrokeDash(entity));
 
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.22)";
     ctx.lineWidth = 10;
     drawWirePath(entity.start, entity.end, entity.tension);
   }
 
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   drawWirePath(entity.start, entity.end, entity.tension);
@@ -4537,6 +4592,8 @@ function drawSelectedEntityHandles(entity) {
     ? uiState.hoverMoveAnchor
     : null;
 
+  ctx.save();
+  ctx.setLineDash([]);
   handles.forEach((handle) => {
     const screenPoint = worldToScreen(handle.point);
     const isActive = activeHandle
@@ -4552,6 +4609,7 @@ function drawSelectedEntityHandles(entity) {
     ctx.fill();
     ctx.stroke();
   });
+  ctx.restore();
 }
 
 function drawDimensionEndpointHandles(entity, previewPoints = null) {
@@ -4677,18 +4735,19 @@ function drawRectEntity(entity) {
     return;
   }
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.setLineDash(getEntityStrokeDash(entity));
   if (entity.fill !== false) {
     ctx.fillStyle = getRenderableEntityFillStyle(entity, layer.color, getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
     buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
     ctx.fill();
   }
   if (isSelected && !edgeHovered) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.28)";
     ctx.lineWidth = 10;
     buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
     ctx.stroke();
   }
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   buildRoundedRectPath(ctx, p1.x, p1.y, w, h, radiusPx);
@@ -4709,6 +4768,7 @@ function drawRectEntity(entity) {
   if (edgeHovered) {
     const hoveredEdge = getRectEdges(entity).find((edge) => edge.edge === uiState.hoverRectEdge.edge);
     if (hoveredEdge) {
+      ctx.setLineDash([]);
       const start = worldToScreen(hoveredEdge.p1);
       const end = worldToScreen(hoveredEdge.p2);
       ctx.strokeStyle = "rgba(194, 105, 62, 0.82)";
@@ -4756,14 +4816,15 @@ function drawCircleEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.setLineDash(getEntityStrokeDash(entity));
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
     ctx.lineWidth = 10;
     ctx.beginPath();
     ctx.arc(center.x, center.y, radiusPx, 0, Math.PI * 2);
     ctx.stroke();
   }
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
@@ -4781,14 +4842,15 @@ function drawArcEntity(entity) {
   const endRad = (entity.endAngleDeg || 0) * Math.PI / 180;
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.setLineDash(getEntityStrokeDash(entity));
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
     ctx.lineWidth = 10;
     ctx.beginPath();
     ctx.arc(center.x, center.y, radiusPx, startRad, endRad);
     ctx.stroke();
   }
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.beginPath();
@@ -4803,7 +4865,6 @@ function drawFilledRegionEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i += 1) {
@@ -4815,10 +4876,12 @@ function drawFilledRegionEntity(entity) {
     ctx.fill();
   }
   if (isSelected) {
+    ctx.setLineDash([]);
     ctx.strokeStyle = "rgba(194, 105, 62, 0.34)";
     ctx.lineWidth = 8;
     ctx.stroke();
   }
+  ctx.setLineDash(getEntityStrokeDash(entity));
   ctx.strokeStyle = getRenderableEntityStrokeColor(entity);
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.stroke();
@@ -5272,7 +5335,7 @@ function drawDimensionEntity(entity) {
   const lineWidth = isPreview ? 1.5 : getCanvasLineWidthForLayer(entity.layerId, 1);
   ctx.save();
   ctx.globalAlpha = isPreview ? 1 : getEntityOpacity(entity);
-  ctx.setLineDash(isPreview ? [8, 6] : []);
+  ctx.setLineDash(isPreview ? [8, 6] : getEntityStrokeDash(entity));
   ctx.strokeStyle = geometryColor;
   ctx.fillStyle = geometryColor;
   ctx.lineWidth = lineWidth;
@@ -11108,6 +11171,8 @@ function getTitleBlockExportDeps() {
       return normalizeColor(getLayerById(layerId)?.color || "#2e3135");
     },
     getLayerLineWeightMm,
+    getLayerLineType,
+    getEntityLineTypeForExport,
     getStrokeColorForEntity: getEntityStrokeColor,
     getFillStyleForEntity(entity) {
       const layer = getLayerById(entity.layerId);
@@ -11965,6 +12030,7 @@ function addLayer() {
     name: `Layer ${layerNumber}`,
     color: layerNumber % 2 === 0 ? "#5e6b78" : "#2e3135",
     lineWeightMm: DEFAULT_LINE_WEIGHT_MM,
+    lineType: DEFAULT_LINE_TYPE,
     visible: true,
     locked: false,
   });

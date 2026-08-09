@@ -13,7 +13,7 @@ A lightweight browser-based 2D drafting tool for architectural details and resid
 
 - **Drafting:** continuous Line, Rectangle, Circle, Arc, and Filled Region tools; Ortho, endpoint/midpoint snapping, numeric and Dynamic Input, pan/zoom, and mobile touch controls.
 - **Selection and modification:** Window/Crossing and additive selection, grip and rectangle-edge editing, Move, Copy, drag move/copy, Rotate, Mirror, chained multi-target rotational line-to-line Align, Extend, line Offset, line Trim, radius-0 Fillet/Join and true-radius Arc Fillet for lines, Delete, and rectangle Explode.
-- **Organization and reuse:** layers with architectural line weights and properties; Group/Ungroup; reusable Block definitions and instances; and a persistent Library with built-in, repository, and local items plus JSON import/export.
+- **Organization and reuse:** layers with architectural line weights, line types, and properties; Group/Ungroup; reusable Block definitions and instances; and a persistent Library with built-in, repository, and local items plus JSON import/export.
 - **Annotation and layout:** Text annotation, Aligned Dimension, and configurable Title Blocks with canvas, PNG, PDF, and DXF output paths.
 - **References:** PDF Underlay import and replacement, plus linked DXF Underlays.
 - **Documents and interchange:** local autosave, compatible JSON save/load (including legacy document migration), conservative R12/AC1009 ASCII DXF export, and drawing-level PDF export from Manage / File using a visible Title Block.
@@ -99,4 +99,5 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 - Completed: chained Multi-target Align — Issue #83.
 - Completed: drawing-level PDF export — Issue #85.
 - Completed: concise multi-step command guide — Issues #87/#89.
-- Current: layer-based Line Weight v1 — Issue #91.
+- Completed: layer-based Line Weight v1 — Issue #91.
+- Current: layer-based Line Type v1 — Issue #93.
