@@ -12,8 +12,8 @@ const {
   rotatePoint,
   normalizeAngleDeg,
   pointFromCenterRadiusAngle,
-  areLinesParallel,
   projectPointToInfiniteLineRaw,
+  alignLineToReference,
   offsetLineTowardPoint,
   trimLineAtBoundary,
   filletLinesWithRadius,
@@ -4042,6 +4042,18 @@ function draw() {
       drawPreviewLineEntity({ ...targetLine, ...previewGeometry });
     }
   }
+  if (uiState.alignDraft && uiState.alignDraft.referenceEntityId) {
+    const referenceLine = getEntityById(uiState.alignDraft.referenceEntityId);
+    const targetLine = findAlignTargetAtPoint(uiState.pointerWorld);
+    const previewGeometry = referenceLine && targetLine
+      && referenceLine.id !== targetLine.id
+      && canSelectEntity(referenceLine)
+      ? alignLineToReference(targetLine, referenceLine, uiState.pointerWorld)
+      : null;
+    if (previewGeometry) {
+      drawPreviewLineEntity({ ...targetLine, p1: previewGeometry.p1, p2: previewGeometry.p2 });
+    }
+  }
   if (uiState.filletDraft && uiState.filletDraft.firstEntityId && uiState.filletDraft.radiusUnits > 0) {
     const firstLine = getEntityById(uiState.filletDraft.firstEntityId);
     const secondLine = findFilletTargetAtPoint(uiState.pointerWorld);
@@ -7249,28 +7261,13 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
     setStatus("Align: pick a different target line.");
     return false;
   }
-  if (!areLinesParallel(referenceLine, targetLine)) {
-    setStatus("Align supports exactly parallel lines only for now.");
+  const alignedGeometry = alignLineToReference(targetLine, referenceLine, targetClickWorld);
+  if (!alignedGeometry) {
+    setStatus("Align failed: line geometry is unavailable.");
     return false;
   }
-
-  const targetAnchorPoint = projectPointToInfiniteLineRaw(targetClickWorld, targetLine);
-  if (!targetAnchorPoint) {
-    setStatus("Align failed: target line is unavailable.");
-    return false;
-  }
-
-  const referenceAnchorPoint = projectPointToInfiniteLineRaw(targetAnchorPoint, referenceLine);
-  if (!referenceAnchorPoint) {
-    setStatus("Align failed: reference line is unavailable.");
-    return false;
-  }
-
-  const offset = {
-    x: referenceAnchorPoint.x - targetAnchorPoint.x,
-    y: referenceAnchorPoint.y - targetAnchorPoint.y,
-  };
-  if (offset.x === 0 && offset.y === 0) {
+  if (alignedGeometry.p1.x === targetLine.p1.x && alignedGeometry.p1.y === targetLine.p1.y
+    && alignedGeometry.p2.x === targetLine.p2.x && alignedGeometry.p2.y === targetLine.p2.y) {
     setStatus("Align: target line is already aligned.");
     return false;
   }
@@ -7282,21 +7279,15 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
     }
     return {
       ...entity,
-      p1: roundWorldPoint({
-        x: entity.p1.x + offset.x,
-        y: entity.p1.y + offset.y,
-      }),
-      p2: roundWorldPoint({
-        x: entity.p2.x + offset.x,
-        y: entity.p2.y + offset.y,
-      }),
+      p1: alignedGeometry.p1,
+      p2: alignedGeometry.p2,
     };
   });
   state.selectedEntityIds = [];
   uiState.alignDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange();
-  setStatus("Align applied. Target line was moved onto the reference line.");
+  setStatus("Align applied.");
   return true;
 }
 

@@ -61,6 +61,74 @@
     };
   }
 
+  function alignLineToReference(targetLine, referenceLine, targetPickPoint) {
+    const points = [targetLine && targetLine.p1, targetLine && targetLine.p2,
+      referenceLine && referenceLine.p1, referenceLine && referenceLine.p2, targetPickPoint];
+    if (points.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+      return null;
+    }
+
+    function canonicalUnitDirection(line) {
+      let dx = line.p2.x - line.p1.x;
+      let dy = line.p2.y - line.p1.y;
+      const length = Math.hypot(dx, dy);
+      if (!Number.isFinite(length) || length === 0) {
+        return null;
+      }
+      dx /= length;
+      dy /= length;
+      if (dx < 0 || (Math.abs(dx) <= 1e-12 && dy < 0)) {
+        dx = -dx;
+        dy = -dy;
+      }
+      return { x: dx, y: dy };
+    }
+
+    const targetDirection = canonicalUnitDirection(targetLine);
+    const referenceDirection = canonicalUnitDirection(referenceLine);
+    const targetAnchor = projectPointToInfiniteLineRaw(targetPickPoint, targetLine);
+    if (!targetDirection || !referenceDirection || !targetAnchor
+      || !Number.isFinite(targetAnchor.x) || !Number.isFinite(targetAnchor.y)) {
+      return null;
+    }
+    const referenceAnchor = projectPointToInfiniteLineRaw(targetAnchor, referenceLine);
+    if (!referenceAnchor || !Number.isFinite(referenceAnchor.x) || !Number.isFinite(referenceAnchor.y)) {
+      return null;
+    }
+
+    const cross = targetDirection.x * referenceDirection.y - targetDirection.y * referenceDirection.x;
+    const dot = targetDirection.x * referenceDirection.x + targetDirection.y * referenceDirection.y;
+    let rotationDeg = (Math.atan2(cross, dot) * 180) / Math.PI;
+    if (rotationDeg > 90) rotationDeg -= 180;
+    if (rotationDeg < -90) rotationDeg += 180;
+    if (!Number.isFinite(rotationDeg)) {
+      return null;
+    }
+    if (Math.abs(rotationDeg) <= 1e-10) rotationDeg = 0;
+
+    const angleRad = (rotationDeg * Math.PI) / 180;
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    const offsetX = referenceAnchor.x - targetAnchor.x;
+    const offsetY = referenceAnchor.y - targetAnchor.y;
+    function transformPoint(point) {
+      const dx = point.x - targetAnchor.x;
+      const dy = point.y - targetAnchor.y;
+      return {
+        x: roundToUnit(targetAnchor.x + dx * cos - dy * sin + offsetX) || 0,
+        y: roundToUnit(targetAnchor.y + dx * sin + dy * cos + offsetY) || 0,
+      };
+    }
+
+    return {
+      p1: transformPoint(targetLine.p1),
+      p2: transformPoint(targetLine.p2),
+      targetAnchor: { x: targetAnchor.x, y: targetAnchor.y },
+      referenceAnchor: { x: referenceAnchor.x, y: referenceAnchor.y },
+      rotationDeg,
+    };
+  }
+
   function offsetLineTowardPoint(line, distanceUnits, sidePoint) {
     const dx = line.p2.x - line.p1.x;
     const dy = line.p2.y - line.p1.y;
@@ -312,6 +380,7 @@
     pointFromCenterRadiusAngle,
     areLinesParallel,
     projectPointToInfiniteLineRaw,
+    alignLineToReference,
     offsetLineTowardPoint,
     trimLineAtBoundary,
     filletLinesWithRadius,

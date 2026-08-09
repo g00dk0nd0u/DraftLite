@@ -57,6 +57,73 @@ assertClose(projected.x, 5, "projected x coordinate");
 assertClose(projected.y, 0, "projected y coordinate");
 assert.equal(geometry.projectPointToInfiniteLineRaw({ x: 5, y: 7 }, zeroLength), null);
 
+const alignReference = { p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 } };
+const parallelAlign = geometry.alignLineToReference(
+  { p1: { x: 0, y: 50 }, p2: { x: 100, y: 50 } },
+  alignReference,
+  { x: 25, y: 50 }
+);
+assertLine(
+  parallelAlign,
+  { p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 } },
+  "parallel align"
+);
+assertClose(parallelAlign.rotationDeg, 0, "parallel align rotation");
+
+const verticalAlignTarget = { p1: { x: 100, y: -50 }, p2: { x: 100, y: 50 } };
+const verticalAlign = geometry.alignLineToReference(
+  verticalAlignTarget,
+  { p1: { x: -100, y: 0 }, p2: { x: 100, y: 0 } },
+  { x: 100, y: 25 }
+);
+assertLine(
+  verticalAlign,
+  { p1: { x: 25, y: 0 }, p2: { x: 125, y: 0 } },
+  "vertical to horizontal align"
+);
+assertClose(Math.abs(verticalAlign.rotationDeg), 90, "vertical align rotation magnitude");
+
+const reversedVerticalAlign = geometry.alignLineToReference(
+  { p1: verticalAlignTarget.p2, p2: verticalAlignTarget.p1 },
+  { p1: { x: 100, y: 0 }, p2: { x: -100, y: 0 } },
+  { x: 100, y: 25 }
+);
+const verticalPhysicalPoints = [verticalAlign.p1, verticalAlign.p2].sort((a, b) => a.x - b.x || a.y - b.y);
+const reversedPhysicalPoints = [reversedVerticalAlign.p1, reversedVerticalAlign.p2]
+  .sort((a, b) => a.x - b.x || a.y - b.y);
+for (let index = 0; index < 2; index += 1) {
+  assert.equal(reversedPhysicalPoints[index].x, verticalPhysicalPoints[index].x, `reversed align point ${index} x`);
+  assert.equal(reversedPhysicalPoints[index].y, verticalPhysicalPoints[index].y, `reversed align point ${index} y`);
+}
+
+const diagonalAlign = geometry.alignLineToReference(
+  { p1: { x: 0, y: 0 }, p2: { x: 100, y: 100 } },
+  alignReference,
+  { x: 25, y: 25 }
+);
+assert.ok(diagonalAlign, "diagonal align should produce geometry");
+assert.equal(Number.isInteger(diagonalAlign.p1.x), true, "diagonal align p1.x integer");
+assert.equal(Number.isInteger(diagonalAlign.p1.y), true, "diagonal align p1.y integer");
+assert.equal(Number.isInteger(diagonalAlign.p2.x), true, "diagonal align p2.x integer");
+assert.equal(Number.isInteger(diagonalAlign.p2.y), true, "diagonal align p2.y integer");
+assertClose(diagonalAlign.referenceAnchor.x, diagonalAlign.targetAnchor.x, "diagonal align anchor x");
+assertClose(diagonalAlign.referenceAnchor.y, 0, "diagonal align reference anchor y");
+assert.equal(geometry.areLinesParallel(diagonalAlign, alignReference), true);
+
+const alreadyAligned = geometry.alignLineToReference(
+  { p1: { x: 20, y: 0 }, p2: { x: 80, y: 0 } },
+  alignReference,
+  { x: 50, y: 0 }
+);
+assertLine(
+  alreadyAligned,
+  { p1: { x: 20, y: 0 }, p2: { x: 80, y: 0 } },
+  "already aligned line"
+);
+assert.equal(geometry.alignLineToReference(verticalAlignTarget, zeroLength, { x: 100, y: 25 }), null);
+assert.equal(geometry.alignLineToReference(zeroLength, alignReference, { x: 2, y: 2 }), null);
+assert.equal(geometry.alignLineToReference(verticalAlignTarget, alignReference, { x: NaN, y: 25 }), null);
+
 function assertLine(actual, expected, message) {
   assert.ok(actual, `${message} should produce a line`);
   assert.equal(actual.p1.x, expected.p1.x, `${message} p1.x`);
