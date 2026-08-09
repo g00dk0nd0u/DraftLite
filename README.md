@@ -12,7 +12,7 @@ A lightweight browser-based 2D drafting tool for architectural details and resid
 ## Current features
 
 - **Drafting:** continuous Line, Rectangle, Circle, Arc, and Filled Region tools; Ortho, endpoint/midpoint snapping, numeric and Dynamic Input, pan/zoom, and mobile touch controls.
-- **Selection and modification:** Window/Crossing and additive selection, grip and rectangle-edge editing, Move, Copy, drag move/copy, Rotate, Mirror, line-to-line Align, Extend, line Offset, radius-0 Fillet/Join, Delete, and rectangle Explode.
+- **Selection and modification:** Window/Crossing and additive selection, grip and rectangle-edge editing, Move, Copy, drag move/copy, Rotate, Mirror, line-to-line Align, Extend, line Offset, line Trim, radius-0 Fillet/Join, Delete, and rectangle Explode.
 - **Organization and reuse:** layers and properties; Group/Ungroup; reusable Block definitions and instances; and a persistent Library with built-in, repository, and local items plus JSON import/export.
 - **Annotation and layout:** Text annotation, Aligned Dimension, and configurable Title Blocks with canvas, PNG, PDF, and DXF output paths.
 - **References:** PDF Underlay import and replacement, plus linked DXF Underlays.

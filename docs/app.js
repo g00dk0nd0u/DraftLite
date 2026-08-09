@@ -15,6 +15,7 @@ const {
   areLinesParallel,
   projectPointToInfiniteLineRaw,
   offsetLineTowardPoint,
+  trimLineAtBoundary,
   isPointInsideRect,
   orientation,
   onSegment,
@@ -87,6 +88,7 @@ const toolButtons = {
   align: document.getElementById("alignButton"),
   extend: document.getElementById("extendButton"),
   offset: document.getElementById("offsetButton"),
+  trim: document.getElementById("trimButton"),
   fillet: document.getElementById("filletButton"),
 };
 
@@ -165,6 +167,7 @@ const MODIFY_REPEAT_TOOL_IDS = new Set([
   "align",
   "extend",
   "offset",
+  "trim",
   "fillet",
 ]);
 
@@ -257,6 +260,7 @@ const uiState = {
   alignDraft: null,
   extendDraft: null,
   offsetDraft: null,
+  trimDraft: null,
   filletDraft: null,
   mirrorDraft: null,
   dimensionDraft: null,
@@ -405,7 +409,7 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.offsetDraft || uiState.mirrorDraft) {
+  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.offsetDraft || uiState.trimDraft || uiState.mirrorDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
@@ -424,6 +428,7 @@ function clearTransientState() {
   uiState.mirrorDraft = null;
   uiState.extendDraft = null;
   uiState.offsetDraft = null;
+  uiState.trimDraft = null;
   uiState.filletDraft = null;
   uiState.dimensionDraft = null;
   uiState.matchPropertiesSourceId = null;
@@ -462,6 +467,7 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.mirrorDraft)
     || Boolean(uiState.extendDraft)
     || Boolean(uiState.offsetDraft)
+    || Boolean(uiState.trimDraft)
     || Boolean(uiState.filletDraft)
     || Boolean(uiState.dimensionDraft)
     || Boolean(uiState.matchPropertiesSourceId)
@@ -527,6 +533,7 @@ function isCommandInProgress() {
     || uiState.mirrorDraft
     || uiState.extendDraft
     || uiState.offsetDraft
+    || uiState.trimDraft
     || uiState.filletDraft
     || uiState.dimensionDraft
     || uiState.matchPropertiesSourceId
@@ -1669,6 +1676,14 @@ function cancelExtend(message = "Extend cancelled.") {
 function cancelOffset(message = "Offset cancelled.") {
   state.selectedEntityIds = [];
   uiState.offsetDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange(false);
+  setStatus(message);
+}
+
+function cancelTrim(message = "Trim cancelled.") {
+  state.selectedEntityIds = [];
+  uiState.trimDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange(false);
   setStatus(message);
@@ -4003,6 +4018,18 @@ function draw() {
       : null;
     if (previewGeometry) {
       drawPreviewLineEntity({ ...sourceLine, ...previewGeometry });
+    }
+  }
+  if (uiState.trimDraft && uiState.trimDraft.boundaryEntityId) {
+    const boundaryLine = getEntityById(uiState.trimDraft.boundaryEntityId);
+    const targetLine = findLineTargetAtPoint(uiState.pointerWorld);
+    const previewGeometry = boundaryLine && targetLine
+      && boundaryLine.id !== targetLine.id
+      && canSelectEntity(boundaryLine)
+      ? trimLineAtBoundary(targetLine, boundaryLine, uiState.pointerWorld)
+      : null;
+    if (previewGeometry) {
+      drawPreviewLineEntity({ ...targetLine, ...previewGeometry });
     }
   }
   if (uiState.wireDraft) {
@@ -7128,6 +7155,15 @@ function findFilletTargetAtPoint(worldPoint) {
   return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
 }
 
+function findLineTargetAtPoint(worldPoint) {
+  const selectable = state.entities
+    .filter((entity) => entity.type === "line" && canSelectEntity(entity))
+    .slice()
+    .reverse();
+
+  return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
+}
+
 function findAlignTargetAtPoint(worldPoint) {
   const selectable = state.entities
     .filter((entity) => entity.type === "line" && canSelectEntity(entity))
@@ -7338,6 +7374,60 @@ function handleExtendToolClick(worldPoint) {
   }
 
   applyExtend(uiState.extendDraft.boundaryEntityId, targetEntity.id);
+}
+
+function applyTrim(boundaryEntityId, targetEntityId, targetPickPoint) {
+  const boundaryLine = getEntityById(boundaryEntityId);
+  const targetLine = getEntityById(targetEntityId);
+  if (!boundaryLine || !targetLine || boundaryLine.type !== "line" || targetLine.type !== "line") {
+    setStatus("Trim requires two available lines.");
+    return false;
+  }
+  if (!canSelectEntity(boundaryLine) || !canSelectEntity(targetLine)) {
+    setStatus("Trim requires visible, unlocked lines.");
+    return false;
+  }
+  if (boundaryLine.id === targetLine.id) {
+    setStatus("Trim: pick a different target line.");
+    return false;
+  }
+  const geometry = trimLineAtBoundary(targetLine, boundaryLine, targetPickPoint);
+  if (!geometry) {
+    setStatus("Trim failed: finite segments must intersect away from the target endpoint. Pick side of target line to remove.");
+    return false;
+  }
+
+  pushUndoState();
+  targetLine.p1 = geometry.p1;
+  targetLine.p2 = geometry.p2;
+  state.selectedEntityIds = [];
+  uiState.trimDraft = null;
+  uiState.activeTool = "select";
+  syncAfterStateChange();
+  setStatus("Trim applied.");
+  return true;
+}
+
+function handleTrimToolClick(worldPoint) {
+  const targetLine = findLineTargetAtPoint(worldPoint);
+  if (!targetLine) {
+    setStatus(uiState.trimDraft
+      ? "Trim: line only. Pick a visible, unlocked target line."
+      : "Trim: line only. Pick a visible, unlocked boundary line.");
+    return;
+  }
+  if (!uiState.trimDraft) {
+    uiState.trimDraft = { boundaryEntityId: targetLine.id };
+    state.selectedEntityIds = [targetLine.id];
+    syncAfterStateChange(false);
+    setStatus("Trim: pick side of target line to remove");
+    return;
+  }
+  if (uiState.trimDraft.boundaryEntityId === targetLine.id) {
+    setStatus("Trim: pick a different target line.");
+    return;
+  }
+  applyTrim(uiState.trimDraft.boundaryEntityId, targetLine.id, worldPoint);
 }
 
 function confirmOffsetDistance() {
@@ -10252,6 +10342,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     return;
   }
 
+  if (uiState.activeTool === "trim") {
+    handleTrimToolClick(roundWorldPoint(rawWorldPoint));
+    return;
+  }
+
   if (uiState.activeTool === "fillet") {
     handleFilletToolClick(roundWorldPoint(rawWorldPoint));
     return;
@@ -10905,6 +11000,10 @@ function setActiveTool(tool, options = {}) {
   }
   if (tool === "extend") {
     setStatus("Extend: pick boundary line");
+    return;
+  }
+  if (tool === "trim") {
+    setStatus("Trim: pick boundary line");
     return;
   }
   if (tool === "offset") {
@@ -11691,6 +11790,12 @@ function onKeyDown(event) {
     return;
   }
 
+  if (event.key === "Escape" && uiState.trimDraft && !textInputActive) {
+    event.preventDefault();
+    cancelTrim();
+    return;
+  }
+
   if (event.key === "Escape") {
     if (textInputActive) {
       return;
@@ -11998,6 +12103,7 @@ function bindEvents() {
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
   toolButtons.offset.addEventListener("click", () => setActiveTool("offset"));
+  toolButtons.trim.addEventListener("click", () => setActiveTool("trim"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
