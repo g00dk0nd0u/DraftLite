@@ -4044,7 +4044,15 @@ function draw() {
   }
   if (uiState.alignDraft && uiState.alignDraft.referenceEntityId) {
     const referenceLine = getEntityById(uiState.alignDraft.referenceEntityId);
-    const targetLine = findAlignTargetAtPoint(uiState.pointerWorld);
+    if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
+      state.selectedEntityIds = [];
+      uiState.alignDraft = null;
+      uiState.activeTool = "select";
+      setStatus("Align ended: reference line is unavailable.");
+    }
+    const targetLine = referenceLine && canSelectEntity(referenceLine)
+      ? findAlignTargetAtPoint(uiState.pointerWorld, referenceLine.id)
+      : null;
     const previewGeometry = referenceLine && targetLine
       && referenceLine.id !== targetLine.id
       && canSelectEntity(referenceLine)
@@ -7223,9 +7231,11 @@ function findLineTargetAtPoint(worldPoint) {
   return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
 }
 
-function findAlignTargetAtPoint(worldPoint) {
+function findAlignTargetAtPoint(worldPoint, excludeEntityId = null) {
   const selectable = state.entities
-    .filter((entity) => entity.type === "line" && canSelectEntity(entity))
+    .filter((entity) => entity.type === "line"
+      && entity.id !== excludeEntityId
+      && canSelectEntity(entity))
     .slice()
     .reverse();
 
@@ -7245,30 +7255,35 @@ function projectPointToInfiniteLine(point, line) {
   return projectedPoint ? roundWorldPoint(projectedPoint) : null;
 }
 
-function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
+function applyAlign(referenceEntityId, targetEntityId, targetClickWorld, options = {}) {
+  const keepReferenceActive = options.keepReferenceActive === true;
   const referenceLine = getEntityById(referenceEntityId);
   const targetLine = getEntityById(targetEntityId);
 
-  if (!referenceLine || !targetLine || referenceLine.type !== "line" || targetLine.type !== "line") {
-    setStatus("Align requires two available lines.");
+  if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
+    state.selectedEntityIds = [];
+    uiState.alignDraft = null;
+    uiState.activeTool = "select";
+    syncAfterStateChange(false);
+    setStatus("Align ended: reference line is unavailable.");
     return false;
   }
-  if (!canSelectEntity(referenceLine) || !canSelectEntity(targetLine)) {
-    setStatus("Align requires visible, unlocked lines.");
+  if (!targetLine || targetLine.type !== "line" || !canSelectEntity(targetLine)) {
+    setStatus("Pick another visible, unlocked target line. Esc to finish.");
     return false;
   }
   if (referenceLine.id === targetLine.id) {
-    setStatus("Align: pick a different target line.");
+    setStatus("Pick another visible, unlocked target line. Esc to finish.");
     return false;
   }
   const alignedGeometry = alignLineToReference(targetLine, referenceLine, targetClickWorld);
   if (!alignedGeometry) {
-    setStatus("Align failed: line geometry is unavailable.");
+    setStatus("Pick another visible, unlocked target line. Esc to finish.");
     return false;
   }
   if (alignedGeometry.p1.x === targetLine.p1.x && alignedGeometry.p1.y === targetLine.p1.y
     && alignedGeometry.p2.x === targetLine.p2.x && alignedGeometry.p2.y === targetLine.p2.y) {
-    setStatus("Align: target line is already aligned.");
+    setStatus("Align: target is already aligned. Pick another target line or Esc to finish.");
     return false;
   }
 
@@ -7283,11 +7298,15 @@ function applyAlign(referenceEntityId, targetEntityId, targetClickWorld) {
       p2: alignedGeometry.p2,
     };
   });
-  state.selectedEntityIds = [];
-  uiState.alignDraft = null;
-  uiState.activeTool = "select";
+  state.selectedEntityIds = keepReferenceActive ? [referenceEntityId] : [];
+  if (!keepReferenceActive) {
+    uiState.alignDraft = null;
+    uiState.activeTool = "select";
+  }
   syncAfterStateChange();
-  setStatus("Align applied.");
+  setStatus(keepReferenceActive
+    ? "Align applied. Pick another target line or Esc to finish."
+    : "Align applied.");
   return true;
 }
 
@@ -7355,10 +7374,25 @@ function applyExtend(boundaryEntityId, targetEntityId) {
 }
 
 function handleAlignToolClick(worldPoint) {
-  const targetLine = findAlignTargetAtPoint(worldPoint);
+  const referenceEntityId = uiState.alignDraft?.referenceEntityId || null;
+  if (referenceEntityId) {
+    const referenceLine = getEntityById(referenceEntityId);
+    if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
+      state.selectedEntityIds = [];
+      uiState.alignDraft = null;
+      uiState.activeTool = "select";
+      syncAfterStateChange(false);
+      setStatus("Align ended: reference line is unavailable.");
+      return;
+    }
+  }
+
+  const targetLine = findAlignTargetAtPoint(worldPoint, referenceEntityId);
   if (!targetLine) {
     setStatus(
-      uiState.alignDraft ? "Pick a visible, unlocked target line." : "Pick a visible, unlocked reference line."
+      uiState.alignDraft
+        ? "Pick another visible, unlocked target line. Esc to finish."
+        : "Align: pick reference line."
     );
     return;
   }
@@ -7370,16 +7404,13 @@ function handleAlignToolClick(worldPoint) {
     };
     state.selectedEntityIds = [targetLine.id];
     syncAfterStateChange();
-    setStatus("Align: reference line selected. Pick target line.");
+    setStatus("Align: reference selected. Pick target line. Esc to finish.");
     return;
   }
 
-  if (uiState.alignDraft.referenceEntityId === targetLine.id) {
-    setStatus("Align: pick a different target line.");
-    return;
-  }
-
-  applyAlign(uiState.alignDraft.referenceEntityId, targetLine.id, worldPoint);
+  applyAlign(uiState.alignDraft.referenceEntityId, targetLine.id, worldPoint, {
+    keepReferenceActive: true,
+  });
 }
 
 function handleExtendToolClick(worldPoint) {
@@ -11126,6 +11157,10 @@ function setActiveTool(tool, options = {}) {
     } else {
       setStatus("Mirror: pick axis first point.");
     }
+    return;
+  }
+  if (tool === "align") {
+    setStatus("Align: pick reference line.");
     return;
   }
   setStatus(`${capitalize(tool)} tool active.`);
