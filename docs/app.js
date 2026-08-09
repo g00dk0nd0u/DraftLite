@@ -16,6 +16,7 @@ const {
   projectPointToInfiniteLineRaw,
   offsetLineTowardPoint,
   trimLineAtBoundary,
+  filletLinesWithRadius,
   isPointInsideRect,
   orientation,
   onSegment,
@@ -4041,6 +4042,24 @@ function draw() {
       drawPreviewLineEntity({ ...targetLine, ...previewGeometry });
     }
   }
+  if (uiState.filletDraft && uiState.filletDraft.firstEntityId && uiState.filletDraft.radiusUnits > 0) {
+    const firstLine = getEntityById(uiState.filletDraft.firstEntityId);
+    const secondLine = findFilletTargetAtPoint(uiState.pointerWorld);
+    const previewGeometry = firstLine && secondLine && firstLine.id !== secondLine.id
+      ? filletLinesWithRadius(
+        firstLine,
+        uiState.filletDraft.firstClickWorld,
+        secondLine,
+        uiState.pointerWorld,
+        uiState.filletDraft.radiusUnits
+      )
+      : null;
+    if (previewGeometry) {
+      drawPreviewLineEntity({ ...firstLine, ...previewGeometry.firstLine });
+      drawPreviewLineEntity({ ...secondLine, ...previewGeometry.secondLine });
+      drawPreviewArcEntity({ ...previewGeometry.arc, layerId: firstLine.layerId });
+    }
+  }
   if (uiState.wireDraft) {
     drawDraftWire(uiState.wireDraft);
   }
@@ -5896,6 +5915,25 @@ function drawPreviewLineEntity(entity) {
   ctx.restore();
 }
 
+function drawPreviewArcEntity(entity) {
+  const center = worldToScreen(entity.center);
+  const radiusPx = Math.max(1, Math.abs(entity.radius * state.view.zoom));
+  ctx.save();
+  ctx.setLineDash([9, 6]);
+  ctx.strokeStyle = "rgba(98, 73, 45, 0.82)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(
+    center.x,
+    center.y,
+    radiusPx,
+    entity.startAngleDeg * Math.PI / 180,
+    entity.endAngleDeg * Math.PI / 180
+  );
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawMirrorAxisDraft(firstPoint, secondPoint) {
   if (!firstPoint || !secondPoint) {
     return;
@@ -7543,7 +7581,7 @@ function getEndpointToMoveForFillet(line, clickWorld, intersection) {
   return p1Dot >= p2Dot ? "p2" : "p1";
 }
 
-function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClickWorld) {
+function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClickWorld, radiusUnits = 0) {
   const firstLine = getEntityById(firstEntityId);
   const secondLine = getEntityById(secondEntityId);
 
@@ -7558,6 +7596,37 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
   if (firstLine.id === secondLine.id) {
     setStatus("Fillet: pick a different second line.");
     return false;
+  }
+
+  if (radiusUnits > 0) {
+    const geometry = filletLinesWithRadius(
+      firstLine,
+      firstClickWorld,
+      secondLine,
+      secondClickWorld,
+      radiusUnits
+    );
+    if (!geometry) {
+      setStatus("Fillet failed: radius is too large or the selected sides cannot form an arc.");
+      return false;
+    }
+    pushUndoState();
+    firstLine.p1 = geometry.firstLine.p1;
+    firstLine.p2 = geometry.firstLine.p2;
+    secondLine.p1 = geometry.secondLine.p1;
+    secondLine.p2 = geometry.secondLine.p2;
+    state.entities.push({
+      id: createEntityId(),
+      type: "arc",
+      layerId: firstLine.layerId,
+      ...geometry.arc,
+    });
+    state.selectedEntityIds = [];
+    uiState.filletDraft = null;
+    uiState.activeTool = "select";
+    syncAfterStateChange();
+    setStatus(`Fillet applied: ${Number(unitsToMm(radiusUnits).toFixed(1))} mm.`);
+    return true;
   }
 
   const intersection = getInfiniteLineIntersection(firstLine, secondLine);
@@ -7599,19 +7668,23 @@ function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClick
 }
 
 function handleFilletToolClick(worldPoint) {
+  const draft = uiState.filletDraft;
+  if (!draft) return;
+  if (!draft.firstEntityId && draft.numericInputBuffer) {
+    setStatus("Fillet: press Enter to confirm radius.");
+    return;
+  }
   const targetLine = findFilletTargetAtPoint(worldPoint);
   if (!targetLine) {
     setStatus(
-      uiState.filletDraft ? "Pick a visible, unlocked second line." : "Pick a visible, unlocked first line."
+      draft.firstEntityId ? "Pick a visible, unlocked second line." : "Pick a visible, unlocked first line."
     );
     return;
   }
 
-  if (!uiState.filletDraft) {
-    uiState.filletDraft = {
-      firstEntityId: targetLine.id,
-      firstClickWorld: deepClone(worldPoint),
-    };
+  if (!draft.firstEntityId) {
+    draft.firstEntityId = targetLine.id;
+    draft.firstClickWorld = deepClone(worldPoint);
     state.selectedEntityIds = [targetLine.id];
     syncAfterStateChange();
     setStatus("Fillet: first line selected. Click the side to keep on the second line.");
@@ -7627,8 +7700,30 @@ function handleFilletToolClick(worldPoint) {
     uiState.filletDraft.firstEntityId,
     uiState.filletDraft.firstClickWorld,
     targetLine.id,
-    worldPoint
+    worldPoint,
+    uiState.filletDraft.radiusUnits
   );
+}
+
+function confirmFilletRadius() {
+  const draft = uiState.filletDraft;
+  if (!draft || draft.firstEntityId) return false;
+  const radiusMm = Number(draft.numericInputBuffer);
+  if (!draft.numericInputBuffer || !Number.isFinite(radiusMm) || radiusMm < 0) {
+    setStatus("Fillet: enter a valid radius of 0 mm or greater.");
+    return false;
+  }
+  const radiusUnits = mmToUnits(radiusMm);
+  if (!Number.isInteger(radiusUnits) || radiusUnits < 0 || (radiusMm > 0 && radiusUnits === 0)) {
+    setStatus("Fillet: enter a valid radius of 0 mm or greater.");
+    return false;
+  }
+  draft.radiusUnits = radiusUnits;
+  draft.numericInputBuffer = "";
+  setStatus(`Fillet radius: ${Number(unitsToMm(radiusUnits).toFixed(1))} mm${radiusUnits === 0 ? " (Join)" : ""}. Pick first line.`);
+  draw();
+  renderStatusPanel();
+  return true;
 }
 
 function selectEntityAtPoint(worldPoint, append = false) {
@@ -11015,6 +11110,16 @@ function setActiveTool(tool, options = {}) {
     setStatus("Trim: pick boundary line");
     return;
   }
+  if (tool === "fillet") {
+    uiState.filletDraft = {
+      radiusUnits: 0,
+      numericInputBuffer: "",
+      firstEntityId: null,
+      firstClickWorld: null,
+    };
+    setStatus("Fillet radius: 0 mm (Join). Type radius and Enter, or pick first line.");
+    return;
+  }
   if (tool === "offset") {
     uiState.offsetDraft = {
       numericInputBuffer: "",
@@ -11810,6 +11915,33 @@ function onKeyDown(event) {
     if (event.key === "Enter") {
       event.preventDefault();
       confirmOffsetDistance();
+      return;
+    }
+  }
+
+  if (uiState.filletDraft && !uiState.filletDraft.firstEntityId && !textInputActive) {
+    const draft = uiState.filletDraft;
+    if (/^\d$/.test(event.key) || (event.key === "." && !draft.numericInputBuffer.includes("."))) {
+      event.preventDefault();
+      draft.numericInputBuffer += event.key;
+      setStatus(`Fillet radius: ${draft.numericInputBuffer} mm. Press Enter to confirm.`);
+      draw();
+      renderStatusPanel();
+      return;
+    }
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      draft.numericInputBuffer = draft.numericInputBuffer.slice(0, -1);
+      setStatus(draft.numericInputBuffer
+        ? `Fillet radius: ${draft.numericInputBuffer} mm. Press Enter to confirm.`
+        : `Fillet radius: ${Number(unitsToMm(draft.radiusUnits).toFixed(1))} mm${draft.radiusUnits === 0 ? " (Join)" : ""}. Type radius and Enter, or pick first line.`);
+      draw();
+      renderStatusPanel();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      confirmFilletRadius();
       return;
     }
   }
