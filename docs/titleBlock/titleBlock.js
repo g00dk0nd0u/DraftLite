@@ -1293,7 +1293,9 @@
       fillColor,
       opacity,
       fillAlpha,
-      strokeWidthMm: PDF_STYLE.normalStrokeWidthMm,
+      strokeWidthMm: typeof deps.getLayerLineWeightMm === "function"
+        ? deps.getLayerLineWeightMm(entity.layerId)
+        : 0.25,
     };
   }
 
@@ -1782,7 +1784,7 @@
     }
     if (entity.type === "dimension") {
       const dimensionData = getDimensionExportData(entity, deps);
-      const dimensionStrokeWidthPt = projector.strokeWidthPt(0.15);
+      const dimensionStrokeWidthPt = strokeWidthPt;
       const geometryRgb = hexToRgb01(
         dimensionData.geometryColor
         || (typeof deps.getDimensionGeometryColorForExport === "function" ? deps.getDimensionGeometryColorForExport(entity) : style.strokeColor)

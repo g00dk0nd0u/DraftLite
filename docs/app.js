@@ -76,6 +76,8 @@ const scaleBarLabels = document.getElementById("scaleBarLabels");
 const scaleBarLines = Array.from(document.querySelectorAll(".scale-bar-line"));
 const titleBlockApi = window.DraftLiteTitleBlock || null;
 const pdfUnderlayApi = window.DraftLitePdfUnderlay || null;
+const DEFAULT_LINE_WEIGHT_MM = 0.25;
+const LINE_WEIGHT_PRESETS_MM = [0.13, 0.18, 0.25, 0.35, 0.50, 0.70];
 const dxfUnderlayApi = window.DraftLiteDxfUnderlay || null;
 
 const toolButtons = {
@@ -378,6 +380,7 @@ function createInitialState() {
         id: "layer-1",
         name: "Layer 1",
         color: "#2e3135",
+        lineWeightMm: DEFAULT_LINE_WEIGHT_MM,
         visible: true,
         locked: false,
       },
@@ -1836,9 +1839,23 @@ function normalizeLayer(layer, index) {
     id: typeof layer.id === "string" ? layer.id : fallbackId,
     name: typeof layer.name === "string" && layer.name.trim() ? layer.name.trim() : `Layer ${index + 1}`,
     color: typeof layer.color === "string" && layer.color ? layer.color : "#2e3135",
+    lineWeightMm: normalizeLineWeightMm(layer.lineWeightMm),
     visible: layer.visible !== false,
     locked: Boolean(layer.locked),
   };
+}
+
+function normalizeLineWeightMm(value) {
+  const numeric = Number(value);
+  return LINE_WEIGHT_PRESETS_MM.includes(numeric) ? numeric : DEFAULT_LINE_WEIGHT_MM;
+}
+
+function getLayerLineWeightMm(layerId) {
+  return normalizeLineWeightMm(getLayerById(layerId)?.lineWeightMm);
+}
+
+function getCanvasLineWidthForLayer(layerId, baseWidth = 1) {
+  return baseWidth * getLayerLineWeightMm(layerId) / DEFAULT_LINE_WEIGHT_MM;
 }
 
 function normalizeUnitValue(value, legacyUnits) {
@@ -2856,6 +2873,7 @@ function renderLayersPanel() {
   appendHeaderCell("layer-header-icon", "●", "Active");
   appendHeaderCell("layer-header-icon", "👁", "Visible");
   appendHeaderCell("layer-header-name", "Name");
+  appendHeaderCell("layer-header-weight", "Weight", "Line weight");
   appendHeaderCell("layer-header-icon", "🔒", "Lock");
   const colorHeader = document.createElement("div");
   colorHeader.className = "layer-header-color";
@@ -2876,6 +2894,25 @@ function renderLayersPanel() {
     const nameInput = document.createElement("input"); nameInput.type = "text"; nameInput.value = layer.name;
     nameInput.addEventListener("change", () => { const nextName = nameInput.value.trim() || layer.name; if (nextName === layer.name) return; pushUndoState(); layer.name = nextName; syncAfterStateChange(); setStatus(`Renamed ${nextName}.`); });
     nameWrap.appendChild(nameInput);
+    const lineWeightSelect = document.createElement("select");
+    lineWeightSelect.className = "layer-line-weight";
+    lineWeightSelect.setAttribute("aria-label", `${layer.name} line weight`);
+    LINE_WEIGHT_PRESETS_MM.forEach((weight) => {
+      const option = document.createElement("option");
+      option.value = String(weight);
+      option.textContent = `${weight.toFixed(2)} mm`;
+      lineWeightSelect.appendChild(option);
+    });
+    lineWeightSelect.value = String(normalizeLineWeightMm(layer.lineWeightMm));
+    lineWeightSelect.addEventListener("change", (event) => {
+      event.stopPropagation();
+      const nextWeight = normalizeLineWeightMm(lineWeightSelect.value);
+      if (nextWeight === layer.lineWeightMm) return;
+      pushUndoState();
+      layer.lineWeightMm = nextWeight;
+      syncAfterStateChange();
+      setStatus(`${layer.name} line weight: ${nextWeight.toFixed(2)} mm.`);
+    });
     const visibleInput = document.createElement("input"); visibleInput.type = "checkbox"; visibleInput.checked = layer.visible;
     visibleInput.addEventListener("change", () => { pushUndoState(); layer.visible = visibleInput.checked; syncAfterStateChange(); setStatus(`${layer.name} ${layer.visible ? "shown" : "hidden"}.`); });
     const lockInput = document.createElement("input"); lockInput.type = "checkbox"; lockInput.checked = layer.locked;
@@ -2891,7 +2928,7 @@ function renderLayersPanel() {
     settingsButton.title = "Layer settings";
     settingsButton.setAttribute("aria-label", "Layer settings");
     settingsButton.addEventListener("click", () => { setStatus("Layer settings are not implemented yet."); });
-    row.append(activeRadio, visibleInput, nameWrap, lockInput, colorWrap, settingsButton);
+    row.append(activeRadio, visibleInput, nameWrap, lineWeightSelect, lockInput, colorWrap, settingsButton);
     layerList.appendChild(row);
   });
 }
@@ -3120,12 +3157,11 @@ function getEntityOpacity(entity) {
 
 function getEntityStrokeWidth(entity, normalWidth, selectedWidth, isSelected) {
   const explicitWidth = normalizeOptionalStrokeWidth(entity.lineWidth ?? entity.strokeWidth);
-  if (explicitWidth === undefined) {
-    return isSelected ? selectedWidth : normalWidth;
-  }
+  const baseWidth = explicitWidth === undefined ? normalWidth : explicitWidth;
+  const layerWidth = getCanvasLineWidthForLayer(entity.layerId, baseWidth);
   return isSelected
-    ? Math.max(selectedWidth, explicitWidth + 0.8)
-    : explicitWidth;
+    ? Math.max(selectedWidth, layerWidth)
+    : layerWidth;
 }
 
 function getEntityStrokeDash(entity) {
@@ -5233,7 +5269,7 @@ function drawDimensionEntity(entity) {
   const isPreview = Boolean(entity.__isDimensionOffsetPreview);
   const geometryColor = isPreview ? "rgba(194, 105, 62, 0.9)" : getRenderableDimensionGeometryColor(entity);
   const textColor = isPreview ? "rgba(194, 105, 62, 0.95)" : getRenderableDimensionTextColor(entity);
-  const lineWidth = isPreview ? 1.5 : 1;
+  const lineWidth = isPreview ? 1.5 : getCanvasLineWidthForLayer(entity.layerId, 1);
   ctx.save();
   ctx.globalAlpha = isPreview ? 1 : getEntityOpacity(entity);
   ctx.setLineDash(isPreview ? [8, 6] : []);
@@ -11071,6 +11107,7 @@ function getTitleBlockExportDeps() {
     getLayerColor(layerId) {
       return normalizeColor(getLayerById(layerId)?.color || "#2e3135");
     },
+    getLayerLineWeightMm,
     getStrokeColorForEntity: getEntityStrokeColor,
     getFillStyleForEntity(entity) {
       const layer = getLayerById(entity.layerId);
@@ -11927,6 +11964,7 @@ function addLayer() {
     id: layerId,
     name: `Layer ${layerNumber}`,
     color: layerNumber % 2 === 0 ? "#5e6b78" : "#2e3135",
+    lineWeightMm: DEFAULT_LINE_WEIGHT_MM,
     visible: true,
     locked: false,
   });
