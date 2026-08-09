@@ -332,7 +332,7 @@ function getCommandGuideText() {
       return "OFFSET 1/3 — Enter distance · Enter";
     case "fillet":
       if (uiState.filletDraft?.numericInputBuffer) return "FILLET — Press Enter to confirm radius";
-      if (uiState.filletDraft?.firstEntityId) return "FILLET 2/2 — Pick second line";
+      if (uiState.filletDraft?.firstEntityId) return "FILLET 2/2 — Pick side to keep";
       return uiState.filletDraft?.radiusConfirmed
         ? "FILLET 1/2 — Pick first line"
         : "FILLET 1/2 — Pick first line · Type radius + Enter";
