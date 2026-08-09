@@ -16,7 +16,7 @@ A lightweight browser-based 2D drafting tool for architectural details and resid
 - **Organization and reuse:** layers and properties; Group/Ungroup; reusable Block definitions and instances; and a persistent Library with built-in, repository, and local items plus JSON import/export.
 - **Annotation and layout:** Text annotation, Aligned Dimension, and configurable Title Blocks with canvas, PNG, PDF, and DXF output paths.
 - **References:** PDF Underlay import and replacement, plus linked DXF Underlays.
-- **Documents and interchange:** local autosave, compatible JSON save/load (including legacy document migration), and conservative R12/AC1009 ASCII DXF export.
+- **Documents and interchange:** local autosave, compatible JSON save/load (including legacy document migration), conservative R12/AC1009 ASCII DXF export, and drawing-level PDF export from Manage / File using a visible Title Block.
 - **Agent integration:** Agent IO exposes drawing and group data for AI-assisted inspection, export, copying, and reuse.
 - **Interface:** compact toolbar, layer and properties sidebars, coarse 1 m dot grid, and persisted light/dark theme.
 
@@ -96,5 +96,5 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 ## Roadmap
 
 - Stabilization sequence Issues #69–#72 completed.
-- Current: Multi-target Align — Issue #83.
-- Later: General Print / PDF export.
+- Completed: chained Multi-target Align — Issue #83.
+- Current: drawing-level PDF export — Issue #85.

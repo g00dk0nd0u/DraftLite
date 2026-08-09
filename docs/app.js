@@ -110,6 +110,7 @@ const fitAllButton = document.getElementById("fitAllButton");
 const saveJsonButton = document.getElementById("saveJsonButton");
 const loadJsonButton = document.getElementById("loadJsonButton");
 const exportDxfButton = document.getElementById("exportDxfButton");
+const exportPdfButton = document.getElementById("exportPdfButton");
 const importPdfButton = document.getElementById("importPdfButton");
 const linkDxfButton = document.getElementById("linkDxfButton");
 const explodeButton = document.getElementById("explodeButton");
@@ -11068,6 +11069,45 @@ function exportSelectedTitleBlockPdf(entity) {
   });
 }
 
+function resolveTitleBlockForPdfExport() {
+  const selectedTitleBlocks = state.entities.filter((entity) => (
+    state.selectedEntityIds.includes(entity.id)
+    && entity.type === "titleBlock"
+    && isEntityVisible(entity)
+  ));
+  if (selectedTitleBlocks.length === 1) {
+    return selectedTitleBlocks[0];
+  }
+  if (selectedTitleBlocks.length > 1) {
+    setStatus("Export PDF: select only one Title Block.");
+    return null;
+  }
+
+  const visibleTitleBlocks = state.entities.filter((entity) => (
+    entity.type === "titleBlock" && isEntityVisible(entity)
+  ));
+  if (visibleTitleBlocks.length === 1) {
+    return visibleTitleBlocks[0];
+  }
+  if (visibleTitleBlocks.length === 0) {
+    setStatus("Export PDF: place a Title Block first.");
+    return null;
+  }
+  setStatus("Export PDF: multiple Title Blocks found. Select one.");
+  return null;
+}
+
+function exportDrawingPdf() {
+  if (!titleBlockApi) {
+    setStatus("Export PDF is unavailable.");
+    return;
+  }
+  const titleBlock = resolveTitleBlockForPdfExport();
+  if (titleBlock) {
+    exportSelectedTitleBlockPdf(titleBlock);
+  }
+}
+
 function exportSelectedTitleBlockDxf(entity) {
   if (!titleBlockApi) {
     return Promise.resolve();
@@ -12244,6 +12284,7 @@ function bindEvents() {
   saveJsonButton.addEventListener("click", saveJsonToFile);
   loadJsonButton.addEventListener("click", () => loadJsonInput.click());
   exportDxfButton.addEventListener("click", exportDxf);
+  exportPdfButton.addEventListener("click", exportDrawingPdf);
   if (importPdfButton && importPdfInput) {
     importPdfButton.addEventListener("click", () => {
       uiState.pdfReplaceTargetId = null;
