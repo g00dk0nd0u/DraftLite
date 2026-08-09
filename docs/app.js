@@ -341,10 +341,10 @@ function getCommandGuideText() {
         ? "ALIGN 2/2 — Pick target line · Esc to finish"
         : "ALIGN 1/2 — Pick reference line";
     case "mirror":
-      if (!hasSelection) return "MIRROR 1/3 — Select objects";
+      if (!hasSelection) return "MIRROR — Select objects first";
       return uiState.mirrorDraft?.firstPoint
-        ? "MIRROR 3/3 — Pick axis end"
-        : "MIRROR 2/3 — Pick axis start";
+        ? "MIRROR 2/2 — Pick axis end"
+        : "MIRROR 1/2 — Pick axis start";
     case "move":
       if (!hasSelection) return "MOVE 1/3 — Select objects";
       return uiState.transformDraft
