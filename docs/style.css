@@ -757,7 +757,7 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 .layer-table-header,
 .layer-row {
   display: grid;
-  grid-template-columns: 22px 28px minmax(0, 1fr) 28px 36px 30px;
+  grid-template-columns: 22px 28px minmax(0, 1fr) 72px 28px 36px 30px;
   gap: 6px;
   align-items: center;
   font-size: 0.76rem;
@@ -795,6 +795,17 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   color: var(--text);
 }
 
+.layer-line-weight {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
 .layer-row input[type="checkbox"],
 .layer-row input[type="radio"] {
   justify-self: center;
@@ -817,6 +828,10 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 
 .layer-header-name {
   padding-left: 2px;
+}
+
+.layer-header-weight {
+  text-align: center;
 }
 
 .layer-color {
@@ -1095,7 +1110,7 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 
   .layer-table-header,
   .layer-row {
-    grid-template-columns: 20px 24px minmax(0, 1fr) 24px 32px 28px;
+    grid-template-columns: 20px 24px minmax(0, 1fr) 64px 24px 32px 28px;
     font-size: 0.68rem;
   }
 
