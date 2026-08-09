@@ -66,6 +66,7 @@ const toolReadout = document.getElementById("toolReadout");
 const pointerReadout = document.getElementById("pointerReadout");
 const zoomReadout = document.getElementById("zoomReadout");
 const statusReadout = document.getElementById("statusReadout");
+const commandGuide = document.getElementById("commandGuide");
 const loadJsonInput = document.getElementById("loadJsonInput");
 const importPdfInput = document.getElementById("importPdfInput");
 const linkDxfInput = document.getElementById("linkDxfInput");
@@ -242,6 +243,7 @@ function applyAgentModeIfNeeded() {
 
 function setStatus(message) {
   statusReadout.textContent = message;
+  renderCommandGuide();
 }
 
 let state = createInitialState();
@@ -308,6 +310,62 @@ const uiState = {
   canvasRect: canvas.getBoundingClientRect(),
   dpr: window.devicePixelRatio || 1,
 };
+
+function getCommandGuideText() {
+  const hasSelection = state.selectedEntityIds.length > 0;
+  switch (uiState.activeTool) {
+    case "extend":
+      return uiState.extendDraft?.boundaryEntityId
+        ? "EXTEND 2/2 — Pick line to extend"
+        : "EXTEND 1/2 — Pick boundary line";
+    case "trim":
+      return uiState.trimDraft?.boundaryEntityId
+        ? "TRIM 2/2 — Pick side to remove"
+        : "TRIM 1/2 — Pick cutting boundary";
+    case "offset":
+      if (uiState.offsetDraft?.sourceEntityId) {
+        return "OFFSET 3/3 — Pick offset side";
+      }
+      if (uiState.offsetDraft && uiState.offsetDraft.distanceUnits !== null) {
+        return "OFFSET 2/3 — Pick source line";
+      }
+      return "OFFSET 1/3 — Enter distance · Enter";
+    case "fillet":
+      if (uiState.filletDraft?.numericInputBuffer) return "FILLET — Press Enter to confirm radius";
+      if (uiState.filletDraft?.firstEntityId) return "FILLET 2/2 — Pick second line";
+      return uiState.filletDraft?.radiusConfirmed
+        ? "FILLET 1/2 — Pick first line"
+        : "FILLET 1/2 — Pick first line · Type radius + Enter";
+    case "align":
+      return uiState.alignDraft?.referenceEntityId
+        ? "ALIGN 2/2 — Pick target line · Esc to finish"
+        : "ALIGN 1/2 — Pick reference line";
+    case "mirror":
+      if (!hasSelection) return "MIRROR — Select objects first";
+      return uiState.mirrorDraft?.firstPoint
+        ? "MIRROR 2/2 — Pick axis end"
+        : "MIRROR 1/2 — Pick axis start";
+    case "move":
+      if (!hasSelection) return "MOVE 1/3 — Select objects";
+      return uiState.transformDraft
+        ? "MOVE 3/3 — Pick destination"
+        : "MOVE 2/3 — Pick base point";
+    case "copy":
+      if (!hasSelection) return "COPY 1/3 — Select objects";
+      return uiState.transformDraft
+        ? "COPY 3/3 — Pick destination · Enter/Esc to finish"
+        : "COPY 2/3 — Pick base point";
+    default:
+      return "READY";
+  }
+}
+
+function renderCommandGuide() {
+  const text = getCommandGuideText();
+  if (commandGuide && commandGuide.textContent !== text) {
+    commandGuide.textContent = text;
+  }
+}
 
 function createInitialState() {
   return {
@@ -2767,6 +2825,7 @@ function syncAfterStateChange(autosave = true) {
   renderStatusPanel();
   syncUndoRedoButtons();
   syncToolButtons();
+  renderCommandGuide();
   renderLibraryPanel();
   if (autosave) {
     saveToLocalStorage();
@@ -7743,6 +7802,7 @@ function confirmFilletRadius() {
   }
   draft.radiusUnits = radiusUnits;
   draft.numericInputBuffer = "";
+  draft.radiusConfirmed = true;
   setStatus(`Fillet radius: ${Number(unitsToMm(radiusUnits).toFixed(1))} mm${radiusUnits === 0 ? " (Join)" : ""}. Pick first line.`);
   draw();
   renderStatusPanel();
@@ -11175,6 +11235,7 @@ function setActiveTool(tool, options = {}) {
   if (tool === "fillet") {
     uiState.filletDraft = {
       radiusUnits: 0,
+      radiusConfirmed: false,
       numericInputBuffer: "",
       firstEntityId: null,
       firstClickWorld: null,
