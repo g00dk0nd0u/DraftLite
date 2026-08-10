@@ -757,7 +757,7 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 .layer-table-header,
 .layer-row {
   display: grid;
-  grid-template-columns: 22px 28px minmax(0, 1fr) 72px 28px 36px 30px;
+  grid-template-columns: 22px 28px minmax(0, 1fr) 78px 28px 36px 30px;
   gap: 6px;
   align-items: center;
   font-size: 0.76rem;
@@ -795,7 +795,8 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   color: var(--text);
 }
 
-.layer-line-weight {
+.layer-line-weight,
+.layer-line-type {
   width: 100%;
   min-width: 0;
   padding: 3px 2px;
@@ -804,6 +805,12 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
   background: var(--surface);
   color: var(--text);
   font: inherit;
+}
+
+.layer-style-controls {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .layer-row input[type="checkbox"],
@@ -1110,7 +1117,7 @@ body[data-agent-mode="true"] #agentRunButton.agent-mode-primary {
 
   .layer-table-header,
   .layer-row {
-    grid-template-columns: 20px 24px minmax(0, 1fr) 64px 24px 32px 28px;
+    grid-template-columns: 20px 24px minmax(0, 1fr) 68px 24px 32px 28px;
     font-size: 0.68rem;
   }
 

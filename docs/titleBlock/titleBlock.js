@@ -1296,6 +1296,9 @@
       strokeWidthMm: typeof deps.getLayerLineWeightMm === "function"
         ? deps.getLayerLineWeightMm(entity.layerId)
         : 0.25,
+      lineType: typeof deps.getEntityLineTypeForExport === "function"
+        ? deps.getEntityLineTypeForExport(entity)
+        : (typeof deps.getLayerLineType === "function" ? deps.getLayerLineType(entity.layerId) : "continuous"),
     };
   }
 
@@ -1493,6 +1496,20 @@
     return (Number(mm) || 0) * 72 / 25.4;
   }
 
+  function getPdfDashPatternMm(lineType) {
+    switch (lineType) {
+      case "dashed": return [3, 1.5];
+      case "center": return [6, 1.5, 1, 1.5];
+      case "hidden": return [1.5, 1.5];
+      default: return [];
+    }
+  }
+
+  function pdfDashCommand(dashMm) {
+    const dashPt = (Array.isArray(dashMm) ? dashMm : []).map((value) => formatPdfNumber(mmToPt(value)));
+    return `[${dashPt.join(" ")}] 0 d`;
+  }
+
   function createPdfProjector(bounds, scale, deps = {}) {
     const effectiveScale = Math.max(1, Number(scale) || 1);
     const widthMm = unitsToMm(bounds.maxX - bounds.minX, deps) / effectiveScale;
@@ -1557,12 +1574,13 @@
     return `${rgb[0].toFixed(3)} ${rgb[1].toFixed(3)} ${rgb[2].toFixed(3)} ${operator}`;
   }
 
-  function buildPdfLineCommands(projector, line, strokeWidthPt, strokeRgb = PDF_STYLE.strokeRgb) {
+  function buildPdfLineCommands(projector, line, strokeWidthPt, strokeRgb = PDF_STYLE.strokeRgb, dashMm = []) {
     const start = projector.projectPoint(line.p1);
     const end = projector.projectPoint(line.p2);
     return [
       pdfRgbCommand(strokeRgb, "RG"),
       `${formatPdfNumber(strokeWidthPt)} w`,
+      pdfDashCommand(dashMm),
       `${formatPdfNumber(start.x)} ${formatPdfNumber(start.y)} m`,
       `${formatPdfNumber(end.x)} ${formatPdfNumber(end.y)} l`,
       "S",
@@ -1582,6 +1600,7 @@
       commands.push(pdfRgbCommand(options.fillRgb, "rg"));
     }
     commands.push(`${formatPdfNumber(options.strokeWidthPt || PDF_STYLE.minStrokeWidthPt)} w`);
+    commands.push(pdfDashCommand(options.dashMm));
     commands.push(`${formatPdfNumber(projected[0].x)} ${formatPdfNumber(projected[0].y)} m`);
     for (let index = 1; index < projected.length; index += 1) {
       commands.push(`${formatPdfNumber(projected[index].x)} ${formatPdfNumber(projected[index].y)} l`);
@@ -1732,8 +1751,9 @@
     const strokeRgb = hexToRgb01(style.strokeColor);
     const fillRgb = blendColorOverWhite(style.fillColor, style.fillAlpha);
     const strokeWidthPt = projector.strokeWidthPt(style.strokeWidthMm);
+    const dashMm = getPdfDashPatternMm(style.lineType);
     if (entity.type === "line") {
-      return buildPdfLineCommands(projector, entity, strokeWidthPt, strokeRgb);
+      return buildPdfLineCommands(projector, entity, strokeWidthPt, strokeRgb, dashMm);
     }
     if (entity.type === "rect") {
       const points = [
@@ -1749,6 +1769,7 @@
         strokeWidthPt,
         strokeRgb,
         fillRgb: entity.fill !== false ? fillRgb : null,
+        dashMm,
       });
     }
     if (entity.type === "circle") {
@@ -1758,6 +1779,7 @@
         fill: false,
         strokeWidthPt,
         strokeRgb,
+        dashMm,
       });
     }
     if (entity.type === "arc") {
@@ -1767,6 +1789,7 @@
         fill: false,
         strokeWidthPt,
         strokeRgb,
+        dashMm,
       });
     }
     if (entity.type === "filledRegion") {
@@ -1777,6 +1800,7 @@
         strokeWidthPt,
         strokeRgb,
         fillRgb: entity.fill !== false ? fillRgb : null,
+        dashMm,
       });
     }
     if (entity.type === "text") {
@@ -1797,9 +1821,9 @@
       const textColor = dimensionData.text.color
         || (typeof deps.getDimensionTextColorForExport === "function" ? deps.getDimensionTextColorForExport(entity) : entity.color || style.strokeColor);
       const commands = [];
-      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart1, p2: dimensionData.geometry.o1 }, dimensionStrokeWidthPt, geometryRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart2, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb));
-      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.o1, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart1, p2: dimensionData.geometry.o1 }, dimensionStrokeWidthPt, geometryRgb, dashMm));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.extensionStart2, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb, dashMm));
+      commands.push(...buildPdfLineCommands(projector, { p1: dimensionData.geometry.o1, p2: dimensionData.geometry.o2 }, dimensionStrokeWidthPt, geometryRgb, dashMm));
       if (dimensionData.tickRadiusUnits > 0) {
         commands.push(...buildPdfFilledCircleCommands(projector, dimensionData.geometry.o1, dimensionData.tickRadiusUnits, geometryRgb));
         commands.push(...buildPdfFilledCircleCommands(projector, dimensionData.geometry.o2, dimensionData.tickRadiusUnits, geometryRgb));
@@ -1819,7 +1843,7 @@
       });
       const commands = [];
       primitives.lines.forEach((line) => {
-        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.titleBlockStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb));
+        commands.push(...buildPdfLineCommands(projector, line, projector.strokeWidthPt(PDF_STYLE.titleBlockStrokeWidthMm), PDF_STYLE.titleBlockStrokeRgb, []));
       });
       primitives.texts.forEach((textEntity) => {
         commands.push(...buildPdfTitleBlockTextCommands(projector, textEntity, deps));
