@@ -14,6 +14,9 @@ const toolFiles = [
   "docs/tools/modify/offset.js",
   "docs/tools/modify/trim.js",
   "docs/tools/modify/fillet.js",
+  "docs/tools/selection/gripEdit.js",
+  "docs/tools/selection/rectangleEdit.js",
+  "docs/tools/selection/selection.js",
 ];
 
 for (const relativePath of toolFiles) {
@@ -31,7 +34,7 @@ assert.throws(() => registry.register("invalid factory", () => {}), /Tool ID/);
 assert.throws(() => registry.register("not-a-factory", {}), /factory/);
 assert.throws(() => registry.register("align", () => ({})), /already registered/);
 
-const expectedIds = ["align", "extend", "fillet", "offset", "trim"];
+const expectedIds = ["align", "extend", "fillet", "grip-edit", "offset", "rectangle-edit", "selection", "trim"];
 assert.deepEqual(Array.from(registry.list()), expectedIds, "tools should each be registered exactly once in deterministic order");
 for (const id of expectedIds) {
   assert.equal(registry.has(id), true, `${id} should be registered`);
@@ -44,5 +47,20 @@ for (const id of expectedIds) {
     if (hook in controller) assert.equal(typeof controller[hook], "function", `${id}.${hook} should be a function`);
   }
 }
+
+const selectionUiState = { selectionWindow: null };
+const selectionController = registry.get("selection")({
+  getUiState: () => selectionUiState,
+  worldToScreen: ({ x, y }) => ({ x: x * 2, y: y * 2 }),
+  draw() {},
+});
+assert.equal(typeof selectionController.beginWindow, "function");
+assert.equal(typeof selectionController.handleClick, "function");
+selectionController.beginWindow({ x: 3, y: 4 }, true);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(selectionUiState.selectionWindow)),
+  { append: true, startScreen: { x: 6, y: 8 }, currentScreen: { x: 6, y: 8 }, startWorld: { x: 3, y: 4 }, currentWorld: { x: 3, y: 4 } },
+  "selection window initialization should be deterministic"
+);
 
 console.log("Tool registry and controller checks passed.");

@@ -74,6 +74,8 @@ user_tools/                     Repository support utilities
 
 The `docs/core/units.js` and `docs/core/geometry.js` classic scripts begin the incremental extraction of pure unit and geometry helpers from `app.js`. They preserve direct-open compatibility and introduce no build system.
 
+Human-invoked tool lifecycles are registered through `window.DraftLiteTools`. Phase 2 keeps selection routing, line grip editing, and rectangle edge editing in `docs/tools/selection/`, while document state and shared services remain owned by `docs/app.js`.
+
 ## Run
 
 Open `docs/index.html` directly in a browser. No npm or build step is required. PDF Underlay uses PDF.js loaded from cdnjs.
@@ -89,6 +91,7 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 ## Development verification
 
 - Follow `AGENTS.md` for the detailed development constraints and verification rules.
+- Run `node scripts/check_tools.js` after changing tool registry modules or controllers.
 - Use `git diff --check` for documentation-only changes.
 - `window.DraftLiteDebug` and its hidden DOM CustomEvent bridge provide development helpers without changing normal behavior unless explicitly invoked.
 - DXF output intentionally remains conservative ASCII `AC1009`: CRLF line endings, explicit `HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`, and `EOF` sections, a minimal header without `$INSUNITS`, and no subclass group code `100`. Rectangle and Filled Region outlines are emitted virtually without mutating document state, layer names are normalized for compatibility, and Y coordinates are flipped only at export time.
@@ -96,7 +99,8 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 ## Roadmap
 
 - Tool modularization roadmap — Issue #98
-- Current: Phase 1 — Issue #99
+- Completed: Phase 1 — Issue #99
+- Current: Phase 2 — Issue #100
 
 - Stabilization sequence Issues #69–#72 completed.
 - Completed: chained Multi-target Align — Issue #83.
