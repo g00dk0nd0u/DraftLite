@@ -8,6 +8,10 @@
   const DEFAULT_SHOW_MODE = "full";
   const SCALE_OPTIONS = [50, 100, 200, 500];
   const PNG_DPI = 300;
+  const DEFAULT_FILL_PATTERN = "solid";
+  const FILL_PATTERN_PRESETS = ["solid", "diagonal", "cross"];
+  const HATCH_SPACING_MM = 3;
+  const HATCH_LINE_WIDTH_MM = 0.13;
   const PT_TO_MM = 25.4 / 72;
   const PDF_STYLE = {
     strokeRgb: [0.10, 0.16, 0.22],
@@ -21,6 +25,21 @@
 
   function getTemplateRegistry() {
     return window.DraftLiteTitleBlockTemplates || null;
+  }
+
+  function normalizeFillPattern(value) {
+    return FILL_PATTERN_PRESETS.includes(value) ? value : DEFAULT_FILL_PATTERN;
+  }
+
+  function getHatchInterceptRange(bounds, slope) {
+    const corners = [
+      { x: bounds.minX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.maxY },
+      { x: bounds.minX, y: bounds.maxY },
+    ];
+    const intercepts = corners.map((point) => point.y - slope * point.x);
+    return { min: Math.min(...intercepts), max: Math.max(...intercepts) };
   }
 
   function getTemplateDefinition(templateId) {
@@ -1078,6 +1097,9 @@
       unitsToPixels(units) {
         return (unitsToMm(units, deps) / effectiveScale) * scaleY;
       },
+      paperMmToPixels(mm) {
+        return (Number(mm) || 0) * scaleY;
+      },
     };
   }
 
@@ -1377,10 +1399,54 @@
       points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
       ctx.closePath();
       if (entity.fill !== false) {
-        ctx.globalAlpha = style.fillAlpha;
-        ctx.fillStyle = fillStyle;
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        const fillPattern = normalizeFillPattern(entity.fillPattern);
+        if (fillPattern === "solid") {
+          ctx.globalAlpha = style.fillAlpha;
+          ctx.fillStyle = fillStyle;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else {
+          const xs = points.map((point) => point.x);
+          const ys = points.map((point) => point.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          const bounds = { minX, maxX, minY, maxY };
+          const spacingPx = isPrintExport
+            ? Math.max(1, Math.abs(projector.paperMmToPixels(HATCH_SPACING_MM)))
+            : 10;
+          const interceptStep = spacingPx * Math.SQRT2;
+          const padding = Math.max(maxX - minX, maxY - minY);
+          const x1 = minX - padding;
+          const x2 = maxX + padding;
+          const drawFamily = (slope) => {
+            const range = getHatchInterceptRange(bounds, slope);
+            let lineCount = 0;
+            for (let intercept = range.min - interceptStep; intercept <= range.max + interceptStep && lineCount < 4000; intercept += interceptStep, lineCount += 1) {
+              ctx.moveTo(x1, slope * x1 + intercept);
+              ctx.lineTo(x2, slope * x2 + intercept);
+            }
+          };
+          ctx.save();
+          ctx.clip();
+          ctx.beginPath();
+          drawFamily(1);
+          if (fillPattern === "cross") drawFamily(-1);
+          ctx.globalAlpha = style.fillAlpha;
+          ctx.strokeStyle = fillStyle;
+          ctx.lineWidth = isPrintExport
+            ? Math.max(1, Math.abs(projector.paperMmToPixels(HATCH_LINE_WIDTH_MM)))
+            : 1;
+          ctx.setLineDash([]);
+          ctx.stroke();
+          ctx.restore();
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          ctx.moveTo(points[0].x, points[0].y);
+          points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+          ctx.closePath();
+        }
       }
       ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = normalStrokePx;
@@ -1618,6 +1684,38 @@
     return commands;
   }
 
+  function buildPdfFilledRegionHatchCommands(projector, points, pattern, strokeRgb) {
+    if (!Array.isArray(points) || points.length < 3 || normalizeFillPattern(pattern) === "solid") return [];
+    const projected = points.map((point) => projector.projectPoint(point));
+    const xs = projected.map((point) => point.x);
+    const ys = projected.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const bounds = { minX, maxX, minY, maxY };
+    const interceptStepPt = mmToPt(HATCH_SPACING_MM) * Math.SQRT2;
+    const padding = Math.max(maxX - minX, maxY - minY);
+    const x1 = minX - padding;
+    const x2 = maxX + padding;
+    const commands = ["q", pdfRgbCommand(strokeRgb, "RG"), `${formatPdfNumber(projector.strokeWidthPt(HATCH_LINE_WIDTH_MM))} w`];
+    commands.push(`${formatPdfNumber(projected[0].x)} ${formatPdfNumber(projected[0].y)} m`);
+    projected.slice(1).forEach((point) => commands.push(`${formatPdfNumber(point.x)} ${formatPdfNumber(point.y)} l`));
+    commands.push("h", "W", "n", "[] 0 d");
+    const addFamily = (slope) => {
+      const range = getHatchInterceptRange(bounds, slope);
+      let lineCount = 0;
+      for (let intercept = range.min - interceptStepPt; intercept <= range.max + interceptStepPt && lineCount < 4000; intercept += interceptStepPt, lineCount += 1) {
+        commands.push(`${formatPdfNumber(x1)} ${formatPdfNumber(slope * x1 + intercept)} m`);
+        commands.push(`${formatPdfNumber(x2)} ${formatPdfNumber(slope * x2 + intercept)} l`);
+      }
+    };
+    addFamily(1);
+    if (normalizeFillPattern(pattern) === "cross") addFamily(-1);
+    commands.push("S", "Q");
+    return commands;
+  }
+
   function approximateCirclePoints(center, radius, segments = 48) {
     const points = [];
     for (let index = 0; index < segments; index += 1) {
@@ -1793,15 +1891,20 @@
       });
     }
     if (entity.type === "filledRegion") {
-      return buildPdfPolygonCommands(projector, entity.points || [], {
+      const pattern = normalizeFillPattern(entity.fillPattern);
+      const commands = entity.fill !== false && pattern !== "solid"
+        ? buildPdfFilledRegionHatchCommands(projector, entity.points || [], pattern, fillRgb)
+        : [];
+      commands.push(...buildPdfPolygonCommands(projector, entity.points || [], {
         closePath: true,
         stroke: true,
-        fill: entity.fill !== false,
+        fill: entity.fill !== false && pattern === "solid",
         strokeWidthPt,
         strokeRgb,
-        fillRgb: entity.fill !== false ? fillRgb : null,
+        fillRgb: entity.fill !== false && pattern === "solid" ? fillRgb : null,
         dashMm,
-      });
+      }));
+      return commands;
     }
     if (entity.type === "text") {
       return buildPdfTextCommands(projector, entity, deps);

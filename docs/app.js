@@ -80,6 +80,8 @@ const DEFAULT_LINE_WEIGHT_MM = 0.25;
 const LINE_WEIGHT_PRESETS_MM = [0.13, 0.18, 0.25, 0.35, 0.50, 0.70];
 const DEFAULT_LINE_TYPE = "continuous";
 const LINE_TYPE_PRESETS = ["continuous", "dashed", "center", "hidden"];
+const DEFAULT_FILL_PATTERN = "solid";
+const FILL_PATTERN_PRESETS = ["solid", "diagonal", "cross"];
 const dxfUnderlayApi = window.DraftLiteDxfUnderlay || null;
 
 const toolButtons = {
@@ -188,6 +190,21 @@ const MODIFY_REPEAT_TOOL_IDS = new Set([
 ]);
 
 const ctx = canvas.getContext("2d");
+
+function normalizeFillPattern(value) {
+  return FILL_PATTERN_PRESETS.includes(value) ? value : DEFAULT_FILL_PATTERN;
+}
+
+function getHatchInterceptRange(bounds, slope) {
+  const corners = [
+    { x: bounds.minX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.maxY },
+    { x: bounds.minX, y: bounds.maxY },
+  ];
+  const intercepts = corners.map((point) => point.y - slope * point.x);
+  return { min: Math.min(...intercepts), max: Math.max(...intercepts) };
+}
 
 function isAgentModeEnabled() {
   const params = new URLSearchParams(window.location.search);
@@ -2066,6 +2083,7 @@ function normalizeEntity(entity, options = {}) {
       type: "filledRegion",
       layerId: typeof entity.layerId === "string" ? entity.layerId : null,
       points,
+      fillPattern: normalizeFillPattern(entity.fillPattern),
       ...getNormalizedEntityStyleProps(entity, { supportsStroke: true, supportsFill: true }),
     };
   }
@@ -3882,6 +3900,22 @@ function renderPropertiesPanel() {
     addPropertyRow(generalGrid, "Vertex Count", createReadOnlyText(String((entity.points || []).length)));
 
     const appearanceGrid = appendSection("Appearance");
+    const patternSelect = document.createElement("select");
+    FILL_PATTERN_PRESETS.forEach((pattern) => {
+      const option = document.createElement("option");
+      option.value = pattern;
+      option.textContent = pattern.charAt(0).toUpperCase() + pattern.slice(1);
+      option.selected = normalizeFillPattern(entity.fillPattern) === pattern;
+      patternSelect.appendChild(option);
+    });
+    patternSelect.addEventListener("change", () => {
+      pushUndoState();
+      entity.fillPattern = normalizeFillPattern(patternSelect.value);
+      syncAfterStateChange();
+      setStatus(`Filled Region pattern: ${patternSelect.options[patternSelect.selectedIndex].text}.`);
+    });
+    addPropertyRow(appearanceGrid, "Pattern", patternSelect);
+
     const fill = document.createElement("input");
     fill.type = "checkbox";
     fill.checked = entity.fill !== false;
@@ -4867,15 +4901,22 @@ function drawFilledRegionEntity(entity) {
   const isSelected = state.selectedEntityIds.includes(entity.id);
   ctx.save();
   ctx.globalAlpha = getEntityOpacity(entity);
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i += 1) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-  ctx.closePath();
+  const buildPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+  };
+  buildPath();
   if (entity.fill !== false) {
     ctx.fillStyle = getRenderableEntityFillStyle(entity, getEntityStrokeColor(entity), getEntityFillOpacity(entity, isSelected ? 0.26 : 0.18));
-    ctx.fill();
+    const fillPattern = normalizeFillPattern(entity.fillPattern);
+    if (fillPattern === "solid") {
+      ctx.fill();
+    } else {
+      drawFilledRegionHatch(points, fillPattern, ctx.fillStyle);
+      buildPath();
+    }
   }
   if (isSelected) {
     ctx.setLineDash([]);
@@ -4888,6 +4929,38 @@ function drawFilledRegionEntity(entity) {
   ctx.lineWidth = getEntityStrokeWidth(entity, 1.0, 2.0, isSelected);
   ctx.stroke();
   drawSelectedEntityHandles(entity);
+  ctx.restore();
+}
+
+function drawFilledRegionHatch(points, pattern, strokeStyle) {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const bounds = {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys),
+  };
+  const spacing = 10;
+  const interceptStep = spacing * Math.SQRT2;
+  const padding = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  const x1 = bounds.minX - padding;
+  const x2 = bounds.maxX + padding;
+  const drawFamily = (slope) => {
+    const range = getHatchInterceptRange(bounds, slope);
+    let lineCount = 0;
+    for (let intercept = range.min - interceptStep; intercept <= range.max + interceptStep && lineCount < 4000; intercept += interceptStep, lineCount += 1) {
+      ctx.moveTo(x1, slope * x1 + intercept);
+      ctx.lineTo(x2, slope * x2 + intercept);
+    }
+  };
+  ctx.save();
+  ctx.clip();
+  ctx.beginPath();
+  drawFamily(1);
+  if (pattern === "cross") drawFamily(-1);
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = strokeStyle;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -10874,6 +10947,7 @@ function finishFilledRegionDraft() {
     layerId: state.activeLayerId,
     points: uiState.filledRegionDraft.points.map(roundWorldPoint),
     fill: true,
+    fillPattern: DEFAULT_FILL_PATTERN,
     fillColor: normalizeColor(layer?.color || "#5e6b78"),
   };
   state.entities.push(entity);
@@ -12662,6 +12736,7 @@ window.DraftLiteDebug = {
         { x: mmToUnits(600), y: mmToUnits(1600) },
       ],
       fill: true,
+      fillPattern: DEFAULT_FILL_PATTERN,
       fillColor: normalizeColor(getLayerById(state.activeLayerId)?.color || "#5e6b78"),
     };
     state.entities.push(entity);
