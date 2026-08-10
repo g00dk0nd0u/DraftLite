@@ -332,35 +332,53 @@ const uiState = {
   dpr: window.devicePixelRatio || 1,
 };
 
+const modularToolControllers = new Map();
+const modularToolContext = Object.freeze({
+  getState: () => state,
+  getUiState: () => uiState,
+  getEntityById,
+  canSelectEntity,
+  findAlignTargetAtPoint,
+  findLineTargetAtPoint,
+  findSelectableEntityAtPoint,
+  pushUndoState,
+  syncAfterStateChange,
+  setStatus,
+  draw,
+  renderStatusPanel,
+  drawPreviewLineEntity,
+  drawPreviewArcEntity,
+  createEntityId,
+  deepClone,
+  roundWorldPoint,
+  getInfiniteLineIntersection,
+  projectPointToInfiniteLineRaw,
+  alignLineToReference,
+  offsetLineTowardPoint,
+  trimLineAtBoundary,
+  filletLinesWithRadius,
+  unitsToMm,
+  mmToUnits,
+});
+
+function getToolController(toolId) {
+  if (!window.DraftLiteTools?.has(toolId)) return null;
+  if (!modularToolControllers.has(toolId)) {
+    modularToolControllers.set(toolId, window.DraftLiteTools.get(toolId)(modularToolContext));
+  }
+  return modularToolControllers.get(toolId);
+}
+
+function getActiveToolController() {
+  return getToolController(uiState.activeTool);
+}
+
+
 function getCommandGuideText() {
+  const controllerGuide = getActiveToolController()?.getGuideText?.();
+  if (controllerGuide) return controllerGuide;
   const hasSelection = state.selectedEntityIds.length > 0;
   switch (uiState.activeTool) {
-    case "extend":
-      return uiState.extendDraft?.boundaryEntityId
-        ? "EXTEND 2/2 — Pick line to extend"
-        : "EXTEND 1/2 — Pick boundary line";
-    case "trim":
-      return uiState.trimDraft?.boundaryEntityId
-        ? "TRIM 2/2 — Pick side to remove"
-        : "TRIM 1/2 — Pick cutting boundary";
-    case "offset":
-      if (uiState.offsetDraft?.sourceEntityId) {
-        return "OFFSET 3/3 — Pick offset side";
-      }
-      if (uiState.offsetDraft && uiState.offsetDraft.distanceUnits !== null) {
-        return "OFFSET 2/3 — Pick source line";
-      }
-      return "OFFSET 1/3 — Enter distance · Enter";
-    case "fillet":
-      if (uiState.filletDraft?.numericInputBuffer) return "FILLET — Press Enter to confirm radius";
-      if (uiState.filletDraft?.firstEntityId) return "FILLET 2/2 — Pick side to keep";
-      return uiState.filletDraft?.radiusConfirmed
-        ? "FILLET 1/2 — Pick first line"
-        : "FILLET 1/2 — Pick first line · Type radius + Enter";
-    case "align":
-      return uiState.alignDraft?.referenceEntityId
-        ? "ALIGN 2/2 — Pick target line · Esc to finish"
-        : "ALIGN 1/2 — Pick reference line";
     case "mirror":
       if (!hasSelection) return "MIRROR — Select objects first";
       return uiState.mirrorDraft?.firstPoint
@@ -1733,49 +1751,8 @@ function cancelGripEdit(message = "Grip edit cancelled.") {
   setStatus(message);
 }
 
-function cancelFillet(message = "Fillet cancelled.") {
-  state.selectedEntityIds = [];
-  uiState.filletDraft = null;
-  uiState.dimensionDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus(message);
-}
-
-function cancelAlign(message = "Align cancelled.") {
-  state.selectedEntityIds = [];
-  uiState.alignDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus(message);
-}
-
 function cancelMirror(message = "Mirror cancelled.") {
   uiState.mirrorDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function cancelExtend(message = "Extend cancelled.") {
-  state.selectedEntityIds = [];
-  uiState.extendDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus(message);
-}
-
-function cancelOffset(message = "Offset cancelled.") {
-  state.selectedEntityIds = [];
-  uiState.offsetDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function cancelTrim(message = "Trim cancelled.") {
-  state.selectedEntityIds = [];
-  uiState.trimDraft = null;
   uiState.activeTool = "select";
   syncAfterStateChange(false);
   setStatus(message);
@@ -4205,65 +4182,7 @@ function draw() {
   if (uiState.lineDraft) {
     drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
   }
-  if (uiState.offsetDraft && uiState.offsetDraft.sourceEntityId) {
-    const sourceLine = getEntityById(uiState.offsetDraft.sourceEntityId);
-    const previewGeometry = sourceLine && canSelectEntity(sourceLine)
-      ? offsetLineTowardPoint(sourceLine, uiState.offsetDraft.distanceUnits, uiState.pointerWorld)
-      : null;
-    if (previewGeometry) {
-      drawPreviewLineEntity({ ...sourceLine, ...previewGeometry });
-    }
-  }
-  if (uiState.trimDraft && uiState.trimDraft.boundaryEntityId) {
-    const boundaryLine = getEntityById(uiState.trimDraft.boundaryEntityId);
-    const targetLine = findLineTargetAtPoint(uiState.pointerWorld);
-    const previewGeometry = boundaryLine && targetLine
-      && boundaryLine.id !== targetLine.id
-      && canSelectEntity(boundaryLine)
-      ? trimLineAtBoundary(targetLine, boundaryLine, uiState.pointerWorld)
-      : null;
-    if (previewGeometry) {
-      drawPreviewLineEntity({ ...targetLine, ...previewGeometry });
-    }
-  }
-  if (uiState.alignDraft && uiState.alignDraft.referenceEntityId) {
-    const referenceLine = getEntityById(uiState.alignDraft.referenceEntityId);
-    if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
-      state.selectedEntityIds = [];
-      uiState.alignDraft = null;
-      uiState.activeTool = "select";
-      setStatus("Align ended: reference line is unavailable.");
-    }
-    const targetLine = referenceLine && canSelectEntity(referenceLine)
-      ? findAlignTargetAtPoint(uiState.pointerWorld, referenceLine.id)
-      : null;
-    const previewGeometry = referenceLine && targetLine
-      && referenceLine.id !== targetLine.id
-      && canSelectEntity(referenceLine)
-      ? alignLineToReference(targetLine, referenceLine, uiState.pointerWorld)
-      : null;
-    if (previewGeometry) {
-      drawPreviewLineEntity({ ...targetLine, p1: previewGeometry.p1, p2: previewGeometry.p2 });
-    }
-  }
-  if (uiState.filletDraft && uiState.filletDraft.firstEntityId && uiState.filletDraft.radiusUnits > 0) {
-    const firstLine = getEntityById(uiState.filletDraft.firstEntityId);
-    const secondLine = findFilletTargetAtPoint(uiState.pointerWorld);
-    const previewGeometry = firstLine && secondLine && firstLine.id !== secondLine.id
-      ? filletLinesWithRadius(
-        firstLine,
-        uiState.filletDraft.firstClickWorld,
-        secondLine,
-        uiState.pointerWorld,
-        uiState.filletDraft.radiusUnits
-      )
-      : null;
-    if (previewGeometry) {
-      drawPreviewLineEntity({ ...firstLine, ...previewGeometry.firstLine });
-      drawPreviewLineEntity({ ...secondLine, ...previewGeometry.secondLine });
-      drawPreviewArcEntity({ ...previewGeometry.arc, layerId: firstLine.layerId });
-    }
-  }
+  getActiveToolController()?.drawPreview?.();
   if (uiState.wireDraft) {
     drawDraftWire(uiState.wireDraft);
   }
@@ -7447,15 +7366,6 @@ function deleteSelectedEntities() {
   setStatus(`${deletableIds.length} entit${deletableIds.length === 1 ? "y" : "ies"} deleted.`);
 }
 
-function findFilletTargetAtPoint(worldPoint) {
-  const selectable = state.entities
-    .filter((entity) => entity.type === "line" && canSelectEntity(entity))
-    .slice()
-    .reverse();
-
-  return selectable.find((entity) => hitTestEntity(entity, worldPoint)) || null;
-}
-
 function findLineTargetAtPoint(worldPoint) {
   const selectable = state.entities
     .filter((entity) => entity.type === "line" && canSelectEntity(entity))
@@ -7484,317 +7394,6 @@ function findSelectableEntityAtPoint(worldPoint) {
     .find((entity) => hitTestEntity(entity, worldPoint)) || null;
 }
 
-function projectPointToInfiniteLine(point, line) {
-  const projectedPoint = projectPointToInfiniteLineRaw(point, line);
-  return projectedPoint ? roundWorldPoint(projectedPoint) : null;
-}
-
-function applyAlign(referenceEntityId, targetEntityId, targetClickWorld, options = {}) {
-  const keepReferenceActive = options.keepReferenceActive === true;
-  const referenceLine = getEntityById(referenceEntityId);
-  const targetLine = getEntityById(targetEntityId);
-
-  if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
-    state.selectedEntityIds = [];
-    uiState.alignDraft = null;
-    uiState.activeTool = "select";
-    syncAfterStateChange(false);
-    setStatus("Align ended: reference line is unavailable.");
-    return false;
-  }
-  if (!targetLine || targetLine.type !== "line" || !canSelectEntity(targetLine)) {
-    setStatus("Pick another visible, unlocked target line. Esc to finish.");
-    return false;
-  }
-  if (referenceLine.id === targetLine.id) {
-    setStatus("Pick another visible, unlocked target line. Esc to finish.");
-    return false;
-  }
-  const alignedGeometry = alignLineToReference(targetLine, referenceLine, targetClickWorld);
-  if (!alignedGeometry) {
-    setStatus("Pick another visible, unlocked target line. Esc to finish.");
-    return false;
-  }
-  if (alignedGeometry.p1.x === targetLine.p1.x && alignedGeometry.p1.y === targetLine.p1.y
-    && alignedGeometry.p2.x === targetLine.p2.x && alignedGeometry.p2.y === targetLine.p2.y) {
-    setStatus("Align: target is already aligned. Pick another target line or Esc to finish.");
-    return false;
-  }
-
-  pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (entity.id !== targetLine.id) {
-      return entity;
-    }
-    return {
-      ...entity,
-      p1: alignedGeometry.p1,
-      p2: alignedGeometry.p2,
-    };
-  });
-  state.selectedEntityIds = keepReferenceActive ? [referenceEntityId] : [];
-  if (!keepReferenceActive) {
-    uiState.alignDraft = null;
-    uiState.activeTool = "select";
-  }
-  syncAfterStateChange();
-  setStatus(keepReferenceActive
-    ? "Align applied. Pick another target line or Esc to finish."
-    : "Align applied.");
-  return true;
-}
-
-function getEndpointToMoveForExtend(line, boundaryLine, intersection) {
-  const p1Projection = projectPointToInfiniteLineRaw(line.p1, boundaryLine);
-  const p2Projection = projectPointToInfiniteLineRaw(line.p2, boundaryLine);
-  const p1DistanceToBoundary = p1Projection
-    ? Math.hypot(line.p1.x - p1Projection.x, line.p1.y - p1Projection.y)
-    : Infinity;
-  const p2DistanceToBoundary = p2Projection
-    ? Math.hypot(line.p2.x - p2Projection.x, line.p2.y - p2Projection.y)
-    : Infinity;
-  if (p1DistanceToBoundary !== p2DistanceToBoundary) {
-    return p1DistanceToBoundary <= p2DistanceToBoundary ? "p1" : "p2";
-  }
-
-  const p1DistanceToIntersection = Math.hypot(line.p1.x - intersection.x, line.p1.y - intersection.y);
-  const p2DistanceToIntersection = Math.hypot(line.p2.x - intersection.x, line.p2.y - intersection.y);
-  return p1DistanceToIntersection <= p2DistanceToIntersection ? "p1" : "p2";
-}
-
-function applyExtend(boundaryEntityId, targetEntityId) {
-  const boundaryLine = getEntityById(boundaryEntityId);
-  const targetLine = getEntityById(targetEntityId);
-
-  if (!boundaryLine || !targetLine || boundaryLine.type !== "line" || targetLine.type !== "line") {
-    setStatus("Extend requires two available lines.");
-    return false;
-  }
-  if (!canSelectEntity(boundaryLine) || !canSelectEntity(targetLine)) {
-    setStatus("Extend requires visible, unlocked lines.");
-    return false;
-  }
-  if (boundaryLine.id === targetLine.id) {
-    setStatus("Extend: pick a different target line.");
-    return false;
-  }
-
-  const intersection = getInfiniteLineIntersection(boundaryLine, targetLine);
-  if (!intersection) {
-    setStatus("Extend failed: lines are parallel or nearly parallel. Pick target line.");
-    return false;
-  }
-
-  const endpointToMove = getEndpointToMoveForExtend(targetLine, boundaryLine, intersection);
-  const nextTargetLine = {
-    ...targetLine,
-    p1: endpointToMove === "p1" ? intersection : targetLine.p1,
-    p2: endpointToMove === "p2" ? intersection : targetLine.p2,
-  };
-
-  pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (entity.id !== nextTargetLine.id) {
-      return entity;
-    }
-    return nextTargetLine;
-  });
-  state.selectedEntityIds = [];
-  uiState.extendDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus("Extend applied.");
-  return true;
-}
-
-function handleAlignToolClick(worldPoint) {
-  const referenceEntityId = uiState.alignDraft?.referenceEntityId || null;
-  if (referenceEntityId) {
-    const referenceLine = getEntityById(referenceEntityId);
-    if (!referenceLine || referenceLine.type !== "line" || !canSelectEntity(referenceLine)) {
-      state.selectedEntityIds = [];
-      uiState.alignDraft = null;
-      uiState.activeTool = "select";
-      syncAfterStateChange(false);
-      setStatus("Align ended: reference line is unavailable.");
-      return;
-    }
-  }
-
-  const targetLine = findAlignTargetAtPoint(worldPoint, referenceEntityId);
-  if (!targetLine) {
-    setStatus(
-      uiState.alignDraft
-        ? "Pick another visible, unlocked target line. Esc to finish."
-        : "Align: pick reference line."
-    );
-    return;
-  }
-
-  if (!uiState.alignDraft) {
-    uiState.alignDraft = {
-      referenceEntityId: targetLine.id,
-      referenceClickWorld: deepClone(worldPoint),
-    };
-    state.selectedEntityIds = [targetLine.id];
-    syncAfterStateChange();
-    setStatus("Align: reference selected. Pick target line. Esc to finish.");
-    return;
-  }
-
-  applyAlign(uiState.alignDraft.referenceEntityId, targetLine.id, worldPoint, {
-    keepReferenceActive: true,
-  });
-}
-
-function handleExtendToolClick(worldPoint) {
-  const targetEntity = findSelectableEntityAtPoint(worldPoint);
-  if (!targetEntity) {
-    setStatus(
-      uiState.extendDraft ? "Extend: pick target line" : "Extend: pick boundary line"
-    );
-    return;
-  }
-
-  if (targetEntity.type !== "line") {
-    setStatus("Extend: line only. Pick a line.");
-    return;
-  }
-
-  if (!uiState.extendDraft) {
-    uiState.extendDraft = {
-      boundaryEntityId: targetEntity.id,
-    };
-    state.selectedEntityIds = [targetEntity.id];
-    syncAfterStateChange();
-    setStatus("Extend: pick target line");
-    return;
-  }
-
-  if (uiState.extendDraft.boundaryEntityId === targetEntity.id) {
-    setStatus("Extend: pick a different target line.");
-    return;
-  }
-
-  applyExtend(uiState.extendDraft.boundaryEntityId, targetEntity.id);
-}
-
-function applyTrim(boundaryEntityId, targetEntityId, targetPickPoint) {
-  const boundaryLine = getEntityById(boundaryEntityId);
-  const targetLine = getEntityById(targetEntityId);
-  if (!boundaryLine || !targetLine || boundaryLine.type !== "line" || targetLine.type !== "line") {
-    setStatus("Trim requires two available lines.");
-    return false;
-  }
-  if (!canSelectEntity(boundaryLine) || !canSelectEntity(targetLine)) {
-    setStatus("Trim requires visible, unlocked lines.");
-    return false;
-  }
-  if (boundaryLine.id === targetLine.id) {
-    setStatus("Trim: pick a different target line.");
-    return false;
-  }
-  const geometry = trimLineAtBoundary(targetLine, boundaryLine, targetPickPoint);
-  if (!geometry) {
-    setStatus("Trim failed: finite segments must intersect away from the target endpoint. Pick side of target line to remove.");
-    return false;
-  }
-
-  pushUndoState();
-  targetLine.p1 = geometry.p1;
-  targetLine.p2 = geometry.p2;
-  state.selectedEntityIds = [];
-  uiState.trimDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus("Trim applied.");
-  return true;
-}
-
-function handleTrimToolClick(worldPoint) {
-  const targetLine = findLineTargetAtPoint(worldPoint);
-  if (!targetLine) {
-    setStatus(uiState.trimDraft
-      ? "Trim: line only. Pick a visible, unlocked target line."
-      : "Trim: line only. Pick a visible, unlocked boundary line.");
-    return;
-  }
-  if (!uiState.trimDraft) {
-    uiState.trimDraft = { boundaryEntityId: targetLine.id };
-    state.selectedEntityIds = [targetLine.id];
-    syncAfterStateChange(false);
-    setStatus("Trim: pick side of target line to remove");
-    return;
-  }
-  if (uiState.trimDraft.boundaryEntityId === targetLine.id) {
-    setStatus("Trim: pick a different target line.");
-    return;
-  }
-  applyTrim(uiState.trimDraft.boundaryEntityId, targetLine.id, worldPoint);
-}
-
-function confirmOffsetDistance() {
-  const draft = uiState.offsetDraft;
-  if (!draft || draft.distanceUnits !== null) {
-    return false;
-  }
-  const distanceMm = Number.parseFloat(draft.numericInputBuffer);
-  const distanceUnits = mmToUnits(distanceMm);
-  if (!draft.numericInputBuffer || !Number.isFinite(distanceMm) || distanceMm <= 0 || distanceUnits <= 0) {
-    setStatus("Offset: enter a positive distance in mm.");
-    return false;
-  }
-  draft.distanceUnits = distanceUnits;
-  setStatus("Offset: pick source line");
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function handleOffsetToolClick(worldPoint) {
-  const draft = uiState.offsetDraft;
-  if (!draft || draft.distanceUnits === null) {
-    setStatus("Offset: enter distance in mm");
-    return;
-  }
-
-  if (!draft.sourceEntityId) {
-    const targetEntity = findFilletTargetAtPoint(worldPoint);
-    if (!targetEntity) {
-      setStatus("Offset: line only. Pick a visible, unlocked line.");
-      return;
-    }
-    draft.sourceEntityId = targetEntity.id;
-    state.selectedEntityIds = [targetEntity.id];
-    syncAfterStateChange(false);
-    setStatus("Offset: pick side");
-    return;
-  }
-
-  const sourceLine = getEntityById(draft.sourceEntityId);
-  const geometry = sourceLine && canSelectEntity(sourceLine)
-    ? offsetLineTowardPoint(sourceLine, draft.distanceUnits, worldPoint)
-    : null;
-  if (!geometry) {
-    setStatus("Offset: pick a side away from the source line.");
-    return;
-  }
-
-  pushUndoState();
-  state.entities.push({
-    ...sourceLine,
-    id: createEntityId(),
-    p1: geometry.p1,
-    p2: geometry.p2,
-  });
-  const distanceMm = Number(unitsToMm(draft.distanceUnits).toFixed(1));
-  state.selectedEntityIds = [];
-  uiState.offsetDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus(`Offset applied: ${distanceMm} mm.`);
-}
-
 function getInfiniteLineIntersection(lineA, lineB) {
   const x1 = lineA.p1.x;
   const y1 = lineA.p1.y;
@@ -7816,171 +7415,6 @@ function getInfiniteLineIntersection(lineA, lineB) {
     x: (determinantA * (x3 - x4) - (x1 - x2) * determinantB) / denominator,
     y: (determinantA * (y3 - y4) - (y1 - y2) * determinantB) / denominator,
   });
-}
-
-function getEndpointToMoveForFillet(line, clickWorld, intersection) {
-  const clickVec = {
-    x: clickWorld.x - intersection.x,
-    y: clickWorld.y - intersection.y,
-  };
-  const p1Vec = {
-    x: line.p1.x - intersection.x,
-    y: line.p1.y - intersection.y,
-  };
-  const p2Vec = {
-    x: line.p2.x - intersection.x,
-    y: line.p2.y - intersection.y,
-  };
-  const p1Dot = clickVec.x * p1Vec.x + clickVec.y * p1Vec.y;
-  const p2Dot = clickVec.x * p2Vec.x + clickVec.y * p2Vec.y;
-
-  return p1Dot >= p2Dot ? "p2" : "p1";
-}
-
-function applyFillet(firstEntityId, firstClickWorld, secondEntityId, secondClickWorld, radiusUnits = 0) {
-  const firstLine = getEntityById(firstEntityId);
-  const secondLine = getEntityById(secondEntityId);
-
-  if (!firstLine || !secondLine || firstLine.type !== "line" || secondLine.type !== "line") {
-    setStatus("Fillet requires two available lines.");
-    return false;
-  }
-  if (!canSelectEntity(firstLine) || !canSelectEntity(secondLine)) {
-    setStatus("Fillet requires visible, unlocked lines.");
-    return false;
-  }
-  if (firstLine.id === secondLine.id) {
-    setStatus("Fillet: pick a different second line.");
-    return false;
-  }
-
-  if (radiusUnits > 0) {
-    const geometry = filletLinesWithRadius(
-      firstLine,
-      firstClickWorld,
-      secondLine,
-      secondClickWorld,
-      radiusUnits
-    );
-    if (!geometry) {
-      setStatus("Fillet failed: radius is too large or the selected sides cannot form an arc.");
-      return false;
-    }
-    pushUndoState();
-    firstLine.p1 = geometry.firstLine.p1;
-    firstLine.p2 = geometry.firstLine.p2;
-    secondLine.p1 = geometry.secondLine.p1;
-    secondLine.p2 = geometry.secondLine.p2;
-    state.entities.push({
-      id: createEntityId(),
-      type: "arc",
-      layerId: firstLine.layerId,
-      ...geometry.arc,
-    });
-    state.selectedEntityIds = [];
-    uiState.filletDraft = null;
-    uiState.activeTool = "select";
-    syncAfterStateChange();
-    setStatus(`Fillet applied: ${Number(unitsToMm(radiusUnits).toFixed(1))} mm.`);
-    return true;
-  }
-
-  const intersection = getInfiniteLineIntersection(firstLine, secondLine);
-  if (!intersection) {
-    setStatus("Fillet failed: lines are parallel or nearly parallel.");
-    return false;
-  }
-
-  const firstEndpoint = getEndpointToMoveForFillet(firstLine, firstClickWorld, intersection);
-  const secondEndpoint = getEndpointToMoveForFillet(secondLine, secondClickWorld, intersection);
-  const nextFirstLine = {
-    ...firstLine,
-    p1: firstEndpoint === "p1" ? intersection : firstLine.p1,
-    p2: firstEndpoint === "p2" ? intersection : firstLine.p2,
-  };
-  const nextSecondLine = {
-    ...secondLine,
-    p1: secondEndpoint === "p1" ? intersection : secondLine.p1,
-    p2: secondEndpoint === "p2" ? intersection : secondLine.p2,
-  };
-
-  pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (entity.id === nextFirstLine.id) {
-      return nextFirstLine;
-    }
-    if (entity.id === nextSecondLine.id) {
-      return nextSecondLine;
-    }
-    return entity;
-  });
-  state.selectedEntityIds = [];
-  uiState.filletDraft = null;
-  uiState.dimensionDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus("Fillet applied. Clicked sides were kept.");
-  return true;
-}
-
-function handleFilletToolClick(worldPoint) {
-  const draft = uiState.filletDraft;
-  if (!draft) return;
-  if (!draft.firstEntityId && draft.numericInputBuffer) {
-    setStatus("Fillet: press Enter to confirm radius.");
-    return;
-  }
-  const targetLine = findFilletTargetAtPoint(worldPoint);
-  if (!targetLine) {
-    setStatus(
-      draft.firstEntityId ? "Pick a visible, unlocked second line." : "Pick a visible, unlocked first line."
-    );
-    return;
-  }
-
-  if (!draft.firstEntityId) {
-    draft.firstEntityId = targetLine.id;
-    draft.firstClickWorld = deepClone(worldPoint);
-    state.selectedEntityIds = [targetLine.id];
-    syncAfterStateChange();
-    setStatus("Fillet: first line selected. Click the side to keep on the second line.");
-    return;
-  }
-
-  if (uiState.filletDraft.firstEntityId === targetLine.id) {
-    setStatus("Fillet: pick a different second line.");
-    return;
-  }
-
-  applyFillet(
-    uiState.filletDraft.firstEntityId,
-    uiState.filletDraft.firstClickWorld,
-    targetLine.id,
-    worldPoint,
-    uiState.filletDraft.radiusUnits
-  );
-}
-
-function confirmFilletRadius() {
-  const draft = uiState.filletDraft;
-  if (!draft || draft.firstEntityId) return false;
-  const radiusMm = Number(draft.numericInputBuffer);
-  if (!draft.numericInputBuffer || !Number.isFinite(radiusMm) || radiusMm < 0) {
-    setStatus("Fillet: enter a valid radius of 0 mm or greater.");
-    return false;
-  }
-  const radiusUnits = mmToUnits(radiusMm);
-  if (!Number.isInteger(radiusUnits) || radiusUnits < 0 || (radiusMm > 0 && radiusUnits === 0)) {
-    setStatus("Fillet: enter a valid radius of 0 mm or greater.");
-    return false;
-  }
-  draft.radiusUnits = radiusUnits;
-  draft.numericInputBuffer = "";
-  draft.radiusConfirmed = true;
-  setStatus(`Fillet radius: ${Number(unitsToMm(radiusUnits).toFixed(1))} mm${radiusUnits === 0 ? " (Join)" : ""}. Pick first line.`);
-  draw();
-  renderStatusPanel();
-  return true;
 }
 
 function selectEntityAtPoint(worldPoint, append = false) {
@@ -10688,28 +10122,9 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     return;
   }
 
-  if (uiState.activeTool === "align") {
-    handleAlignToolClick(roundWorldPoint(rawWorldPoint));
-    return;
-  }
-
-  if (uiState.activeTool === "extend") {
-    handleExtendToolClick(roundWorldPoint(rawWorldPoint));
-    return;
-  }
-
-  if (uiState.activeTool === "offset") {
-    handleOffsetToolClick(roundWorldPoint(rawWorldPoint));
-    return;
-  }
-
-  if (uiState.activeTool === "trim") {
-    handleTrimToolClick(roundWorldPoint(rawWorldPoint));
-    return;
-  }
-
-  if (uiState.activeTool === "fillet") {
-    handleFilletToolClick(roundWorldPoint(rawWorldPoint));
+  const activeToolController = getActiveToolController();
+  if (activeToolController?.handleClick) {
+    activeToolController.handleClick(roundWorldPoint(rawWorldPoint), event);
     return;
   }
 
@@ -11402,32 +10817,9 @@ function setActiveTool(tool, options = {}) {
     setStatus("Filled Region: pick first point.");
     return;
   }
-  if (tool === "extend") {
-    setStatus("Extend: pick boundary line");
-    return;
-  }
-  if (tool === "trim") {
-    setStatus("Trim: pick boundary line");
-    return;
-  }
-  if (tool === "fillet") {
-    uiState.filletDraft = {
-      radiusUnits: 0,
-      radiusConfirmed: false,
-      numericInputBuffer: "",
-      firstEntityId: null,
-      firstClickWorld: null,
-    };
-    setStatus("Fillet radius: 0 mm (Join). Type radius and Enter, or pick first line.");
-    return;
-  }
-  if (tool === "offset") {
-    uiState.offsetDraft = {
-      numericInputBuffer: "",
-      distanceUnits: null,
-      sourceEntityId: null,
-    };
-    setStatus("Offset: enter distance in mm");
+  const toolController = getToolController(tool);
+  if (toolController?.activate) {
+    toolController.activate();
     return;
   }
   if (tool === "mirror") {
@@ -11436,10 +10828,6 @@ function setActiveTool(tool, options = {}) {
     } else {
       setStatus("Mirror: pick axis first point.");
     }
-    return;
-  }
-  if (tool === "align") {
-    setStatus("Align: pick reference line.");
     return;
   }
   setStatus(`${capitalize(tool)} tool active.`);
@@ -12167,16 +11555,13 @@ function onKeyDown(event) {
     return;
   }
 
-  if (event.key === "Escape" && uiState.offsetDraft && !textInputActive) {
-    event.preventDefault();
-    cancelOffset();
-    return;
-  }
-
-  if (event.key === "Escape" && uiState.trimDraft && !textInputActive) {
-    event.preventDefault();
-    cancelTrim();
-    return;
+  if (event.key === "Escape" && !textInputActive) {
+    const activeToolController = getActiveToolController();
+    if (activeToolController?.cancel) {
+      event.preventDefault();
+      activeToolController.cancel();
+      return;
+    }
   }
 
   if (event.key === "Escape") {
@@ -12199,58 +11584,8 @@ function onKeyDown(event) {
   }
 
 
-  if (uiState.offsetDraft && uiState.offsetDraft.distanceUnits === null && !textInputActive) {
-    if (/^\d$/.test(event.key) || (event.key === "." && !uiState.offsetDraft.numericInputBuffer.includes("."))) {
-      event.preventDefault();
-      uiState.offsetDraft.numericInputBuffer += event.key;
-      setStatus(`Offset: enter distance in mm (${uiState.offsetDraft.numericInputBuffer})`);
-      draw();
-      renderStatusPanel();
-      return;
-    }
-    if (event.key === "Backspace") {
-      event.preventDefault();
-      uiState.offsetDraft.numericInputBuffer = uiState.offsetDraft.numericInputBuffer.slice(0, -1);
-      const suffix = uiState.offsetDraft.numericInputBuffer
-        ? ` (${uiState.offsetDraft.numericInputBuffer})`
-        : "";
-      setStatus(`Offset: enter distance in mm${suffix}`);
-      draw();
-      renderStatusPanel();
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      confirmOffsetDistance();
-      return;
-    }
-  }
-
-  if (uiState.filletDraft && !uiState.filletDraft.firstEntityId && !textInputActive) {
-    const draft = uiState.filletDraft;
-    if (/^\d$/.test(event.key) || (event.key === "." && !draft.numericInputBuffer.includes("."))) {
-      event.preventDefault();
-      draft.numericInputBuffer += event.key;
-      setStatus(`Fillet radius: ${draft.numericInputBuffer} mm. Press Enter to confirm.`);
-      draw();
-      renderStatusPanel();
-      return;
-    }
-    if (event.key === "Backspace") {
-      event.preventDefault();
-      draft.numericInputBuffer = draft.numericInputBuffer.slice(0, -1);
-      setStatus(draft.numericInputBuffer
-        ? `Fillet radius: ${draft.numericInputBuffer} mm. Press Enter to confirm.`
-        : `Fillet radius: ${Number(unitsToMm(draft.radiusUnits).toFixed(1))} mm${draft.radiusUnits === 0 ? " (Join)" : ""}. Type radius and Enter, or pick first line.`);
-      draw();
-      renderStatusPanel();
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      confirmFilletRadius();
-      return;
-    }
+  if (!textInputActive && getActiveToolController()?.handleKeyDown?.(event)) {
+    return;
   }
 
   if (uiState.gripEditDraft && !textInputActive) {
