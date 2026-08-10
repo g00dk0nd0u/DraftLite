@@ -195,6 +195,17 @@ function normalizeFillPattern(value) {
   return FILL_PATTERN_PRESETS.includes(value) ? value : DEFAULT_FILL_PATTERN;
 }
 
+function getHatchInterceptRange(bounds, slope) {
+  const corners = [
+    { x: bounds.minX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.maxY },
+    { x: bounds.minX, y: bounds.maxY },
+  ];
+  const intercepts = corners.map((point) => point.y - slope * point.x);
+  return { min: Math.min(...intercepts), max: Math.max(...intercepts) };
+}
+
 function isAgentModeEnabled() {
   const params = new URLSearchParams(window.location.search);
   const value = params.get("agent");
@@ -4928,13 +4939,17 @@ function drawFilledRegionHatch(points, pattern, strokeStyle) {
     minX: Math.min(...xs), maxX: Math.max(...xs),
     minY: Math.min(...ys), maxY: Math.max(...ys),
   };
-  const span = (bounds.maxX - bounds.minX) + (bounds.maxY - bounds.minY);
   const spacing = 10;
+  const interceptStep = spacing * Math.SQRT2;
+  const padding = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  const x1 = bounds.minX - padding;
+  const x2 = bounds.maxX + padding;
   const drawFamily = (slope) => {
+    const range = getHatchInterceptRange(bounds, slope);
     let lineCount = 0;
-    for (let offset = -span; offset <= span && lineCount < 4000; offset += spacing, lineCount += 1) {
-      ctx.moveTo(bounds.minX - span, bounds.minY + offset);
-      ctx.lineTo(bounds.maxX + span, bounds.minY + offset + slope * (bounds.maxX - bounds.minX + span * 2));
+    for (let intercept = range.min - interceptStep; intercept <= range.max + interceptStep && lineCount < 4000; intercept += interceptStep, lineCount += 1) {
+      ctx.moveTo(x1, slope * x1 + intercept);
+      ctx.lineTo(x2, slope * x2 + intercept);
     }
   };
   ctx.save();

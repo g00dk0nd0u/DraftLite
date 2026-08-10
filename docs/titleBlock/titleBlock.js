@@ -31,6 +31,17 @@
     return FILL_PATTERN_PRESETS.includes(value) ? value : DEFAULT_FILL_PATTERN;
   }
 
+  function getHatchInterceptRange(bounds, slope) {
+    const corners = [
+      { x: bounds.minX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.maxY },
+      { x: bounds.minX, y: bounds.maxY },
+    ];
+    const intercepts = corners.map((point) => point.y - slope * point.x);
+    return { min: Math.min(...intercepts), max: Math.max(...intercepts) };
+  }
+
   function getTemplateDefinition(templateId) {
     const registry = getTemplateRegistry();
     if (registry && typeof registry.getTemplate === "function") {
@@ -1086,6 +1097,9 @@
       unitsToPixels(units) {
         return (unitsToMm(units, deps) / effectiveScale) * scaleY;
       },
+      paperMmToPixels(mm) {
+        return (Number(mm) || 0) * scaleY;
+      },
     };
   }
 
@@ -1398,15 +1412,20 @@
           const maxX = Math.max(...xs);
           const minY = Math.min(...ys);
           const maxY = Math.max(...ys);
-          const span = (maxX - minX) + (maxY - minY);
+          const bounds = { minX, maxX, minY, maxY };
           const spacingPx = isPrintExport
-            ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(HATCH_SPACING_MM, deps))))
+            ? Math.max(1, Math.abs(projector.paperMmToPixels(HATCH_SPACING_MM)))
             : 10;
+          const interceptStep = spacingPx * Math.SQRT2;
+          const padding = Math.max(maxX - minX, maxY - minY);
+          const x1 = minX - padding;
+          const x2 = maxX + padding;
           const drawFamily = (slope) => {
+            const range = getHatchInterceptRange(bounds, slope);
             let lineCount = 0;
-            for (let offset = -span; offset <= span && lineCount < 4000; offset += spacingPx, lineCount += 1) {
-              ctx.moveTo(minX - span, minY + offset);
-              ctx.lineTo(maxX + span, minY + offset + slope * (maxX - minX + span * 2));
+            for (let intercept = range.min - interceptStep; intercept <= range.max + interceptStep && lineCount < 4000; intercept += interceptStep, lineCount += 1) {
+              ctx.moveTo(x1, slope * x1 + intercept);
+              ctx.lineTo(x2, slope * x2 + intercept);
             }
           };
           ctx.save();
@@ -1417,7 +1436,7 @@
           ctx.globalAlpha = style.fillAlpha;
           ctx.strokeStyle = fillStyle;
           ctx.lineWidth = isPrintExport
-            ? Math.max(1, Math.abs(unitsToPixels(mmToUnits(HATCH_LINE_WIDTH_MM, deps))))
+            ? Math.max(1, Math.abs(projector.paperMmToPixels(HATCH_LINE_WIDTH_MM)))
             : 1;
           ctx.setLineDash([]);
           ctx.stroke();
@@ -1674,17 +1693,21 @@
     const maxX = Math.max(...xs);
     const minY = Math.min(...ys);
     const maxY = Math.max(...ys);
-    const span = (maxX - minX) + (maxY - minY);
-    const spacingPt = mmToPt(HATCH_SPACING_MM);
+    const bounds = { minX, maxX, minY, maxY };
+    const interceptStepPt = mmToPt(HATCH_SPACING_MM) * Math.SQRT2;
+    const padding = Math.max(maxX - minX, maxY - minY);
+    const x1 = minX - padding;
+    const x2 = maxX + padding;
     const commands = ["q", pdfRgbCommand(strokeRgb, "RG"), `${formatPdfNumber(projector.strokeWidthPt(HATCH_LINE_WIDTH_MM))} w`];
     commands.push(`${formatPdfNumber(projected[0].x)} ${formatPdfNumber(projected[0].y)} m`);
     projected.slice(1).forEach((point) => commands.push(`${formatPdfNumber(point.x)} ${formatPdfNumber(point.y)} l`));
     commands.push("h", "W", "n", "[] 0 d");
     const addFamily = (slope) => {
+      const range = getHatchInterceptRange(bounds, slope);
       let lineCount = 0;
-      for (let offset = -span; offset <= span && lineCount < 4000; offset += spacingPt, lineCount += 1) {
-        commands.push(`${formatPdfNumber(minX - span)} ${formatPdfNumber(minY + offset)} m`);
-        commands.push(`${formatPdfNumber(maxX + span)} ${formatPdfNumber(minY + offset + slope * (maxX - minX + span * 2))} l`);
+      for (let intercept = range.min - interceptStepPt; intercept <= range.max + interceptStepPt && lineCount < 4000; intercept += interceptStepPt, lineCount += 1) {
+        commands.push(`${formatPdfNumber(x1)} ${formatPdfNumber(slope * x1 + intercept)} m`);
+        commands.push(`${formatPdfNumber(x2)} ${formatPdfNumber(slope * x2 + intercept)} l`);
       }
     };
     addFamily(1);
