@@ -2898,8 +2898,7 @@ function renderLayersPanel() {
   appendHeaderCell("layer-header-icon", "●", "Active");
   appendHeaderCell("layer-header-icon", "👁", "Visible");
   appendHeaderCell("layer-header-name", "Name");
-  appendHeaderCell("layer-header-weight", "Weight", "Line weight");
-  appendHeaderCell("layer-header-type", "Type", "Line type");
+  appendHeaderCell("layer-header-style", "Style", "Line weight and line type");
   appendHeaderCell("layer-header-icon", "🔒", "Lock");
   const colorHeader = document.createElement("div");
   colorHeader.className = "layer-header-color";
@@ -2958,6 +2957,9 @@ function renderLayersPanel() {
       syncAfterStateChange();
       setStatus(`${layer.name} line type: ${lineTypeSelect.options[lineTypeSelect.selectedIndex].text}.`);
     });
+    const styleControls = document.createElement("div");
+    styleControls.className = "layer-style-controls";
+    styleControls.append(lineWeightSelect, lineTypeSelect);
     const visibleInput = document.createElement("input"); visibleInput.type = "checkbox"; visibleInput.checked = layer.visible;
     visibleInput.addEventListener("change", () => { pushUndoState(); layer.visible = visibleInput.checked; syncAfterStateChange(); setStatus(`${layer.name} ${layer.visible ? "shown" : "hidden"}.`); });
     const lockInput = document.createElement("input"); lockInput.type = "checkbox"; lockInput.checked = layer.locked;
@@ -2973,7 +2975,7 @@ function renderLayersPanel() {
     settingsButton.title = "Layer settings";
     settingsButton.setAttribute("aria-label", "Layer settings");
     settingsButton.addEventListener("click", () => { setStatus("Layer settings are not implemented yet."); });
-    row.append(activeRadio, visibleInput, nameWrap, lineWeightSelect, lineTypeSelect, lockInput, colorWrap, settingsButton);
+    row.append(activeRadio, visibleInput, nameWrap, styleControls, lockInput, colorWrap, settingsButton);
     layerList.appendChild(row);
   });
 }
