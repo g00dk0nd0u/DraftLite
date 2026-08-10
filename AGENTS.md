@@ -34,6 +34,8 @@
   - `git diff --check`
 - If `docs/core/units.js`, `docs/core/geometry.js`, or `docs/core/dxf.js` is changed, also run:
   - `node scripts/check_core.js`
+- If `docs/tools/**` or `scripts/check_tools.js` is changed, also run:
+  - `node scripts/check_tools.js`
 - Do not perform GUI/manual browser verification unless the user explicitly asks.
 - Do not use Playwright, Chrome automation, temporary browser scripts, or GUI automation unless explicitly instructed.
 - The user will manually verify GUI behavior in the browser.
@@ -114,6 +116,15 @@
 - JSON save/load must remain compatible.
 
 ## Entity And Tool Rules
+
+### Tool Module Rules
+
+- Human-invoked drafting/edit tool lifecycle belongs under `docs/tools/<category>/`.
+- Do not add a new command lifecycle directly to `docs/app.js` when it can live in a tool module.
+- Use the `window.DraftLiteTools` registry.
+- Tool modules use explicit context/dependency injection.
+- Persistent document state remains owned by `docs/app.js`.
+- Generic stateless geometry belongs in `docs/core/`.
 
 - Keep compatibility with existing `line` entities and legacy line-only JSON documents.
 - Rectangle is a first-class `type:"rect"` rectangular region object.
