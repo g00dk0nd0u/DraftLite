@@ -125,6 +125,7 @@
 - Tool modules use explicit context/dependency injection.
 - Persistent document state remains owned by `docs/app.js`.
 - Generic stateless geometry belongs in `docs/core/`.
+- Future Stretch must be implemented as `docs/tools/modify/stretch.js`, not directly in `docs/app.js`.
 
 - Keep compatibility with existing `line` entities and legacy line-only JSON documents.
 - Rectangle is a first-class `type:"rect"` rectangular region object.

@@ -430,6 +430,13 @@ const modularToolContext = Object.freeze({
   clickSelectThresholdPx: CLICK_SELECT_THRESHOLD_PX,
   getGripController: () => getToolController("grip-edit"),
   getRectangleController: () => getToolController("rectangle-edit"),
+  promptTextContent: () => window.prompt("Text content"),
+  createDefaultDimensionEntity,
+  createDimensionWithPreservedOffset,
+  getDimensionGeometry,
+  drawDimensionEntity,
+  isLayerVisible,
+  makeBlockFromSelection,
 });
 
 function getToolController(toolId) {
@@ -4055,10 +4062,6 @@ function draw() {
 
   getActiveToolController()?.drawPreview?.();
 
-  if (uiState.dimensionDraft) {
-    drawDimensionDraftPreview(uiState.dimensionDraft);
-  }
-
   if (uiState.activeTool === "libraryPlace" && uiState.libraryPlacementItemId && uiState.libraryPlacementPreviewPoint) {
     drawLibraryPlacementPreview();
   }
@@ -4069,12 +4072,7 @@ function draw() {
   if (uiState.gripEditDraft) {
     drawGripEditPreview(uiState.gripEditDraft);
   }
-  if (uiState.dimensionEndpointEditDraft) {
-    drawDimensionEndpointEditPreview(uiState.dimensionEndpointEditDraft);
-  }
-  if (uiState.dimensionOffsetEditDraft) {
-    drawDimensionOffsetEditPreview(uiState.dimensionOffsetEditDraft);
-  }
+  getToolController("dimension")?.drawEditPreview();
   if (uiState.rectEdgeEditDraft) {
     const previewRect = getResizedRectFromAnchorPoint(uiState.rectEdgeEditDraft, uiState.rectEdgeEditDraft.currentPoint);
     const previewEntity = {
@@ -5217,50 +5215,6 @@ function drawDimensionEntity(entity) {
   ctx.restore();
 }
 
-function drawDimensionDraftPreview(dimensionDraft) {
-  let p1 = null;
-  let p2 = null;
-  let offsetPoint = null;
-  if (dimensionDraft.mode === "chain") {
-    p1 = roundWorldPoint(dimensionDraft.chainStartPoint);
-    p2 = roundWorldPoint(uiState.hoverWorld);
-    const previewEntity = createDimensionWithPreservedOffset(
-      createDefaultDimensionEntity({
-        id: "draft-dimension-chain",
-        layerId: state.activeLayerId,
-        p1,
-        p2,
-        offsetPoint: p2,
-      }),
-      "p2",
-      p2,
-      dimensionDraft.signedOffset
-    );
-    if (!previewEntity) {
-      return;
-    }
-    offsetPoint = previewEntity.offsetPoint;
-  } else {
-    p1 = roundWorldPoint(dimensionDraft.p1);
-    p2 = dimensionDraft.step === 1
-      ? roundWorldPoint(uiState.hoverWorld)
-      : roundWorldPoint(dimensionDraft.p2);
-    offsetPoint = dimensionDraft.step === 1
-      ? p2
-      : roundWorldPoint(uiState.hoverWorld);
-  }
-  if (p1.x === p2.x && p1.y === p2.y) {
-    return;
-  }
-  drawDimensionEntity(createDefaultDimensionEntity({
-    id: "draft-dimension",
-    layerId: state.activeLayerId,
-    p1,
-    p2,
-    offsetPoint,
-  }));
-}
-
 function drawSnapMarker(snapMarker) {
   const screenPoint = worldToScreen(snapMarker.point);
   ctx.save();
@@ -5391,38 +5345,6 @@ function drawGripEditPreview(gripEditDraft) {
   drawPreviewLineEntity(previewLine);
 }
 
-function drawDimensionEndpointEditPreview(draft) {
-  const entity = getEntityById(draft.entityId);
-  if (!entity || entity.type !== "dimension" || !isLayerVisible(entity.layerId)) {
-    return;
-  }
-  const previewEntity = createDimensionWithPreservedOffset(
-    entity,
-    draft.endpoint,
-    draft.currentPoint,
-    draft.signedOffset
-  );
-  if (!previewEntity) {
-    return;
-  }
-  drawDimensionEntity({
-    ...previewEntity,
-    __isDimensionOffsetPreview: true,
-  });
-}
-
-function drawDimensionOffsetEditPreview(draft) {
-  const entity = getEntityById(draft.entityId);
-  if (!entity || entity.type !== "dimension" || !isLayerVisible(entity.layerId)) {
-    return;
-  }
-  drawDimensionEntity({
-    ...entity,
-    offsetPoint: roundWorldPoint(draft.currentPoint),
-    __isDimensionOffsetPreview: true,
-  });
-}
-
 function findDimensionEndpointHandleAtPoint(worldPoint) {
   const selectedIds = new Set(state.selectedEntityIds);
   return state.entities
@@ -5447,89 +5369,6 @@ function findDimensionEndpointHandleAtPoint(worldPoint) {
     }))
     .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
     .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
-}
-
-function startDimensionEndpointEdit(handleHit, worldPoint) {
-  const entity = getEntityById(handleHit.entityId);
-  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
-    return false;
-  }
-  const geometry = getDimensionGeometry(entity);
-  state.selectedEntityIds = [entity.id];
-  syncAfterStateChange(false);
-  uiState.dimensionEndpointEditDraft = {
-    entityId: entity.id,
-    endpoint: handleHit.endpoint,
-    startPoint: deepClone(handleHit.point),
-    currentPoint: roundWorldPoint(worldPoint),
-    originalEntity: deepClone(entity),
-    signedOffset: geometry.signedOffset,
-  };
-  setStatus(`Dimension ${handleHit.endpoint.toUpperCase()} edit active. Drag handle or press Esc to cancel.`);
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function updateDimensionEndpointEdit(worldPoint) {
-  if (!uiState.dimensionEndpointEditDraft) {
-    return;
-  }
-  uiState.dimensionEndpointEditDraft.currentPoint = roundWorldPoint(worldPoint);
-  draw();
-  renderStatusPanel();
-}
-
-function cancelDimensionEndpointEdit(message = "Dimension endpoint edit cancelled.") {
-  if (!uiState.dimensionEndpointEditDraft) {
-    return false;
-  }
-  uiState.dimensionEndpointEditDraft = null;
-  draw();
-  renderStatusPanel();
-  setStatus(message);
-  return true;
-}
-
-function applyDimensionEndpointEdit() {
-  const draft = uiState.dimensionEndpointEditDraft;
-  if (!draft) {
-    return false;
-  }
-  const entity = getEntityById(draft.entityId);
-  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
-    uiState.dimensionEndpointEditDraft = null;
-    draw();
-    renderStatusPanel();
-    return false;
-  }
-  const nextPoint = getSnapPoint(draft.currentPoint);
-  const previewEntity = createDimensionWithPreservedOffset(entity, draft.endpoint, nextPoint, draft.signedOffset);
-  if (!previewEntity) {
-    setStatus("Dimension endpoints must not be identical.");
-    uiState.dimensionEndpointEditDraft = null;
-    draw();
-    renderStatusPanel();
-    return false;
-  }
-  if (
-    previewEntity.p1.x === entity.p1.x &&
-    previewEntity.p1.y === entity.p1.y &&
-    previewEntity.p2.x === entity.p2.x &&
-    previewEntity.p2.y === entity.p2.y &&
-    previewEntity.offsetPoint.x === entity.offsetPoint.x &&
-    previewEntity.offsetPoint.y === entity.offsetPoint.y
-  ) {
-    return cancelDimensionEndpointEdit();
-  }
-  pushUndoState();
-  entity.p1 = previewEntity.p1;
-  entity.p2 = previewEntity.p2;
-  entity.offsetPoint = previewEntity.offsetPoint;
-  uiState.dimensionEndpointEditDraft = null;
-  syncAfterStateChange();
-  setStatus("Dimension endpoint updated.");
-  return true;
 }
 
 function getRectEdgeNumericPreviewPoint() {
@@ -5625,84 +5464,6 @@ function findDimensionOffsetHandleAtPoint(worldPoint) {
     })
     .filter((candidate) => candidate && candidate.distancePx <= state.settings.snapTolerancePx)
     .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
-}
-
-function startDimensionOffsetEdit(handleHit, worldPoint) {
-  const entity = getEntityById(handleHit.entityId);
-  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
-    return false;
-  }
-  const geometry = getDimensionGeometry(entity);
-  state.selectedEntityIds = [entity.id];
-  syncAfterStateChange(false);
-  uiState.dimensionOffsetEditDraft = {
-    entityId: entity.id,
-    startPoint: deepClone(handleHit.point),
-    currentPoint: roundWorldPoint(handleHit.point),
-    originalOffsetPoint: deepClone(entity.offsetPoint),
-    midpoint: deepClone(geometry.midpoint),
-    normal: deepClone(geometry.normal),
-  };
-  setStatus("Dimension offset edit active. Drag handle or press Esc to cancel.");
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function updateDimensionOffsetEdit(worldPoint) {
-  if (!uiState.dimensionOffsetEditDraft) {
-    return;
-  }
-  const { midpoint, normal } = uiState.dimensionOffsetEditDraft;
-  const pointerDelta = {
-    x: worldPoint.x - midpoint.x,
-    y: worldPoint.y - midpoint.y,
-  };
-  const signedOffset = pointerDelta.x * normal.x + pointerDelta.y * normal.y;
-  uiState.dimensionOffsetEditDraft.currentPoint = {
-    x: roundToUnit(midpoint.x + normal.x * signedOffset),
-    y: roundToUnit(midpoint.y + normal.y * signedOffset),
-  };
-  draw();
-  renderStatusPanel();
-}
-
-function cancelDimensionOffsetEdit(message = "Dimension offset edit cancelled.") {
-  if (!uiState.dimensionOffsetEditDraft) {
-    return false;
-  }
-  uiState.dimensionOffsetEditDraft = null;
-  draw();
-  renderStatusPanel();
-  setStatus(message);
-  return true;
-}
-
-function applyDimensionOffsetEdit() {
-  const draft = uiState.dimensionOffsetEditDraft;
-  if (!draft) {
-    return false;
-  }
-  const entity = getEntityById(draft.entityId);
-  if (!entity || entity.type !== "dimension" || !canSelectEntity(entity)) {
-    uiState.dimensionOffsetEditDraft = null;
-    draw();
-    renderStatusPanel();
-    return false;
-  }
-  const nextOffsetPoint = roundWorldPoint(draft.currentPoint);
-  if (
-    nextOffsetPoint.x === draft.originalOffsetPoint.x &&
-    nextOffsetPoint.y === draft.originalOffsetPoint.y
-  ) {
-    return cancelDimensionOffsetEdit();
-  }
-  pushUndoState();
-  entity.offsetPoint = nextOffsetPoint;
-  uiState.dimensionOffsetEditDraft = null;
-  syncAfterStateChange();
-  setStatus("Dimension offset updated.");
-  return true;
 }
 
 function formatDistanceMmFromPoints(p1, p2) {
@@ -8791,11 +8552,11 @@ function onPointerMove(event) {
     return;
   }
   if (uiState.dimensionEndpointEditDraft) {
-    updateDimensionEndpointEdit(snappedWorld);
+    getToolController("dimension").updateEndpointEdit(snappedWorld);
     return;
   }
   if (uiState.dimensionOffsetEditDraft) {
-    updateDimensionOffsetEdit(snappedWorld);
+    getToolController("dimension").updateOffsetEdit(snappedWorld);
     return;
   }
   if (uiState.rectEdgeEditDraft) {
@@ -9116,12 +8877,8 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     getActiveToolController().handleClick(worldPoint, event);
     return;
   }
-  if (uiState.activeTool === "text") {
-    handleTextToolClick(worldPoint);
-    return;
-  }
-  if (uiState.activeTool === "dimension") {
-    handleDimensionToolClick(worldPoint);
+  if (uiState.activeTool === "text" || uiState.activeTool === "dimension") {
+    getActiveToolController().handleClick(worldPoint);
     return;
   }
   if (uiState.activeTool === "matchProperties") {
@@ -9178,40 +8935,16 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   if (uiState.activeTool === "select") {
     const dimensionEndpointHandleHit = findDimensionEndpointHandleAtPoint(roundWorldPoint(rawWorldPoint));
     if (dimensionEndpointHandleHit) {
-      startDimensionEndpointEdit(dimensionEndpointHandleHit, worldPoint);
+      getToolController("dimension")?.startEndpointEdit(dimensionEndpointHandleHit, worldPoint);
       return;
     }
     const dimensionOffsetHandleHit = findDimensionOffsetHandleAtPoint(roundWorldPoint(rawWorldPoint));
     if (dimensionOffsetHandleHit) {
-      startDimensionOffsetEdit(dimensionOffsetHandleHit, worldPoint);
+      getToolController("dimension")?.startOffsetEdit(dimensionOffsetHandleHit, worldPoint);
       return;
     }
     getToolController("selection").handleClick(rawWorldPoint, worldPoint, event);
   }
-}
-
-function handleTextToolClick(worldPoint) {
-  const activeLayer = getLayerById(state.activeLayerId);
-  if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
-    setStatus("Choose a visible, unlocked active layer before drawing.");
-    return;
-  }
-  const value = window.prompt("Text content");
-  if (value === null) {
-    setStatus("Text placement cancelled.");
-    return;
-  }
-  const text = value.trim();
-  if (!text) {
-    setStatus("Empty text was not created.");
-    return;
-  }
-  pushUndoState();
-  const entity = { id: createEntityId(), type: "text", layerId: state.activeLayerId, x: roundToUnit(worldPoint.x), y: roundToUnit(worldPoint.y), text, height: mmToUnits(100), rotation: 0, align: "left", textAnchor: "center", color: "" };
-  state.entities.push(entity);
-  state.selectedEntityIds = [entity.id];
-  syncAfterStateChange();
-  setStatus("Text created.");
 }
 
 function createDefaultDimensionEntity(fields = {}) {
@@ -9230,69 +8963,6 @@ function createDefaultDimensionEntity(fields = {}) {
     color: typeof fields.color === "string" && fields.color ? fields.color : normalizeColor(activeLayer?.color || "#000000"),
     precision: Number.isFinite(fields.precision) ? fields.precision : 0,
   };
-}
-
-function handleDimensionToolClick(worldPoint) {
-  const activeLayer = getLayerById(state.activeLayerId);
-  if (!activeLayer || !activeLayer.visible || activeLayer.locked) { setStatus("Choose a visible, unlocked active layer before drawing."); return; }
-  if (!uiState.dimensionDraft) {
-    uiState.dimensionDraft = { step: 1, p1: roundWorldPoint(worldPoint) };
-    setStatus("Aligned Dimension: pick second point");
-    draw();
-    return;
-  }
-  if (uiState.dimensionDraft.step === 1) {
-    uiState.dimensionDraft.p2 = roundWorldPoint(worldPoint);
-    uiState.dimensionDraft.step = 2;
-    setStatus("Aligned Dimension: place dimension line");
-    draw();
-    return;
-  }
-  if (uiState.dimensionDraft.mode === "chain") {
-    const p1 = roundWorldPoint(uiState.dimensionDraft.chainStartPoint);
-    const p2 = roundWorldPoint(worldPoint);
-    const entity = createDimensionWithPreservedOffset(
-      createDefaultDimensionEntity({
-        id: createEntityId(),
-        layerId: state.activeLayerId,
-        p1,
-        p2,
-        offsetPoint: p2,
-      }),
-      "p2",
-      p2,
-      uiState.dimensionDraft.signedOffset
-    );
-    if (!entity) {
-      setStatus("Dimension length must be greater than zero.");
-      return;
-    }
-    pushUndoState();
-    state.entities.push(entity);
-    state.selectedEntityIds = [entity.id];
-    uiState.dimensionDraft.chainStartPoint = roundWorldPoint(entity.p2);
-    syncAfterStateChange();
-    setStatus("Chain dimension created. Pick next point or press Esc to finish.");
-    return;
-  }
-  pushUndoState();
-  const entity = createDefaultDimensionEntity({
-    id: createEntityId(),
-    layerId: state.activeLayerId,
-    p1: uiState.dimensionDraft.p1,
-    p2: uiState.dimensionDraft.p2,
-    offsetPoint: worldPoint,
-  });
-  state.entities.push(entity);
-  state.selectedEntityIds=[entity.id];
-  const geometry = getDimensionGeometry(entity);
-  uiState.dimensionDraft = {
-    mode: "chain",
-    chainStartPoint: roundWorldPoint(entity.p2),
-    signedOffset: geometry.signedOffset,
-  };
-  syncAfterStateChange();
-  setStatus("Aligned Dimension created. Pick next chain point or press Esc to finish.");
 }
 
 function startPan(event) {
@@ -9355,11 +9025,11 @@ function onWindowMouseUp(event) {
     return;
   }
   if (uiState.dimensionEndpointEditDraft) {
-    applyDimensionEndpointEdit();
+    getToolController("dimension").applyEndpointEdit();
     return;
   }
   if (uiState.dimensionOffsetEditDraft) {
-    applyDimensionOffsetEdit();
+    getToolController("dimension").applyOffsetEdit();
     return;
   }
   if (uiState.rectEdgeEditDraft) {
@@ -10321,13 +9991,13 @@ function onKeyDown(event) {
 
   if (event.key === "Escape" && uiState.dimensionEndpointEditDraft && !textInputActive) {
     event.preventDefault();
-    cancelDimensionEndpointEdit();
+    getToolController("dimension").cancelEndpointEdit();
     return;
   }
 
   if (event.key === "Escape" && uiState.dimensionOffsetEditDraft && !textInputActive) {
     event.preventDefault();
-    cancelDimensionOffsetEdit();
+    getToolController("dimension").cancelOffsetEdit();
     return;
   }
 
@@ -10461,9 +10131,7 @@ function bindEvents() {
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
   toolButtons.group.addEventListener("click", () => getToolController("group").execute());
   toolButtons.ungroup.addEventListener("click", () => getToolController("ungroup").execute());
-  toolButtons.makeBlock.addEventListener("click", () => {
-    makeBlockFromSelection();
-  });
+  toolButtons.makeBlock.addEventListener("click", () => getToolController("make-block").execute());
   toolButtons.rotate.addEventListener("click", () => getToolController("rotate").execute(90));
   toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
