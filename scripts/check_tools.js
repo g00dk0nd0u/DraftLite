@@ -330,7 +330,7 @@ blankSelectionController.handleClick(
 );
 assert.equal(selectionUiState.selectionWindow.append, true, "Shift + blank selection should start an appended selection window");
 
-function createStretchHarness(entities) {
+function createStretchHarness(entities, resolveSnapCandidate = () => null) {
   const state = { entities: JSON.parse(JSON.stringify(entities)), selectedEntityIds: [], groups: [{ id: "group-1", entityIds: entities.map((entity) => entity.id) }] };
   const ui = { activeTool: "stretch", stretchDraft: null };
   let undoCount = 0;
@@ -340,7 +340,7 @@ function createStretchHarness(entities) {
     canSelectEntity: (entity) => entity.visible !== false && entity.locked !== true,
     worldToScreen: ({ x, y }) => ({ x, y }), deepClone: (value) => JSON.parse(JSON.stringify(value)),
     roundToUnit: Math.round, roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
-    resolveSnapCandidate: () => null, getConstrainedWorldPoint: (point) => { constrainedCount += 1; return point; },
+    resolveSnapCandidate, getConstrainedWorldPoint: (point) => { constrainedCount += 1; return point; },
     getQuantizedDeltaPoint: (base, point) => ({ x: Math.round(point.x - base.x) + base.x, y: Math.round(point.y - base.y) + base.y }),
     clampRectCornerRadius: (entity) => { entity.cornerRadius = Math.min(entity.cornerRadius || 0, entity.width / 2, entity.height / 2); },
     pushUndoState: () => { undoCount += 1; }, syncAfterStateChange() {}, setStatus() {}, draw() {}, renderStatusPanel() {},
@@ -402,6 +402,25 @@ assert.equal(crossingHarness.ui.stretchDraft.descriptors.length, 1, "a long, thi
 const stableDescriptor = crossingHarness.ui.stretchDraft.descriptors[0];
 crossingHarness.controller.handlePointerMove({ x: 100, y: 100 }, { shiftKey: false }, { x: 100, y: 100 });
 assert.equal(crossingHarness.ui.stretchDraft.descriptors[0], stableDescriptor, "pointer movement must preserve captured descriptors");
+
+const baseSnapInputs = [];
+const snappedBaseHarness = createStretchHarness([line], (point) => {
+  baseSnapInputs.push(point);
+  return point.x === 10 && point.y === 0 ? { point: { x: 10, y: 0 } } : null;
+});
+snappedBaseHarness.controller.activate();
+snappedBaseHarness.controller.handlePrimaryAction({ x: 20, y: 1 }, { x: 20, y: 1 }, {}, { x: 20, y: 1 });
+snappedBaseHarness.controller.finishCrossingWindow({ x: -5, y: -1 }, { x: -5, y: -1 });
+snappedBaseHarness.controller.handlePrimaryAction({ x: 9.6, y: 0.2 }, { x: 10, y: 0 }, {}, { x: 9.6, y: 0.2 });
+assert.deepEqual(baseSnapInputs, [{ x: 10, y: 0 }], "Stretch base phase should use the snap-aware point supplied by the app shell");
+assert.deepEqual(plain(snappedBaseHarness.ui.stretchDraft.basePoint), { x: 10, y: 0 }, "Stretch should store the snapped base point");
+
+const rawBaseHarness = createStretchHarness([line]);
+rawBaseHarness.controller.activate();
+rawBaseHarness.controller.handlePrimaryAction({ x: 20, y: 1 }, { x: 20, y: 1 }, {}, { x: 20, y: 1 });
+rawBaseHarness.controller.finishCrossingWindow({ x: -5, y: -1 }, { x: -5, y: -1 });
+rawBaseHarness.controller.handlePrimaryAction({ x: 4.4, y: 6.6 }, { x: 4.4, y: 6.6 }, {}, { x: 4.4, y: 6.6 });
+assert.deepEqual(plain(rawBaseHarness.ui.stretchDraft.basePoint), { x: 4, y: 7 }, "Stretch base phase should retain rounded raw fallback when no snap exists");
 
 const rejectedHarness = createStretchHarness([line]);
 rejectedHarness.controller.activate();
