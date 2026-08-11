@@ -440,8 +440,14 @@ function getToolController(toolId) {
   return modularToolControllers.get(toolId);
 }
 
+function getRegistryToolId(toolId) {
+  if (toolId === "matchProperties") return "match-properties";
+  if (toolId === "filledRegion") return "filled-region";
+  return toolId;
+}
+
 function getActiveToolController() {
-  return getToolController(uiState.activeTool === "matchProperties" ? "match-properties" : uiState.activeTool);
+  return getToolController(getRegistryToolId(uiState.activeTool));
 }
 
 
@@ -9594,7 +9600,7 @@ function setActiveTool(tool, options = {}) {
     setStatus("Aligned Dimension: pick first point");
     return;
   }
-  const toolController = getToolController(tool === "matchProperties" ? "match-properties" : tool);
+  const toolController = getToolController(getRegistryToolId(tool));
   if (toolController?.activate) {
     toolController.activate();
     return;

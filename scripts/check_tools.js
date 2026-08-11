@@ -43,10 +43,11 @@ for (const method of ["register", "get", "has", "list"]) {
   assert.equal(typeof registry[method], "function", `${method} should exist`);
 }
 assert.throws(() => registry.register("invalid factory", () => {}), /Tool ID/);
+assert.throws(() => registry.register("camelCaseTool", () => ({})), /lowercase, kebab-case/);
 assert.throws(() => registry.register("not-a-factory", {}), /factory/);
 assert.throws(() => registry.register("align", () => ({})), /already registered/);
 
-const expectedIds = ["align", "arc", "circle", "copy", "explode", "extend", "filledRegion", "fillet", "grip-edit", "group", "line", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "trim", "ungroup", "wire"];
+const expectedIds = ["align", "arc", "circle", "copy", "explode", "extend", "filled-region", "fillet", "grip-edit", "group", "line", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "trim", "ungroup", "wire"];
 assert.deepEqual(Array.from(registry.list()), expectedIds, "tools should each be registered exactly once in deterministic order");
 for (const id of expectedIds) {
   assert.equal(registry.has(id), true, `${id} should be registered`);
@@ -163,11 +164,12 @@ assert.equal(arcUi.arcDraft, null);
 
 const regionUi = { filledRegionDraft: null };
 let regions = 0;
-const regionController = registry.get("filledRegion")({ getUiState: () => regionUi, canDrawOnActiveLayer: () => true, roundWorldPoint: (p) => ({ ...p }), createFilledRegionEntity: () => { regions += 1; return {}; }, setStatus() {}, draw() {}, drawDraftFilledRegion() {} });
+const regionController = registry.get("filled-region")({ getUiState: () => regionUi, canDrawOnActiveLayer: () => true, roundWorldPoint: (p) => ({ ...p }), createFilledRegionEntity: () => { assert.equal(regionUi.filledRegionDraft, null, "Filled Region draft must be cleared before sync/create"); regions += 1; return {}; }, setStatus() {}, draw() {}, drawDraftFilledRegion() {} });
 regionController.handleClick({ x: 0, y: 0 }, eventFor(""));
 regionController.handleClick({ x: 10, y: 0 }, eventFor(""));
 assert.equal(regionController.finish(), false);
 assert.equal(regions, 0);
+assert.equal(regionUi.filledRegionDraft.points.length, 2, "invalid Filled Region finish should preserve the draft");
 regionController.handleClick({ x: 10, y: 10 }, eventFor(""));
 assert.equal(regionController.finish(), true);
 assert.equal(regions, 1);
