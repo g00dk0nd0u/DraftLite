@@ -21,6 +21,7 @@ const toolFiles = [
   "docs/tools/modify/offset.js",
   "docs/tools/modify/trim.js",
   "docs/tools/modify/fillet.js",
+  "docs/tools/modify/stretch.js",
   "docs/tools/selection/gripEdit.js",
   "docs/tools/selection/rectangleEdit.js",
   "docs/tools/selection/selection.js",
@@ -50,7 +51,7 @@ assert.throws(() => registry.register("camelCaseTool", () => ({})), /lowercase, 
 assert.throws(() => registry.register("not-a-factory", {}), /factory/);
 assert.throws(() => registry.register("align", () => ({})), /already registered/);
 
-const expectedIds = ["align", "arc", "circle", "copy", "dimension", "explode", "extend", "filled-region", "fillet", "grip-edit", "group", "line", "make-block", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "text", "trim", "ungroup", "wire"];
+const expectedIds = ["align", "arc", "circle", "copy", "dimension", "explode", "extend", "filled-region", "fillet", "grip-edit", "group", "line", "make-block", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "stretch", "text", "trim", "ungroup", "wire"];
 assert.deepEqual(Array.from(registry.list()), expectedIds, "tools should each be registered exactly once in deterministic order");
 for (const id of expectedIds) {
   assert.equal(registry.has(id), true, `${id} should be registered`);
@@ -328,5 +329,106 @@ blankSelectionController.handleClick(
   { shiftKey: true, altKey: false, ctrlKey: false }
 );
 assert.equal(selectionUiState.selectionWindow.append, true, "Shift + blank selection should start an appended selection window");
+
+function createStretchHarness(entities) {
+  const state = { entities: JSON.parse(JSON.stringify(entities)), selectedEntityIds: [], groups: [{ id: "group-1", entityIds: entities.map((entity) => entity.id) }] };
+  const ui = { activeTool: "stretch", stretchDraft: null };
+  let undoCount = 0;
+  const controller = registry.get("stretch")({
+    getState: () => state, getUiState: () => ui,
+    canSelectEntity: (entity) => entity.visible !== false && entity.locked !== true,
+    worldToScreen: ({ x, y }) => ({ x, y }), deepClone: (value) => JSON.parse(JSON.stringify(value)),
+    roundToUnit: Math.round, roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
+    resolveSnapCandidate: () => null, getConstrainedWorldPoint: (point) => point,
+    getQuantizedDeltaPoint: (base, point) => ({ x: Math.round(point.x - base.x) + base.x, y: Math.round(point.y - base.y) + base.y }),
+    clampRectCornerRadius: (entity) => { entity.cornerRadius = Math.min(entity.cornerRadius || 0, entity.width / 2, entity.height / 2); },
+    pushUndoState: () => { undoCount += 1; }, syncAfterStateChange() {}, setStatus() {}, draw() {}, renderStatusPanel() {},
+    drawSelectionWindow() {}, drawStretchPreviewEntities() {}, clickSelectThresholdPx: 3,
+  });
+  return { state, ui, controller, undoCount: () => undoCount };
+}
+
+const stretchGeometry = createStretchHarness([]).controller;
+const plain = (value) => JSON.parse(JSON.stringify(value));
+const rect = (left, top, right, bottom) => ({ left, top, right, bottom });
+const line = { id: "line-1", type: "line", p1: { x: 0, y: 0 }, p2: { x: 10, y: 0 }, layerId: "layer-1" };
+for (const [captureRect, keys] of [
+  [rect(-1, -1, 1, 1), ["p1"]], [rect(9, -1, 11, 1), ["p2"]],
+  [rect(-1, -1, 11, 1), ["p1", "p2"]], [rect(3, -1, 7, 1), null],
+]) {
+  const descriptor = stretchGeometry.createStretchDescriptor(line, captureRect);
+  assert.deepEqual(descriptor ? Array.from(descriptor.capturedVertices) : null, keys);
+  if (descriptor) assert.equal(Object.isFrozen(descriptor) && Object.isFrozen(descriptor.capturedVertices) && Object.isFrozen(descriptor.originalGeometry), true);
+}
+assert.equal(stretchGeometry.createStretchDescriptor({ id: "locked", ...line, locked: true }, rect(-1, -1, 11, 1)), null);
+for (const type of ["circle", "dimension", "text"]) assert.equal(stretchGeometry.createStretchDescriptor({ id: type, type }, rect(-10, -10, 10, 10)), null);
+
+const lineP1 = stretchGeometry.createStretchDescriptor(line, rect(-1, -1, 1, 1));
+assert.deepEqual(plain(stretchGeometry.createStretchProposal(lineP1, { dx: 2, dy: 3 }).entity.p1), { x: 2, y: 3 });
+assert.deepEqual(plain(stretchGeometry.createStretchProposal(lineP1, { dx: 2, dy: 3 }).entity.p2), line.p2);
+const wire = { id: "wire-1", type: "wire", start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, startRef: "a", endRef: "b", tension: 0.45 };
+for (const [captureRect, cleared, preserved] of [[rect(-1, -1, 1, 1), "startRef", "endRef"], [rect(9, -1, 11, 1), "endRef", "startRef"]]) {
+  const proposal = stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(wire, captureRect), { dx: 2, dy: 3 }).entity;
+  assert.equal(proposal[cleared], null); assert.equal(proposal[preserved], wire[preserved]); assert.equal(proposal.tension, 0.45);
+}
+const bothWire = stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(wire, rect(-1, -1, 11, 1)), { dx: 2, dy: 3 }).entity;
+assert.equal(bothWire.startRef, null); assert.equal(bothWire.endRef, null);
+
+const rectangle = { id: "rect-1", type: "rect", x: 0, y: 0, width: 10, height: 10, cornerRadius: 4, fill: true };
+const oneCorner = stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(rectangle, rect(-1, -1, 1, 1)), { dx: 2, dy: 3 });
+assert.deepEqual({ x: oneCorner.entity.x, y: oneCorner.entity.y, width: oneCorner.entity.width, height: oneCorner.entity.height }, { x: 2, y: 3, width: 8, height: 7 });
+const oneSide = stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(rectangle, rect(-1, -1, 1, 11)), { dx: 2, dy: 3 });
+assert.deepEqual({ x: oneSide.entity.x, y: oneSide.entity.y, width: oneSide.entity.width, height: oneSide.entity.height }, { x: 2, y: 0, width: 8, height: 10 });
+const allRect = stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(rectangle, rect(-1, -1, 11, 11)), { dx: 2, dy: 3 });
+assert.deepEqual({ x: allRect.entity.x, y: allRect.entity.y, width: allRect.entity.width, height: allRect.entity.height }, { x: 2, y: 3, width: 10, height: 10 });
+assert.equal(stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(rectangle, rect(-1, -1, 1, 11)), { dx: 10, dy: 0 }).valid, false);
+assert.equal(stretchGeometry.createStretchProposal(stretchGeometry.createStretchDescriptor(rectangle, rect(-1, -1, 1, 11)), { dx: 12, dy: 0 }).valid, false);
+
+const region = { id: "region-1", type: "filledRegion", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], fillPattern: "cross" };
+for (const captureRect of [rect(-1, -1, 1, 1), rect(-1, -1, 11, 1), rect(-1, -1, 11, 11)]) {
+  const descriptor = stretchGeometry.createStretchDescriptor(region, captureRect);
+  const proposal = stretchGeometry.createStretchProposal(descriptor, { dx: 2, dy: 3 }).entity;
+  descriptor.capturedVertices.forEach((index) => assert.deepEqual(plain(proposal.points[index]), { x: region.points[index].x + 2, y: region.points[index].y + 3 }));
+  assert.equal(proposal.fillPattern, "cross"); assert.equal(proposal.points.length, region.points.length);
+}
+
+const crossingHarness = createStretchHarness([line]);
+crossingHarness.controller.activate();
+crossingHarness.controller.handlePrimaryAction({ x: 20, y: 5 }, { x: 20, y: 5 }, {}, { x: 20, y: 5 });
+crossingHarness.controller.finishCrossingWindow({ x: -5, y: -5 }, { x: -5, y: -5 });
+assert.equal(crossingHarness.ui.stretchDraft.phase, "base");
+const stableDescriptor = crossingHarness.ui.stretchDraft.descriptors[0];
+crossingHarness.controller.handlePointerMove({ x: 100, y: 100 }, { shiftKey: false }, { x: 100, y: 100 });
+assert.equal(crossingHarness.ui.stretchDraft.descriptors[0], stableDescriptor, "pointer movement must preserve captured descriptors");
+
+const rejectedHarness = createStretchHarness([line]);
+rejectedHarness.controller.activate();
+rejectedHarness.controller.handlePrimaryAction({ x: -5, y: -5 }, { x: -5, y: -5 }, {}, { x: -5, y: -5 });
+rejectedHarness.controller.finishCrossingWindow({ x: 20, y: 5 }, { x: 20, y: 5 });
+assert.equal(rejectedHarness.ui.stretchDraft.phase, "window"); assert.equal(rejectedHarness.ui.stretchDraft.descriptors.length, 0); assert.equal(rejectedHarness.undoCount(), 0);
+
+const commitHarness = createStretchHarness([line]);
+commitHarness.controller.activate(); commitHarness.controller.handlePrimaryAction({ x: 5, y: 5 }, { x: 5, y: 5 }, {}, { x: 5, y: 5 });
+commitHarness.controller.finishCrossingWindow({ x: -5, y: -5 }, { x: -5, y: -5 });
+commitHarness.controller.handlePrimaryAction({ x: 0, y: 0 }, { x: 0, y: 0 }, {}, { x: 0, y: 0 });
+const previewProposal = commitHarness.controller.createStretchProposal(commitHarness.ui.stretchDraft.descriptors[0], { dx: 2, dy: 3 }).entity;
+commitHarness.controller.handlePrimaryAction({ x: 2, y: 3 }, { x: 2, y: 3 }, { shiftKey: true }, { x: 2, y: 3 });
+assert.deepEqual(commitHarness.state.entities[0], previewProposal); assert.equal(commitHarness.undoCount(), 1); assert.deepEqual(commitHarness.state.groups[0].entityIds, ["line-1"]);
+
+const atomicHarness = createStretchHarness([line, rectangle]);
+atomicHarness.controller.activate(); atomicHarness.controller.handlePrimaryAction({ x: 5, y: 11 }, { x: 5, y: 11 }, {}, { x: 5, y: 11 });
+atomicHarness.controller.finishCrossingWindow({ x: -1, y: -1 }, { x: -1, y: -1 });
+atomicHarness.controller.handlePrimaryAction({ x: 0, y: 0 }, { x: 0, y: 0 }, {}, { x: 0, y: 0 });
+atomicHarness.controller.handlePrimaryAction({ x: 10, y: 0 }, { x: 10, y: 0 }, { shiftKey: false }, { x: 10, y: 0 });
+assert.deepEqual(atomicHarness.state.entities[0], line); assert.equal(atomicHarness.undoCount(), 0); assert.equal(atomicHarness.ui.stretchDraft.phase, "destination");
+atomicHarness.controller.handlePrimaryAction({ x: 0, y: 0 }, { x: 0, y: 0 }, { shiftKey: false }, { x: 0, y: 0 });
+assert.equal(atomicHarness.undoCount(), 0, "zero offset must not create undo");
+atomicHarness.controller.cancel(); assert.equal(atomicHarness.undoCount(), 0, "Escape/cancel must not create undo");
+
+const indexSource = fs.readFileSync(path.join(rootDir, "docs/index.html"), "utf8");
+assert.ok(indexSource.indexOf('tools/modify/stretch.js') < indexSource.indexOf('app.js'), "Stretch module should load before app.js");
+assert.ok(appSource.includes('getToolController("stretch").handlePrimaryAction'), "app.js should route Stretch through its controller");
+const stretchSource = fs.readFileSync(path.join(rootDir, "docs/tools/modify/stretch.js"), "utf8");
+assert.equal(stretchSource.includes("selectEntitiesByWindow"), false); assert.equal(stretchSource.includes("expandSelectionWithGroups"), false);
 
 console.log("Tool registry and controller checks passed.");

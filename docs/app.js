@@ -107,6 +107,7 @@ const toolButtons = {
   offset: document.getElementById("offsetButton"),
   trim: document.getElementById("trimButton"),
   fillet: document.getElementById("filletButton"),
+  stretch: document.getElementById("stretchButton"),
 };
 
 const deleteButton = document.getElementById("deleteButton");
@@ -296,6 +297,7 @@ const uiState = {
   offsetDraft: null,
   trimDraft: null,
   filletDraft: null,
+  stretchDraft: null,
   mirrorDraft: null,
   dimensionDraft: null,
   matchPropertiesSourceId: null,
@@ -413,6 +415,10 @@ const modularToolContext = Object.freeze({
   mirrorEntity,
   drawMirrorAxisDraft,
   drawTransformPreview,
+  drawSelectionWindow,
+  drawStretchPreviewEntities,
+  resolveSnapCandidate,
+  getConstrainedWorldPoint,
   getTopmostSelectableEntityAtPoint,
   supportsMatchedProperties,
   createMatchedStylePatch,
@@ -603,7 +609,7 @@ function redo() {
 }
 
 function clearTransientState() {
-  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.offsetDraft || uiState.trimDraft || uiState.mirrorDraft) {
+  if (uiState.filletDraft || uiState.alignDraft || uiState.extendDraft || uiState.offsetDraft || uiState.trimDraft || uiState.mirrorDraft || uiState.stretchDraft) {
     state.selectedEntityIds = [];
   }
   uiState.lineDraft = null;
@@ -624,6 +630,7 @@ function clearTransientState() {
   uiState.offsetDraft = null;
   uiState.trimDraft = null;
   uiState.filletDraft = null;
+  uiState.stretchDraft = null;
   uiState.dimensionDraft = null;
   uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
@@ -663,6 +670,7 @@ function hasCancelableCommandOrDraft() {
     || Boolean(uiState.offsetDraft)
     || Boolean(uiState.trimDraft)
     || Boolean(uiState.filletDraft)
+    || Boolean(uiState.stretchDraft)
     || Boolean(uiState.dimensionDraft)
     || Boolean(uiState.matchPropertiesSourceId)
     || Boolean(uiState.selectionWindow);
@@ -5251,6 +5259,18 @@ function drawSelectionWindow(selectionWindow) {
   ctx.restore();
 }
 
+function drawStretchPreviewEntities(entities) {
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  entities.forEach((entity) => {
+    if (entity.type === "line") drawPreviewLineEntity(entity);
+    else if (entity.type === "wire") drawWireEntity(entity);
+    else if (entity.type === "rect") drawRectEntity(entity);
+    else if (entity.type === "filledRegion") drawFilledRegionEntity(entity);
+  });
+  ctx.restore();
+}
+
 function drawTransformPreview(transformDraft) {
   const offset = getTransformOffset(transformDraft);
   transformDraft.entities.forEach((entity) => {
@@ -8493,7 +8513,8 @@ function onPointerMove(event) {
     uiState.gripEditDraft ||
     uiState.dimensionEndpointEditDraft ||
     uiState.rectEdgeEditDraft ||
-    uiState.dimensionOffsetEditDraft;
+    uiState.dimensionOffsetEditDraft ||
+    Boolean(uiState.stretchDraft?.window);
   const screenPoint = getScreenPointFromEvent(event);
   if (uiState.activeTool === "libraryPlace" && !startedCanvasInteraction) {
     if (isSidebarEventTarget(event) || !isScreenPointInsideCanvas(screenPoint)) {
@@ -8530,6 +8551,11 @@ function onPointerMove(event) {
     state.view.panX = uiState.panStartView.panX + (screenPoint.x - uiState.panStartScreen.x);
     state.view.panY = uiState.panStartView.panY + (screenPoint.y - uiState.panStartScreen.y);
     draw();
+    renderStatusPanel();
+    return;
+  }
+
+  if (uiState.activeTool === "stretch" && getToolController("stretch")?.handlePointerMove(worldPoint, event, screenPoint)) {
     renderStatusPanel();
     return;
   }
@@ -8855,10 +8881,10 @@ function onCanvasMouseDown(event) {
 
   const screenPoint = getScreenPointFromEvent(event);
   const rawWorldPoint = screenToWorld(screenPoint);
-  handleCanvasPrimaryAction(rawWorldPoint, rawWorldPoint, event);
+  handleCanvasPrimaryAction(rawWorldPoint, rawWorldPoint, event, screenPoint);
 }
 
-function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
+function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event, screenPoint = null) {
   const worldPoint = resolveConstrainedSnapPoint(rawSnapWorldPoint, event.shiftKey);
   if (uiState.activeTool === "libraryPlace") {
     const item = getLibraryItemById(uiState.libraryPlacementItemId);
@@ -8867,6 +8893,10 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
         || getLibraryPlacementPoint(rawSnapWorldPoint, event.shiftKey);
       placeLibraryItemAt(item, placementPoint);
     }
+    return;
+  }
+  if (uiState.activeTool === "stretch") {
+    getToolController("stretch").handlePrimaryAction(rawWorldPoint, rawSnapWorldPoint, event, screenPoint);
     return;
   }
   if (uiState.activeTool === "wire") {
@@ -9001,7 +9031,8 @@ function onWindowMouseUp(event) {
     uiState.gripEditDraft ||
     uiState.dimensionEndpointEditDraft ||
     uiState.rectEdgeEditDraft ||
-    uiState.dimensionOffsetEditDraft;
+    uiState.dimensionOffsetEditDraft ||
+    Boolean(uiState.stretchDraft?.window);
   if (isSidebarEventTarget(event) && !startedCanvasInteraction) {
     return;
   }
@@ -9011,6 +9042,12 @@ function onWindowMouseUp(event) {
   }
 
   if (event.button !== 0) {
+    return;
+  }
+
+  if (uiState.activeTool === "stretch" && uiState.stretchDraft?.window) {
+    const screenPoint = getScreenPointFromEvent(event);
+    getToolController("stretch").finishCrossingWindow(screenPoint, screenToWorld(screenPoint));
     return;
   }
 
@@ -10139,6 +10176,7 @@ function bindEvents() {
   toolButtons.offset.addEventListener("click", () => setActiveTool("offset"));
   toolButtons.trim.addEventListener("click", () => setActiveTool("trim"));
   toolButtons.fillet.addEventListener("click", () => setActiveTool("fillet"));
+  toolButtons.stretch.addEventListener("click", () => setActiveTool("stretch"));
   deleteButton.addEventListener("click", deleteSelectedEntities);
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);
