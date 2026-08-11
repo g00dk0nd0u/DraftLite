@@ -104,7 +104,7 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 - Completed: Phase 3 — Issue #101
 - Completed: Phase 4 — Issue #102
 - Completed by this branch: Phase 5 — Issue #103
-- Tool modularization roadmap — Issue #98 complete pending merge/verification
+- Completed: Tool modularization roadmap — Issue #98.
 
 - Stabilization sequence Issues #69–#72 completed.
 - Completed: chained Multi-target Align — Issue #83.
@@ -112,4 +112,5 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 - Completed: concise multi-step command guide — Issues #87/#89.
 - Completed: layer-based Line Weight v1 — Issue #91.
 - Completed: layer-based Line Type v1 — Issue #93.
-- Current: Filled Region Hatch v1 — Issue #95.
+- Completed: Filled Region Hatch v1 — Issue #95.
+- Current: Stretch v1 — Issue #97.
