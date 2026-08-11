@@ -319,10 +319,31 @@ vm.runInContext([
   readAppFunction("resolveSnapCandidate"),
 ].join("\n"), snapContext);
 
+const plainSnapValue = (value) => JSON.parse(JSON.stringify(value));
+const routedStretchActions = [];
+const primaryActionContext = vm.createContext({
+  uiState: { activeTool: "stretch" },
+  resolveConstrainedSnapPoint: () => ({ x: 20, y: 30 }),
+  getToolController: () => ({
+    handlePrimaryAction: (...args) => routedStretchActions.push(args),
+  }),
+});
+vm.runInContext(readAppFunction("handleCanvasPrimaryAction"), primaryActionContext);
+primaryActionContext.handleCanvasPrimaryAction(
+  { x: 20.25, y: 30.25 },
+  { x: 20.25, y: 30.25 },
+  { shiftKey: false },
+  { x: 100, y: 100 }
+);
+assert.deepEqual(
+  plainSnapValue(routedStretchActions[0][1]),
+  { x: 20, y: 30 },
+  "The canvas primary-action route should pass its resolved shared snap point to Stretch"
+);
+
 const snapRect = { id: "snap-rect", type: "rect", layerId: "layer-1", x: 20, y: 30, width: 40, height: 20 };
 const snapLine = { id: "snap-line", type: "line", layerId: "layer-1", p1: { x: 100, y: 100 }, p2: { x: 120, y: 100 } };
 snapContext.state.entities = [snapRect, snapLine];
-const plainSnapValue = (value) => JSON.parse(JSON.stringify(value));
 for (const corner of [{ x: 20, y: 30 }, { x: 60, y: 30 }, { x: 60, y: 50 }, { x: 20, y: 50 }]) {
   const candidate = snapContext.resolveSnapCandidate({ x: corner.x + 0.25, y: corner.y + 0.25 });
   assert.equal(candidate.kind, "endpoint", "Rectangle corners should be endpoint-style shared snap candidates");

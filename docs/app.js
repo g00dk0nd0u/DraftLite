@@ -8899,7 +8899,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event, scre
     return;
   }
   if (uiState.activeTool === "stretch") {
-    getToolController("stretch").handlePrimaryAction(rawWorldPoint, rawSnapWorldPoint, event, screenPoint);
+    getToolController("stretch").handlePrimaryAction(rawWorldPoint, worldPoint, event, screenPoint);
     return;
   }
   if (uiState.activeTool === "wire") {
