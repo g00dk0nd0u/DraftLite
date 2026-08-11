@@ -290,6 +290,74 @@ assert.equal(JSON.stringify(edited), offsetSnapshot);
 assert.equal(dimensionUndoCount, 4);
 
 const appSource = fs.readFileSync(path.join(rootDir, "docs/app.js"), "utf8");
+function readAppFunction(name) {
+  const start = appSource.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `${name} should exist in app.js`);
+  let depth = 0;
+  let opened = false;
+  for (let index = start; index < appSource.length; index += 1) {
+    if (appSource[index] === "{") { depth += 1; opened = true; }
+    if (appSource[index] === "}") depth -= 1;
+    if (opened && depth === 0) return appSource.slice(start, index + 1);
+  }
+  assert.fail(`${name} should have a complete function body`);
+}
+
+const snapContext = vm.createContext({
+  state: {
+    entities: [],
+    settings: { snapTolerancePx: 10 },
+  },
+  isLayerVisible: () => true,
+  distanceScreenPx: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
+  roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
+  getLineMidpoint: (entity) => ({ x: (entity.p1.x + entity.p2.x) / 2, y: (entity.p1.y + entity.p2.y) / 2 }),
+});
+vm.runInContext([
+  readAppFunction("getRectSnapPoints"),
+  readAppFunction("collectSnapCandidates"),
+  readAppFunction("resolveSnapCandidate"),
+].join("\n"), snapContext);
+
+const plainSnapValue = (value) => JSON.parse(JSON.stringify(value));
+const routedStretchActions = [];
+const primaryActionContext = vm.createContext({
+  uiState: { activeTool: "stretch" },
+  resolveConstrainedSnapPoint: () => ({ x: 20, y: 30 }),
+  getToolController: () => ({
+    handlePrimaryAction: (...args) => routedStretchActions.push(args),
+  }),
+});
+vm.runInContext(readAppFunction("handleCanvasPrimaryAction"), primaryActionContext);
+primaryActionContext.handleCanvasPrimaryAction(
+  { x: 20.25, y: 30.25 },
+  { x: 20.25, y: 30.25 },
+  { shiftKey: false },
+  { x: 100, y: 100 }
+);
+assert.deepEqual(
+  plainSnapValue(routedStretchActions[0][1]),
+  { x: 20, y: 30 },
+  "The canvas primary-action route should pass its resolved shared snap point to Stretch"
+);
+
+const snapRect = { id: "snap-rect", type: "rect", layerId: "layer-1", x: 20, y: 30, width: 40, height: 20 };
+const snapLine = { id: "snap-line", type: "line", layerId: "layer-1", p1: { x: 100, y: 100 }, p2: { x: 120, y: 100 } };
+snapContext.state.entities = [snapRect, snapLine];
+for (const corner of [{ x: 20, y: 30 }, { x: 60, y: 30 }, { x: 60, y: 50 }, { x: 20, y: 50 }]) {
+  const candidate = snapContext.resolveSnapCandidate({ x: corner.x + 0.25, y: corner.y + 0.25 });
+  assert.equal(candidate.kind, "endpoint", "Rectangle corners should be endpoint-style shared snap candidates");
+  assert.deepEqual(plainSnapValue(candidate.point), corner, "Each Rectangle corner should resolve through shared OSNAP");
+}
+const rectMidpointCandidate = snapContext.resolveSnapCandidate({ x: 40.2, y: 30.1 });
+assert.equal(rectMidpointCandidate.kind, "midpoint", "Rectangle edge midpoint snapping should remain available");
+assert.deepEqual(plainSnapValue(rectMidpointCandidate.point), { x: 40, y: 30 });
+const lineEndpointCandidate = snapContext.resolveSnapCandidate({ x: 100.2, y: 100.1 });
+assert.equal(lineEndpointCandidate.kind, "endpoint", "Line endpoint snapping should remain unchanged");
+assert.deepEqual(plainSnapValue(lineEndpointCandidate.point), { x: 100, y: 100 });
+const closerCornerCandidate = snapContext.resolveSnapCandidate({ x: 23, y: 30 });
+assert.deepEqual(plainSnapValue(closerCornerCandidate.point), { x: 20, y: 30 }, "The closer Rectangle corner should naturally win over its edge midpoint");
+
 const endpointRoute = appSource.indexOf("findDimensionEndpointHandleAtPoint(roundWorldPoint(rawWorldPoint))");
 const offsetRoute = appSource.indexOf("findDimensionOffsetHandleAtPoint(roundWorldPoint(rawWorldPoint))", endpointRoute);
 const selectionRoute = appSource.indexOf('getToolController("selection").handleClick', offsetRoute);
@@ -414,6 +482,13 @@ snappedBaseHarness.controller.finishCrossingWindow({ x: -5, y: -1 }, { x: -5, y:
 snappedBaseHarness.controller.handlePrimaryAction({ x: 9.6, y: 0.2 }, { x: 10, y: 0 }, {}, { x: 9.6, y: 0.2 });
 assert.deepEqual(baseSnapInputs, [{ x: 10, y: 0 }], "Stretch base phase should use the snap-aware point supplied by the app shell");
 assert.deepEqual(plain(snappedBaseHarness.ui.stretchDraft.basePoint), { x: 10, y: 0 }, "Stretch should store the snapped base point");
+
+const rectCornerBaseHarness = createStretchHarness([snapRect], (point) => snapContext.resolveSnapCandidate(point));
+rectCornerBaseHarness.controller.activate();
+rectCornerBaseHarness.controller.handlePrimaryAction({ x: 65, y: 55 }, { x: 65, y: 55 }, {}, { x: 65, y: 55 });
+rectCornerBaseHarness.controller.finishCrossingWindow({ x: 15, y: 25 }, { x: 15, y: 25 });
+rectCornerBaseHarness.controller.handlePrimaryAction({ x: 20.25, y: 30.25 }, { x: 20.25, y: 30.25 }, {}, { x: 20.25, y: 30.25 });
+assert.deepEqual(plain(rectCornerBaseHarness.ui.stretchDraft.basePoint), { x: 20, y: 30 }, "Stretch base phase should accept a Rectangle corner from shared OSNAP");
 
 const rawBaseHarness = createStretchHarness([line]);
 rawBaseHarness.controller.activate();
