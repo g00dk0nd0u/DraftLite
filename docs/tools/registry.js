@@ -2,12 +2,12 @@
 
 (function createDraftLiteToolRegistry(global) {
   const factories = new Map();
-  const validId = /^[a-z][a-z0-9-]*$/;
+  const validId = /^[a-z][A-Za-z0-9-]*$/;
 
   const api = Object.freeze({
     register(id, factory) {
       if (typeof id !== "string" || !validId.test(id)) {
-        throw new TypeError("Tool ID must be a lowercase, kebab-case identifier.");
+        throw new TypeError("Tool ID must start with a lowercase letter and contain only letters, numbers, or hyphens.");
       }
       if (typeof factory !== "function") {
         throw new TypeError(`Tool factory for ${id} must be a function.`);
