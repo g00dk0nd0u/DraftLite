@@ -101,7 +101,8 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 - Tool modularization roadmap — Issue #98
 - Completed: Phase 1 — Issue #99
 - Completed: Phase 2 — Issue #100
-- Current: Phase 3 — Issue #101
+- Completed: Phase 3 — Issue #101
+- Current: Phase 4 — Issue #102
 
 - Stabilization sequence Issues #69–#72 completed.
 - Completed: chained Multi-target Align — Issue #83.

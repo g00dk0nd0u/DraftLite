@@ -351,6 +351,24 @@ const modularToolContext = Object.freeze({
   createEntityId,
   deepClone,
   roundWorldPoint,
+  getLayerById,
+  canDrawOnActiveLayer,
+  addLineEntity,
+  addWireEntity,
+  addRectangleEntity,
+  addCircleEntity,
+  addArcEntity,
+  createFilledRegionEntity,
+  angleDegFromCenter,
+  snapAngleTo90,
+  clearLinePreviewTimer,
+  setLinePreviewTimer,
+  drawDraftLine,
+  drawDraftWire,
+  drawDraftRectangle,
+  drawDraftCircle,
+  drawDraftArc,
+  drawDraftFilledRegion,
   getInfiniteLineIntersection,
   projectPointToInfiniteLineRaw,
   alignLineToReference,
@@ -422,8 +440,14 @@ function getToolController(toolId) {
   return modularToolControllers.get(toolId);
 }
 
+function getRegistryToolId(toolId) {
+  if (toolId === "matchProperties") return "match-properties";
+  if (toolId === "filledRegion") return "filled-region";
+  return toolId;
+}
+
 function getActiveToolController() {
-  return getToolController(uiState.activeTool === "matchProperties" ? "match-properties" : uiState.activeTool);
+  return getToolController(getRegistryToolId(uiState.activeTool));
 }
 
 
@@ -768,6 +792,13 @@ function clearLinePreviewTimer() {
     window.clearTimeout(uiState.linePreviewTimer);
     uiState.linePreviewTimer = null;
   }
+}
+
+function setLinePreviewTimer(callback, delay) {
+  uiState.linePreviewTimer = window.setTimeout(() => {
+    uiState.linePreviewTimer = null;
+    callback();
+  }, delay);
 }
 
 function clearGripPreviewTimer() {
@@ -1667,101 +1698,11 @@ function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
   return getSnapPoint(getConstrainedWorldPoint(worldPoint, shiftKey), { quantizeFree: true });
 }
 
-function beginLineDraft(startPoint, prefix = `Line start set at ${formatWorldPoint(startPoint)}.`) {
-  clearLinePreviewTimer();
-  uiState.lineDraft = {
-    start: startPoint,
-    numericInputBuffer: "",
-    previewPoint: null,
-  };
-  updateLineDraftStatus(prefix);
-  draw();
-  renderStatusPanel();
-}
-
-function beginWireDraft(startPoint) {
-  uiState.wireDraft = {
-    start: roundWorldPoint(startPoint),
-    tension: 0.45,
-  };
-  draw();
-  renderStatusPanel();
-  setStatus(`Wire start set at ${formatWorldPoint(uiState.wireDraft.start)}. Pick end point.`);
-}
-
-function endWireDraft(message = "Wire command ended.") {
-  uiState.wireDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function updateLineDraftStatus(prefix) {
-  if (!uiState.lineDraft) {
-    return;
-  }
-
-  const inputSuffix = uiState.lineDraft.numericInputBuffer
-    ? ` Length: ${uiState.lineDraft.numericInputBuffer} mm`
-    : " Length: -";
-  setStatus(`${prefix}${inputSuffix}`);
-  renderStatusPanel();
-}
-
-function endLineDraft(message = "Line command ended.") {
-  clearLinePreviewTimer();
-  uiState.lineDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function beginRectangleDraft(startPoint) {
-  uiState.rectangleDraft = {
-    start: startPoint,
-  };
-  draw();
-  renderStatusPanel();
-  setStatus(`Rectangle first corner set at ${formatWorldPoint(startPoint)}. Pick opposite corner.`);
-}
-
-function endRectangleDraft(message = "Rectangle command ended.") {
-  uiState.rectangleDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
 function cancelSelectDrag(message = "Drag move cancelled.") {
   uiState.selectDragDraft = null;
   draw();
   renderStatusPanel();
   setStatus(message);
-}
-
-function cancelRectangle(message = "Rectangle cancelled.") {
-  uiState.rectangleDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function beginCircleDraft(centerPoint) {
-  uiState.circleDraft = { center: roundWorldPoint(centerPoint) };
-  setStatus(`Circle center set at ${formatWorldPoint(uiState.circleDraft.center)}. Pick radius point.`);
-  draw();
-}
-
-function beginArcDraft(centerPoint) {
-  uiState.arcDraft = { step: 1, center: roundWorldPoint(centerPoint) };
-  setStatus(`Arc center set at ${formatWorldPoint(uiState.arcDraft.center)}. Pick start direction/radius.`);
-  draw();
-}
-
-function beginFilledRegionDraft(firstPoint) {
-  uiState.filledRegionDraft = { points: [roundWorldPoint(firstPoint)] };
-  setStatus("Filled Region: pick next point. Enter or double-click to close.");
-  draw();
 }
 
 function getSelectionRect(selectionWindow) {
@@ -4112,26 +4053,7 @@ function draw() {
 
   drawSelectedUnderlayOverlays();
 
-  if (uiState.lineDraft) {
-    drawDraftLine(uiState.lineDraft.start, uiState.lineDraft.previewPoint || uiState.hoverWorld);
-  }
   getActiveToolController()?.drawPreview?.();
-  if (uiState.wireDraft) {
-    drawDraftWire(uiState.wireDraft);
-  }
-
-  if (uiState.rectangleDraft) {
-    drawDraftRectangle(uiState.rectangleDraft.start, uiState.hoverWorld);
-  }
-  if (uiState.circleDraft) {
-    drawDraftCircle(uiState.circleDraft.center, uiState.hoverWorld);
-  }
-  if (uiState.arcDraft) {
-    drawDraftArc(uiState.arcDraft);
-  }
-  if (uiState.filledRegionDraft) {
-    drawDraftFilledRegion(uiState.filledRegionDraft);
-  }
 
   if (uiState.dimensionDraft) {
     drawDimensionDraftPreview(uiState.dimensionDraft);
@@ -6177,112 +6099,23 @@ function addArcEntity(centerPoint, radiusPoint, endPoint) {
   return arc;
 }
 
-function createLineFromNumericInput() {
-  if (!uiState.lineDraft) {
-    return false;
-  }
-
-  clearLinePreviewTimer();
-
-  if (uiState.lineDraft.previewPoint) {
-    const createdEntity = addLineEntity(uiState.lineDraft.start, uiState.lineDraft.previewPoint);
-    if (!createdEntity) {
-      return false;
-    }
-
-    beginLineDraft(
-      createdEntity.p2,
-      `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
-    );
-    return true;
-  }
-
-  const rawLengthMm = uiState.lineDraft.numericInputBuffer;
-  const lengthMm = Number.parseInt(rawLengthMm, 10);
-  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
-    setStatus("Enter a positive line length in mm.");
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.lineDraft.start.x;
-  const directionY = uiState.hoverWorld.y - uiState.lineDraft.start.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    setStatus("Move the pointer to indicate a line direction before pressing Enter.");
-    return false;
-  }
-
-  const lengthUnits = mmToUnits(lengthMm);
-  if (lengthUnits <= 0) {
-    setStatus("Line length must be greater than zero.");
-    return false;
-  }
-
-  const targetPoint = {
-    x: roundToGridUnit(uiState.lineDraft.start.x + (directionX / directionLength) * lengthUnits),
-    y: roundToGridUnit(uiState.lineDraft.start.y + (directionY / directionLength) * lengthUnits),
+function createFilledRegionEntity(points) {
+  const layer = getLayerById(state.activeLayerId);
+  pushUndoState();
+  const entity = {
+    id: createEntityId(),
+    type: "filledRegion",
+    layerId: state.activeLayerId,
+    points: points.map(roundWorldPoint),
+    fill: true,
+    fillPattern: DEFAULT_FILL_PATTERN,
+    fillColor: normalizeColor(layer?.color || "#5e6b78"),
   };
-
-  const createdEntity = addLineEntity(uiState.lineDraft.start, targetPoint);
-  if (!createdEntity) {
-    return false;
-  }
-
-  beginLineDraft(
-    createdEntity.p2,
-    `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
-  );
-  return true;
-}
-
-function applyLineNumericEdit() {
-  return createLineFromNumericInput();
-}
-
-function applyLineNumericPreview() {
-  if (!uiState.lineDraft || !uiState.lineDraft.numericInputBuffer) {
-    return false;
-  }
-
-  const rawLengthMm = uiState.lineDraft.numericInputBuffer;
-  const lengthMm = Number.parseInt(rawLengthMm, 10);
-  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.lineDraft.start.x;
-  const directionY = uiState.hoverWorld.y - uiState.lineDraft.start.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    return false;
-  }
-
-  const lengthUnits = mmToUnits(lengthMm);
-  if (lengthUnits <= 0) {
-    return false;
-  }
-
-  uiState.lineDraft.previewPoint = {
-    x: roundToGridUnit(uiState.lineDraft.start.x + (directionX / directionLength) * lengthUnits),
-    y: roundToGridUnit(uiState.lineDraft.start.y + (directionY / directionLength) * lengthUnits),
-  };
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function scheduleLineNumericPreview() {
-  if (!uiState.lineDraft) {
-    return;
-  }
-  clearLinePreviewTimer();
-  if (!uiState.lineDraft.numericInputBuffer) {
-    return;
-  }
-  uiState.linePreviewTimer = window.setTimeout(() => {
-    uiState.linePreviewTimer = null;
-    applyLineNumericPreview();
-  }, 250);
+  state.entities.push(entity);
+  state.selectedEntityIds = [entity.id];
+  syncAfterStateChange();
+  setStatus("Filled Region created.");
+  return entity;
 }
 
 function getSelectedTransformableEntities() {
@@ -9275,29 +9108,12 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     }
     return;
   }
-  if (uiState.activeTool === "line") {
-    handleLineToolClick(worldPoint);
-    return;
-  }
   if (uiState.activeTool === "wire") {
-    handleWireToolClick(roundWorldPoint(rawWorldPoint));
+    getToolController("wire").handleClick(roundWorldPoint(rawWorldPoint), event);
     return;
   }
-
-  if (uiState.activeTool === "rectangle") {
-    handleRectangleToolClick(worldPoint);
-    return;
-  }
-  if (uiState.activeTool === "circle") {
-    handleCircleToolClick(worldPoint);
-    return;
-  }
-  if (uiState.activeTool === "arc") {
-    handleArcToolClick(worldPoint);
-    return;
-  }
-  if (uiState.activeTool === "filledRegion") {
-    handleFilledRegionToolClick(worldPoint, event);
+  if (["line", "rectangle", "circle", "arc", "filledRegion"].includes(uiState.activeTool)) {
+    getActiveToolController().handleClick(worldPoint, event);
     return;
   }
   if (uiState.activeTool === "text") {
@@ -9372,158 +9188,6 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     }
     getToolController("selection").handleClick(rawWorldPoint, worldPoint, event);
   }
-}
-
-function handleLineToolClick(worldPoint) {
-  if (!uiState.lineDraft) {
-    const activeLayer = getLayerById(state.activeLayerId);
-    if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
-      setStatus("Choose a visible, unlocked active layer before drawing.");
-      return;
-    }
-    beginLineDraft(worldPoint);
-    return;
-  }
-
-  if (uiState.lineDraft.numericInputBuffer) {
-    applyLineNumericEdit();
-    return;
-  }
-
-  const createdEntity = addLineEntity(uiState.lineDraft.start, worldPoint);
-  if (!createdEntity) {
-    return;
-  }
-  beginLineDraft(
-    createdEntity.p2,
-    `Line segment created. Next point starts at ${formatWorldPoint(createdEntity.p2)}.`
-  );
-}
-
-function handleWireToolClick(worldPoint) {
-  if (!uiState.wireDraft) {
-    if (!canDrawOnActiveLayer()) {
-      return;
-    }
-    beginWireDraft(worldPoint);
-    return;
-  }
-
-  const createdEntity = addWireEntity(uiState.wireDraft.start, worldPoint);
-  if (!createdEntity) {
-    draw();
-    renderStatusPanel();
-    return;
-  }
-
-  endWireDraft("Wire created.");
-}
-
-function handleRectangleToolClick(worldPoint) {
-  if (!uiState.rectangleDraft) {
-    const activeLayer = getLayerById(state.activeLayerId);
-    if (!activeLayer || !activeLayer.visible || activeLayer.locked) {
-      setStatus("Choose a visible, unlocked active layer before drawing.");
-      return;
-    }
-    beginRectangleDraft(worldPoint);
-    return;
-  }
-
-  if (!addRectangleEntity(uiState.rectangleDraft.start, worldPoint)) {
-    return;
-  }
-  endRectangleDraft("Rectangle object created.");
-}
-
-function handleCircleToolClick(worldPoint) {
-  if (!uiState.circleDraft) {
-    if (!canDrawOnActiveLayer()) {
-      return;
-    }
-    beginCircleDraft(worldPoint);
-    return;
-  }
-  if (!canDrawOnActiveLayer()) {
-    return;
-  }
-  addCircleEntity(uiState.circleDraft.center, worldPoint);
-  uiState.circleDraft = null;
-}
-
-function handleArcToolClick(worldPoint) {
-  if (!uiState.arcDraft) {
-    if (!canDrawOnActiveLayer()) {
-      return;
-    }
-    beginArcDraft(worldPoint);
-    return;
-  }
-  if (!canDrawOnActiveLayer()) {
-    return;
-  }
-  if (uiState.arcDraft.step === 1) {
-    uiState.arcDraft.radiusPoint = roundWorldPoint(worldPoint);
-    uiState.arcDraft.radius = roundToUnit(Math.hypot(worldPoint.x - uiState.arcDraft.center.x, worldPoint.y - uiState.arcDraft.center.y));
-    if (uiState.arcDraft.radius <= 0) {
-      setStatus("Arc radius must be greater than zero.");
-      return;
-    }
-    uiState.arcDraft.startAngleDeg = snapAngleTo90(angleDegFromCenter(uiState.arcDraft.center, worldPoint));
-    uiState.arcDraft.step = 2;
-    setStatus("Arc: pick end direction.");
-    draw();
-    return;
-  }
-  addArcEntity(uiState.arcDraft.center, uiState.arcDraft.radiusPoint, worldPoint);
-  uiState.arcDraft = null;
-}
-
-function handleFilledRegionToolClick(worldPoint, event) {
-  if (!canDrawOnActiveLayer()) {
-    return;
-  }
-  const point = roundWorldPoint(worldPoint);
-  if (!uiState.filledRegionDraft) {
-    beginFilledRegionDraft(point);
-    return;
-  }
-  const last = uiState.filledRegionDraft.points[uiState.filledRegionDraft.points.length - 1];
-  if (!last || last.x !== point.x || last.y !== point.y) {
-    uiState.filledRegionDraft.points.push(point);
-  }
-  if (event.detail >= 2 && uiState.filledRegionDraft.points.length >= 3) {
-    finishFilledRegionDraft();
-    return;
-  }
-  draw();
-}
-
-function finishFilledRegionDraft() {
-  if (!uiState.filledRegionDraft || uiState.filledRegionDraft.points.length < 3) {
-    setStatus("Filled Region requires at least 3 points.");
-    return false;
-  }
-  if (!canDrawOnActiveLayer()) {
-    return false;
-  }
-  const layer = getLayerById(state.activeLayerId);
-  pushUndoState();
-  const entity = {
-    id: createEntityId(),
-    type: "filledRegion",
-    layerId: state.activeLayerId,
-    points: uiState.filledRegionDraft.points.map(roundWorldPoint),
-    fill: true,
-    fillPattern: DEFAULT_FILL_PATTERN,
-    fillColor: normalizeColor(layer?.color || "#5e6b78"),
-  };
-  state.entities.push(entity);
-  state.selectedEntityIds = [entity.id];
-  uiState.filledRegionDraft = null;
-  syncAfterStateChange();
-  setStatus("Filled Region created.");
-  return true;
 }
 
 function handleTextToolClick(worldPoint) {
@@ -9936,24 +9600,7 @@ function setActiveTool(tool, options = {}) {
     setStatus("Aligned Dimension: pick first point");
     return;
   }
-  if (tool === "wire") {
-    setStatus("Wire: pick start point.");
-    return;
-  }
-
-  if (tool === "circle") {
-    setStatus("Circle: pick center point.");
-    return;
-  }
-  if (tool === "arc") {
-    setStatus("Arc: pick center point.");
-    return;
-  }
-  if (tool === "filledRegion") {
-    setStatus("Filled Region: pick first point.");
-    return;
-  }
-  const toolController = getToolController(tool === "matchProperties" ? "match-properties" : tool);
+  const toolController = getToolController(getRegistryToolId(tool));
   if (toolController?.activate) {
     toolController.activate();
     return;
@@ -10724,50 +10371,6 @@ function onKeyDown(event) {
   if (uiState.rectEdgeEditDraft && !textInputActive && getToolController("rectangle-edit").handleKeyDown(event)) {
     return;
   }
-
-  if (uiState.lineDraft && !textInputActive) {
-    if (/^\d$/.test(event.key)) {
-      event.preventDefault();
-      uiState.lineDraft.numericInputBuffer += event.key;
-      scheduleLineNumericPreview();
-      updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
-      draw();
-      return;
-    }
-
-    if (event.key === "Backspace") {
-      if (uiState.lineDraft.numericInputBuffer) {
-        event.preventDefault();
-        uiState.lineDraft.numericInputBuffer = uiState.lineDraft.numericInputBuffer.slice(0, -1);
-        clearLinePreviewTimer();
-        if (!uiState.lineDraft.numericInputBuffer) {
-          uiState.lineDraft.previewPoint = null;
-        } else {
-          scheduleLineNumericPreview();
-        }
-        updateLineDraftStatus(`Line start set at ${formatWorldPoint(uiState.lineDraft.start)}.`);
-        draw();
-        return;
-      }
-    }
-
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (uiState.lineDraft.numericInputBuffer) {
-        applyLineNumericEdit();
-        return;
-      }
-      endLineDraft("Line command ended.");
-      return;
-    }
-  }
-
-  if (uiState.filledRegionDraft && !textInputActive && event.key === "Enter") {
-    event.preventDefault();
-    finishFilledRegionDraft();
-    return;
-  }
-
 
 
   if (
