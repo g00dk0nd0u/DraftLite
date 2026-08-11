@@ -207,16 +207,16 @@
 - Save/load must preserve groups and remain compatible with older JSON without groups.
 - Copying a complete group should create a new group for copied entities.
 - Delete and cleanup must remove missing entity IDs from groups.
-- Use Explode only when rectangle outlines need to be converted into 4 `line` entities.
+- Explode handles selected Block Instances first; if none are handled, it may convert selected Rectangle objects into 4 `line` entities.
 - Do not convert rectangles into line entities during normal editing.
 - Filled Region should not duplicate the first point as the last point in stored state.
 
 ### Align
 
-- Initial Align implementation is line-to-line parallel alignment only.
-- Align must keep the first picked reference line fixed.
-- Align must move only the second picked target line.
-- Do not rotate target geometry in the first implementation.
+- Align is a line-to-line operation that keeps the first picked reference line fixed.
+- Each subsequently picked target line may rotate and translate to align with that reference.
+- Align supports a chained multi-target operation; each successful target alignment creates exactly one Undo step.
+- `Esc` ends Align.
 
 ### Extend
 
@@ -226,12 +226,24 @@
 
 ### Fillet
 
-- Initial Fillet implementation is radius=0 join only.
-- Fillet modifies existing line endpoints to their infinite-line intersection.
+- Fillet supports radius-0 Fillet/Join and true-radius Arc Fillet for lines.
+- Radius-0 Fillet modifies existing line endpoints to their infinite-line intersection.
 - Radius-0 Fillet must keep the clicked side of each picked line.
 - Do not move the endpoint on the clicked side to the intersection.
 - Fillet must clearly show its two-step state: first line picked, then second side-to-keep pick.
 - `Esc` must cancel Fillet and clear the temporary selection.
+
+### Stretch
+
+- Stretch uses a dedicated right-to-left Crossing Window and proceeds through `window -> base -> destination` phases.
+- Captured stretch descriptors are fixed after window selection.
+- Partial Stretch supports only `line`, `wire`, `rect`, and `filledRegion` entities; unsupported entity types are not partially stretched.
+- Stretch does not expand groups, and it does not stretch locked or hidden entities.
+- Preview and commit must use the same proposal logic.
+- A successful Stretch creates exactly one Undo step.
+- An invalid atomic proposal must not partially commit.
+- Stretch reuses the existing shared Ortho behavior.
+- Stretch v1 does not support numeric-distance input or Space-repeat.
 
 ## Layer Rules
 
