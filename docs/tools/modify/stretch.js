@@ -114,7 +114,7 @@
         context.draw(); return true;
       }
       if (current.phase === "base") {
-        current.basePoint = resolveBase(rawWorldPoint); current.currentPoint = current.basePoint; current.phase = "destination";
+        current.basePoint = resolveBase(rawSnapWorldPoint); current.currentPoint = current.basePoint; current.phase = "destination";
         context.setStatus("Stretch: pick destination point."); context.draw(); context.renderStatusPanel(); return true;
       }
       current.currentPoint = resolveDestination(rawSnapWorldPoint, event.shiftKey);
