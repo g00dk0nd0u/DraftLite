@@ -308,16 +308,27 @@ const snapContext = vm.createContext({
     entities: [],
     settings: { snapTolerancePx: 10 },
   },
-  uiState: { snapMarker: null },
+  uiState: { snapMarker: null, trackingOrigins: [], trackingGuides: [], trackingCandidate: null, trackingSnap: null, trackingAcquisitionTimer: null },
+  window: { setTimeout: () => 1, clearTimeout() {} },
+  draw() {},
   isLayerVisible: () => true,
   distanceScreenPx: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
   roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
   getLineMidpoint: (entity) => ({ x: (entity.p1.x + entity.p2.x) / 2, y: (entity.p1.y + entity.p2.y) / 2 }),
 });
 vm.runInContext([
+  'const TRACKING_ACQUISITION_DELAY_MS = 300; const TRACKING_MAX_ORIGINS = 2; const TRACKING_ELIGIBLE_KINDS = new Set(["endpoint", "midpoint", "center"]);',
   readAppFunction("getRectSnapPoints"),
   readAppFunction("collectSnapCandidates"),
+  readAppFunction("pointsEqual"),
+  readAppFunction("acquireTrackingOrigin"),
+  readAppFunction("clearTrackingAcquisitionTimer"),
+  readAppFunction("clearObjectSnapTracking"),
+  readAppFunction("updateTrackingAcquisition"),
+  readAppFunction("resolveTrackingCandidate"),
+  readAppFunction("resolveDirectSnapCandidate"),
   readAppFunction("resolveSnapCandidate"),
+  readAppFunction("resolveOrthoAwareSnapCandidate"),
   readAppFunction("updatePointerSnapMarker"),
 ].join("\n"), snapContext);
 
@@ -368,6 +379,7 @@ snapContext.uiState = {
   activeTool: "stretch",
   stretchDraft: { phase: "base" },
   snapMarker: null,
+  trackingOrigins: [], trackingGuides: [], trackingCandidate: null, trackingSnap: null, trackingAcquisitionTimer: null,
 };
 const pointerCornerCandidate = snapContext.updatePointerSnapMarker({ x: 20.25, y: 30.25 });
 assert.equal(pointerCornerCandidate.kind, "endpoint", "Stretch base pointer movement should retain the Rectangle endpoint candidate");
@@ -375,6 +387,51 @@ assert.deepEqual(plainSnapValue(snapContext.uiState.snapMarker), {
   kind: "endpoint",
   point: { x: 20, y: 30 },
 }, "Stretch base pointer movement should expose the Rectangle corner through uiState.snapMarker");
+
+assert.equal(snapContext.acquireTrackingOrigin({ kind: "endpoint", point: { x: 100, y: 200 } }), true,
+  "an eligible endpoint should become a tracking origin");
+assert.equal(snapContext.acquireTrackingOrigin({ kind: "endpoint", point: { x: 100, y: 200 } }), false,
+  "duplicate tracking origins should be ignored");
+snapContext.acquireTrackingOrigin({ kind: "midpoint", point: { x: 300, y: 400 } });
+snapContext.acquireTrackingOrigin({ kind: "center", point: { x: 500, y: 600 } });
+assert.equal(snapContext.uiState.trackingOrigins.length, 2, "tracking origin accumulation should be bounded");
+
+snapContext.uiState.trackingOrigins = [{ kind: "endpoint", point: { x: 100, y: 200 } }];
+let trackingCandidate = snapContext.resolveTrackingCandidate({ x: 350, y: 204 });
+assert.equal(trackingCandidate.kind, "tracking-horizontal");
+assert.deepEqual(plainSnapValue(trackingCandidate.point), { x: 350, y: 200 });
+trackingCandidate = snapContext.resolveTrackingCandidate({ x: 104, y: 350 });
+assert.equal(trackingCandidate.kind, "tracking-vertical");
+assert.deepEqual(plainSnapValue(trackingCandidate.point), { x: 100, y: 350 });
+assert.equal(snapContext.resolveTrackingCandidate({ x: 350, y: 350 }), null, "a pointer far from both guides should not track");
+assert.equal(snapContext.resolveOrthoAwareSnapCandidate({ x: 350, y: 0 }, { x: 350, y: 204 }), null,
+  "tracking must not replace an axis fixed by the existing Ortho constraint");
+
+snapContext.uiState.trackingOrigins = [
+  { kind: "endpoint", point: { x: 100, y: 200 } },
+  { kind: "endpoint", point: { x: 300, y: 400 } },
+];
+for (const point of [{ x: 100, y: 400 }, { x: 300, y: 200 }]) {
+  const intersection = snapContext.resolveTrackingCandidate({ x: point.x + 2, y: point.y + 2 });
+  assert.equal(intersection.kind, "tracking-intersection");
+  assert.deepEqual(plainSnapValue(intersection.point), point);
+}
+
+snapContext.state.entities = [snapLine];
+snapContext.uiState.trackingOrigins = [{ kind: "center", point: { x: 100, y: 80 } }];
+assert.equal(snapContext.resolveSnapCandidate({ x: 100.2, y: 99.9 }).kind, "endpoint", "direct endpoint OSNAP should beat tracking");
+snapContext.state.entities = [{ id: "mid-line", type: "line", layerId: "layer-1", p1: { x: 80, y: 100 }, p2: { x: 120, y: 100 } }];
+assert.equal(snapContext.resolveSnapCandidate({ x: 100.2, y: 100.1 }).kind, "midpoint", "direct midpoint OSNAP should beat tracking");
+
+snapContext.state.entities = [snapRect];
+const rectangleCorner = snapContext.resolveDirectSnapCandidate({ x: 20.2, y: 30.2 });
+assert.equal(snapContext.acquireTrackingOrigin(rectangleCorner), true, "a shared Rectangle corner OSNAP should be acquirable");
+const beforeClearTimer = snapContext.uiState.trackingAcquisitionTimer = 9;
+snapContext.clearObjectSnapTracking();
+assert.equal(beforeClearTimer, 9);
+assert.deepEqual(plainSnapValue(snapContext.uiState.trackingOrigins), []);
+assert.deepEqual(plainSnapValue(snapContext.uiState.trackingGuides), []);
+assert.equal(snapContext.uiState.trackingAcquisitionTimer, null, "tracking lifecycle clear should cancel its timer");
 
 let selectedHandleLookups = 0;
 const selectedHandleContext = vm.createContext({
@@ -520,6 +577,20 @@ rectCornerBaseHarness.controller.handlePrimaryAction({ x: 65, y: 55 }, { x: 65, 
 rectCornerBaseHarness.controller.finishCrossingWindow({ x: 15, y: 25 }, { x: 15, y: 25 });
 rectCornerBaseHarness.controller.handlePrimaryAction({ x: 20.25, y: 30.25 }, { x: 20.25, y: 30.25 }, {}, { x: 20.25, y: 30.25 });
 assert.deepEqual(plain(rectCornerBaseHarness.ui.stretchDraft.basePoint), { x: 20, y: 30 }, "Stretch base phase should accept a Rectangle corner from shared OSNAP");
+
+snapContext.state.entities = [];
+snapContext.uiState.trackingOrigins = [{ kind: "endpoint", point: { x: 100, y: 200 } }];
+const trackedStretchHarness = createStretchHarness([line], (point) => snapContext.resolveSnapCandidate(point));
+trackedStretchHarness.controller.activate();
+trackedStretchHarness.controller.handlePrimaryAction({ x: 20, y: 1 }, { x: 20, y: 1 }, {}, { x: 20, y: 1 });
+trackedStretchHarness.controller.finishCrossingWindow({ x: -5, y: -1 }, { x: -5, y: -1 });
+trackedStretchHarness.controller.handlePrimaryAction({ x: 0, y: 0 }, { x: 0, y: 0 }, {}, { x: 0, y: 0 });
+const trackedStretchDescriptor = trackedStretchHarness.ui.stretchDraft.descriptors[0];
+trackedStretchHarness.controller.handlePointerMove({ x: 104, y: 250 }, { shiftKey: true }, { x: 104, y: 250 });
+assert.deepEqual(plain(trackedStretchHarness.ui.stretchDraft.currentPoint), { x: 100, y: 250 },
+  "Stretch destination should accept a point from the shared tracking resolver");
+assert.equal(trackedStretchHarness.ui.stretchDraft.descriptors[0], trackedStretchDescriptor,
+  "tracking a Stretch destination must not alter its captured descriptors");
 
 const rawBaseHarness = createStretchHarness([line]);
 rawBaseHarness.controller.activate();
