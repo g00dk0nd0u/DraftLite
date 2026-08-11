@@ -10,6 +10,6 @@
       if (!source || !context.supportsMatchedProperties(source)) { ui.matchPropertiesSourceId = null; state.selectedEntityIds = []; context.syncAfterStateChange(); context.setStatus("Select source object."); return; }
       const patch = context.createMatchedStylePatch(source, hit); if (!patch) { context.setStatus("Target does not support matched properties."); return; }
       context.pushUndoState(); context.applyMatchedStylePatch(hit, patch); state.selectedEntityIds = [hit.id]; context.syncAfterStateChange(); context.setStatus("Properties matched.");
-    }, cancel(message = "Match Properties cancelled.") { const ui = context.getUiState(); ui.matchPropertiesSourceId = null; ui.activeTool = "select"; context.syncAfterStateChange(false); context.setStatus(message); }, getGuideText() { return context.getUiState().matchPropertiesSourceId ? "MATCH PROPERTIES — Select target object" : "MATCH PROPERTIES — Select source object"; }, isInProgress() { return Boolean(context.getUiState().matchPropertiesSourceId); } });
+    }, cancel(message = "Match Properties cancelled.") { const ui = context.getUiState(); ui.matchPropertiesSourceId = null; ui.activeTool = "select"; context.syncAfterStateChange(false); context.setStatus(message); }, isInProgress() { return Boolean(context.getUiState().matchPropertiesSourceId); } });
   });
 }(window));

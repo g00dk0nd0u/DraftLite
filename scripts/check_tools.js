@@ -61,6 +61,30 @@ for (const id of ["move", "copy"]) {
   assert.equal(typeof controller.apply, "function", `${id} should share the transform apply contract`);
   assert.equal(typeof controller.applyNumeric, "function", `${id} should share numeric confirmation`);
 }
+
+for (const [id, label] of [["move", "Move"], ["copy", "Copy"]]) {
+  for (const [hasSelection, expectedStatus] of [
+    [false, `${label}: Select objects.`],
+    [true, `${label}: Specify base point.`],
+  ]) {
+    let status = "";
+    const controller = registry.get(id)({
+      capitalize: (value) => value[0].toUpperCase() + value.slice(1),
+      canStartTransformTool: () => hasSelection,
+      setStatus: (message) => { status = message; },
+    });
+    controller.activate();
+    assert.equal(status, expectedStatus, `${id}.activate should preserve selection status`);
+  }
+}
+
+const copyDraft = { mode: "copy", numericInputBuffer: "" };
+const copyUiState = { activeTool: "copy", transformDraft: copyDraft };
+const copyController = registry.get("copy")({ getUiState: () => copyUiState });
+assert.equal(copyController.handleKeyDown({ key: "Enter" }), false, "empty Enter should remain unhandled during Copy");
+assert.equal(copyUiState.transformDraft, copyDraft, "empty Enter should preserve the Copy draft");
+assert.equal(copyUiState.activeTool, "copy", "empty Enter should preserve the active Copy tool");
+
 for (const id of ["rotate", "group", "ungroup", "explode"]) {
   assert.equal(typeof registry.get(id)({}).execute, "function", `${id} should expose the immediate execute contract`);
 }

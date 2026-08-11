@@ -79,15 +79,17 @@
       if (/^\d$/.test(event.key)) { event.preventDefault(); current.numericInputBuffer += event.key; schedulePreview(); status(`${context.capitalize(current.mode)} start set at ${context.formatWorldPoint(current.startPoint)}.`); context.draw(); return true; }
       if (event.key === "Backspace" && current.numericInputBuffer) { event.preventDefault(); current.numericInputBuffer = current.numericInputBuffer.slice(0, -1); context.clearTransformPreviewTimer(); current.currentPoint = current.numericInputBuffer ? current.currentPoint : context.getUiState().hoverWorld; if (current.numericInputBuffer) schedulePreview(); status(`${context.capitalize(current.mode)} start set at ${context.formatWorldPoint(current.startPoint)}.`); context.draw(); return true; }
       if (event.key === "Enter" && current.numericInputBuffer) { event.preventDefault(); applyNumeric(); return true; }
-      if (event.key === "Enter" && current.mode === "copy") {
-        event.preventDefault(); context.clearTransformPreviewTimer(); context.getUiState().transformDraft = null;
-        context.getState().selectedEntityIds = []; context.getUiState().activeTool = "select";
-        context.syncAfterStateChange(false); context.setStatus("Copy command ended."); return true;
-      }
       return false;
     }
     return Object.freeze({
-      activate() { context.updateMoveCopyStatus(toolId); }, start, update, apply, applyNumeric, handleKeyDown,
+      activate() {
+        const label = context.capitalize(toolId);
+        context.setStatus(
+          context.canStartTransformTool()
+            ? `${label}: Specify base point.`
+            : `${label}: Select objects.`
+        );
+      }, start, update, apply, applyNumeric, handleKeyDown,
       drawPreview() { if (draft()) context.drawTransformPreview(draft()); },
       isSelectionPhase() { return !draft() && !context.canStartTransformTool(); },
       getGuideText() { const selected = context.getState().selectedEntityIds.length; if (!selected) return `${toolId.toUpperCase()} 1/3 — Select objects`; if (!draft()) return `${toolId.toUpperCase()} 2/3 — Pick base point`; return toolId === "copy" ? "COPY 3/3 — Pick destination · Enter/Esc to finish" : "MOVE 3/3 — Pick destination"; },

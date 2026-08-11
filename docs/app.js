@@ -384,7 +384,6 @@ const modularToolContext = Object.freeze({
   getTransformOffset,
   getQuantizedDeltaPoint,
   canStartTransformTool,
-  updateMoveCopyStatus,
   clearTransformPreviewTimer,
   capitalize,
   roundToUnit,
@@ -736,17 +735,6 @@ function repeatLastToolFromSpace(event) {
 
 function isMoveCopyTool(toolId = uiState.activeTool) {
   return toolId === "move" || toolId === "copy";
-}
-
-function updateMoveCopyStatus(toolId = uiState.activeTool) {
-  if (!isMoveCopyTool(toolId)) {
-    return;
-  }
-  setStatus(
-    canStartTransformTool()
-      ? `${capitalize(toolId)}: Specify base point.`
-      : `${capitalize(toolId)}: Select objects.`
-  );
 }
 
 function isTransformSelectionPhase(toolId = uiState.activeTool) {
@@ -6731,7 +6719,7 @@ function finishMoveCopySelectionPhase() {
   if (!isMoveCopyTool()) {
     return;
   }
-  updateMoveCopyStatus();
+  getToolController(uiState.activeTool)?.activate?.();
 }
 
 function isLineFullyInsideRect(entity, rect) {
