@@ -154,15 +154,15 @@ const SHORTCUT_TO_ACTION = {
   h: () => setActiveTool("filledRegion"),
   v: () => setActiveTool("move"),
   c: () => setActiveTool("copy"),
-  r: () => rotateSelectedEntities(90),
+  r: () => getToolController("rotate")?.execute(90),
   m: () => setActiveTool("mirror"),
   a: () => setActiveTool("align"),
   e: () => setActiveTool("extend"),
   f: () => setActiveTool("fillet"),
   b: () => setActiveTool("matchProperties"),
-  g: () => createGroupFromSelection(),
-  u: () => ungroupSelection(),
-  x: () => explodeSelectedRects(),
+  g: () => getToolController("group")?.execute(),
+  u: () => getToolController("ungroup")?.execute(),
+  x: () => getToolController("explode")?.execute(),
   t: () => setActiveTool("text"),
   d: () => setActiveTool("dimension"),
 };
@@ -382,6 +382,26 @@ const modularToolContext = Object.freeze({
   getAnchorSnapPoint,
   resolveFreeDragPoint,
   getTransformOffset,
+  getQuantizedDeltaPoint,
+  canStartTransformTool,
+  updateMoveCopyStatus,
+  clearTransformPreviewTimer,
+  capitalize,
+  roundToUnit,
+  createGroupId,
+  expandSelectionWithGroups,
+  getRotateBoundsForEntity,
+  rotateEntity,
+  getMirrorAxisSecondPoint,
+  mirrorEntity,
+  drawMirrorAxisDraft,
+  drawTransformPreview,
+  getTopmostSelectableEntityAtPoint,
+  supportsMatchedProperties,
+  createMatchedStylePatch,
+  applyMatchedStylePatch,
+  rectToOutlineLines,
+  explodeBlockInstance,
   cancelSelectDrag,
   createCopiedEntities,
   duplicateGroupsForCopiedEntities,
@@ -404,7 +424,7 @@ function getToolController(toolId) {
 }
 
 function getActiveToolController() {
-  return getToolController(uiState.activeTool);
+  return getToolController(uiState.activeTool === "matchProperties" ? "match-properties" : uiState.activeTool);
 }
 
 
@@ -820,31 +840,6 @@ function cleanupGroups() {
   state.groups = state.groups
     .map((group) => ({ ...group, entityIds: group.entityIds.filter((id) => entityIdSet.has(id)), updatedAt: new Date().toISOString() }))
     .filter((group) => group.entityIds.length > 1);
-}
-
-function createGroupFromSelection() {
-  const entityIds = expandSelectionWithGroups(state.selectedEntityIds);
-  if (entityIds.length < 2) { setStatus("Select at least two entities to create a group."); return false; }
-  pushUndoState();
-  const now = new Date().toISOString();
-  const group = { id: createGroupId(), name: `Group ${state.nextGroupNumber - 1}`, category: "", description: "", entityIds: [...new Set(entityIds)], tags: [], metadata: {}, createdAt: now, updatedAt: now };
-  state.groups.push(group);
-  state.selectedEntityIds = [...group.entityIds];
-  syncAfterStateChange();
-  setStatus(`${group.name} created.`);
-  return true;
-}
-
-function ungroupSelection() {
-  if (!state.selectedEntityIds.length) { setStatus("Nothing selected."); return false; }
-  const selectedSet = new Set(expandSelectionWithGroups(state.selectedEntityIds));
-  const targetGroupIds = state.groups.filter((group) => group.entityIds.some((id) => selectedSet.has(id))).map((group) => group.id);
-  if (!targetGroupIds.length) { setStatus("No groups found in selection."); return false; }
-  pushUndoState();
-  state.groups = state.groups.filter((group) => !targetGroupIds.includes(group.id));
-  syncAfterStateChange();
-  setStatus(`${targetGroupIds.length} group${targetGroupIds.length===1?"":"s"} removed.`);
-  return true;
 }
 
 function getGroupSummary(groupId) {
@@ -1749,26 +1744,10 @@ function endRectangleDraft(message = "Rectangle command ended.") {
   setStatus(message);
 }
 
-function endTransformDraft(message = `${capitalize(uiState.activeTool)} command ended.`) {
-  clearTransformPreviewTimer();
-  uiState.transformDraft = null;
-  state.selectedEntityIds = [];
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
 function cancelSelectDrag(message = "Drag move cancelled.") {
   uiState.selectDragDraft = null;
   draw();
   renderStatusPanel();
-  setStatus(message);
-}
-
-function cancelMirror(message = "Mirror cancelled.") {
-  uiState.mirrorDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
   setStatus(message);
 }
 
@@ -3325,54 +3304,6 @@ function applyMatchedStylePatch(targetEntity, patch) {
   return true;
 }
 
-function cancelMatchProperties(message = "Match Properties cancelled.") {
-  uiState.matchPropertiesSourceId = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange(false);
-  setStatus(message);
-}
-
-function handleMatchPropertiesToolClick(worldPoint) {
-  const hit = getTopmostSelectableEntityAtPoint(worldPoint);
-  if (!hit) {
-    setStatus("No object selected.");
-    return;
-  }
-  if (!supportsMatchedProperties(hit)) {
-    setStatus("Target does not support matched properties.");
-    return;
-  }
-
-  if (!uiState.matchPropertiesSourceId) {
-    uiState.matchPropertiesSourceId = hit.id;
-    state.selectedEntityIds = [hit.id];
-    syncAfterStateChange();
-    setStatus("Select target object.");
-    return;
-  }
-
-  const sourceEntity = getEntityById(uiState.matchPropertiesSourceId);
-  if (!sourceEntity || !supportsMatchedProperties(sourceEntity)) {
-    uiState.matchPropertiesSourceId = null;
-    state.selectedEntityIds = [];
-    syncAfterStateChange();
-    setStatus("Select source object.");
-    return;
-  }
-
-  const patch = createMatchedStylePatch(sourceEntity, hit);
-  if (!patch) {
-    setStatus("Target does not support matched properties.");
-    return;
-  }
-
-  pushUndoState();
-  applyMatchedStylePatch(hit, patch);
-  state.selectedEntityIds = [hit.id];
-  syncAfterStateChange();
-  setStatus("Properties matched.");
-}
-
 function renderPropertiesPanel() {
   propertiesPanel.innerHTML = "";
   syncSidebarPanelVisibility();
@@ -4221,14 +4152,6 @@ function draw() {
   if (uiState.activeTool === "libraryPlace" && uiState.libraryPlacementItemId && uiState.libraryPlacementPreviewPoint) {
     drawLibraryPlacementPreview();
   }
-  if (uiState.mirrorDraft && uiState.mirrorDraft.firstPoint) {
-    drawMirrorAxisDraft(uiState.mirrorDraft.firstPoint, getMirrorAxisSecondPoint(uiState.pointerWorld));
-  }
-
-  if (uiState.transformDraft) {
-    drawTransformPreview(uiState.transformDraft);
-  }
-
   if (uiState.selectDragDraft) {
     drawTransformPreview(uiState.selectDragDraft);
   }
@@ -6374,100 +6297,6 @@ function scheduleLineNumericPreview() {
   }, 250);
 }
 
-function createTransformFromNumericInput() {
-  if (!uiState.transformDraft) {
-    return false;
-  }
-
-  clearTransformPreviewTimer();
-
-  const rawDistanceMm = uiState.transformDraft.numericInputBuffer;
-  const distanceMm = Number.parseInt(rawDistanceMm, 10);
-  if (!rawDistanceMm || !Number.isFinite(distanceMm) || distanceMm <= 0) {
-    setStatus("Enter a positive move/copy distance in mm.");
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.transformDraft.startPoint.x;
-  const directionY = uiState.hoverWorld.y - uiState.transformDraft.startPoint.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    setStatus("Move the pointer to indicate a move/copy direction before pressing Enter.");
-    return false;
-  }
-
-  const distanceUnits = mmToUnits(distanceMm);
-  if (distanceUnits <= 0) {
-    setStatus("Move/copy distance must be greater than zero.");
-    return false;
-  }
-
-  uiState.transformDraft.currentPoint = {
-    x: roundToGridUnit(
-      uiState.transformDraft.startPoint.x + (directionX / directionLength) * distanceUnits
-    ),
-    y: roundToGridUnit(
-      uiState.transformDraft.startPoint.y + (directionY / directionLength) * distanceUnits
-    ),
-  };
-  applyTransformDraft();
-  return true;
-}
-
-function applyTransformNumericEdit() {
-  return createTransformFromNumericInput();
-}
-
-function applyTransformNumericPreview() {
-  if (!uiState.transformDraft || !uiState.transformDraft.numericInputBuffer) {
-    return false;
-  }
-
-  const rawDistanceMm = uiState.transformDraft.numericInputBuffer;
-  const distanceMm = Number.parseInt(rawDistanceMm, 10);
-  if (!rawDistanceMm || !Number.isFinite(distanceMm) || distanceMm <= 0) {
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.transformDraft.startPoint.x;
-  const directionY = uiState.hoverWorld.y - uiState.transformDraft.startPoint.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    return false;
-  }
-
-  const distanceUnits = mmToUnits(distanceMm);
-  if (distanceUnits <= 0) {
-    return false;
-  }
-
-  uiState.transformDraft.currentPoint = {
-    x: roundToGridUnit(
-      uiState.transformDraft.startPoint.x + (directionX / directionLength) * distanceUnits
-    ),
-    y: roundToGridUnit(
-      uiState.transformDraft.startPoint.y + (directionY / directionLength) * distanceUnits
-    ),
-  };
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function scheduleTransformNumericPreview() {
-  if (!uiState.transformDraft) {
-    return;
-  }
-  clearTransformPreviewTimer();
-  if (!uiState.transformDraft.numericInputBuffer) {
-    return;
-  }
-  uiState.transformPreviewTimer = window.setTimeout(() => {
-    uiState.transformPreviewTimer = null;
-    applyTransformNumericPreview();
-  }, 250);
-}
-
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
@@ -6478,53 +6307,12 @@ function canStartTransformTool() {
   return getSelectedTransformableEntities().length > 0;
 }
 
-function startTransformDraft(worldPoint, mode = uiState.activeTool) {
-  const selectedEntities = getSelectedTransformableEntities();
-  if (!selectedEntities.length) {
-    setStatus("Select at least one visible, unlocked entity before using Move or Copy.");
-    return false;
-  }
-
-  uiState.transformDraft = {
-    mode,
-    startPoint: worldPoint,
-    currentPoint: worldPoint,
-    numericInputBuffer: "",
-    entityIds: selectedEntities.map((entity) => entity.id),
-    entities: deepClone(selectedEntities),
-  };
-  updateTransformDraftStatus(
-    `${capitalize(mode)} start set at ${formatWorldPoint(worldPoint)}.`
-  );
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
 function getTransformOffset(transformDraft) {
   const currentPoint = transformDraft.currentPoint || transformDraft.startPoint;
   return {
     dx: roundToUnit(currentPoint.x - transformDraft.startPoint.x),
     dy: roundToUnit(currentPoint.y - transformDraft.startPoint.y),
   };
-}
-
-function updateTransformDraftStatus(message) {
-  setStatus(message);
-  renderStatusPanel();
-}
-
-function updateTransformDraft(worldPoint, snappedWorldPoint = worldPoint, options = {}) {
-  if (!uiState.transformDraft) {
-    return;
-  }
-  if (uiState.transformDraft.numericInputBuffer) {
-    return;
-  }
-  uiState.transformDraft.currentPoint = options.snapped
-    ? snappedWorldPoint
-    : getQuantizedDeltaPoint(uiState.transformDraft.startPoint, worldPoint);
-  draw();
 }
 
 function applyOffsetToEntity(entity, offset) {
@@ -6715,78 +6503,6 @@ function mirrorEntity(entity, lineP1, lineP2) {
   return null;
 }
 
-function startMirrorDraft(worldPoint) {
-  const selectedEntities = getSelectedTransformableEntities();
-  if (!selectedEntities.length) {
-    setStatus("Mirror: Select objects first.");
-    return false;
-  }
-  uiState.mirrorDraft = { firstPoint: roundWorldPoint(worldPoint) };
-  setStatus(`Mirror axis first point set at ${formatWorldPoint(uiState.mirrorDraft.firstPoint)}. Pick second point.`);
-  draw();
-  return true;
-}
-
-function applyMirrorDraft(worldPoint) {
-  if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
-    return false;
-  }
-  const selectedEntities = getSelectedTransformableEntities();
-  const firstPoint = uiState.mirrorDraft.firstPoint;
-  const secondPoint = getMirrorAxisSecondPoint(worldPoint);
-  if (firstPoint.x === secondPoint.x && firstPoint.y === secondPoint.y) {
-    setStatus("Mirror axis needs two distinct points.");
-    return false;
-  }
-  const idMap = new Map();
-  const mirroredCopies = [];
-  let skippedCount = 0;
-  selectedEntities.forEach((sourceEntity) => {
-    if (!canSelectEntity(sourceEntity)) {
-      skippedCount += 1;
-      return;
-    }
-    const mirrored = mirrorEntity(deepClone(sourceEntity), firstPoint, secondPoint);
-    if (!mirrored) {
-      skippedCount += 1;
-      return;
-    }
-    const newId = createEntityId();
-    idMap.set(sourceEntity.id, newId);
-    mirroredCopies.push({
-      ...mirrored,
-      id: newId,
-    });
-  });
-  if (!mirroredCopies.length) {
-    uiState.mirrorDraft = null;
-    uiState.activeTool = "select";
-    syncAfterStateChange(false);
-    setStatus("Mirror: no supported entities to copy.");
-    return false;
-  }
-  pushUndoState();
-  state.entities = [...state.entities, ...mirroredCopies];
-  duplicateGroupsForCopiedEntities(selectedEntities, idMap);
-  state.selectedEntityIds = mirroredCopies.map((entity) => entity.id);
-  uiState.mirrorDraft = null;
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  const status = skippedCount
-    ? `Mirror copied ${mirroredCopies.length} object(s). ${skippedCount} skipped.`
-    : `Mirror copied ${mirroredCopies.length} object(s).`;
-  setStatus(status);
-  return true;
-}
-
-function handleMirrorToolClick(worldPoint) {
-  if (!uiState.mirrorDraft || !uiState.mirrorDraft.firstPoint) {
-    startMirrorDraft(worldPoint);
-    return;
-  }
-  applyMirrorDraft(worldPoint);
-}
-
 function rotateEntity(entity, center, angleDeg) {
   if (entity.type === "line") {
     return { ...entity, p1: rotatePoint(entity.p1, center, angleDeg), p2: rotatePoint(entity.p2, center, angleDeg) };
@@ -6855,40 +6571,6 @@ function getRotateBoundsForEntity(entity) {
   return getEntityBoundsUnits(entity);
 }
 
-function rotateSelectedEntities(angleDeg = 90) {
-  const selectedEntities = getSelectedTransformableEntities();
-  if (!selectedEntities.length) {
-    setStatus("Select at least one entity before using Rotate.");
-    return false;
-  }
-  if (selectedEntities.some((entity) => entity.type === "blockInstance")) {
-    setStatus("Block rotation is not supported in Block v1.");
-    return false;
-  }
-  const boundsList = selectedEntities.map(getRotateBoundsForEntity).filter(Boolean);
-  if (!boundsList.length) {
-    setStatus("Rotate failed: selection bounds could not be calculated.");
-    return false;
-  }
-  const center = {
-    x: roundToUnit((Math.min(...boundsList.map((bounds) => bounds.minX)) + Math.max(...boundsList.map((bounds) => bounds.maxX))) / 2),
-    y: roundToUnit((Math.min(...boundsList.map((bounds) => bounds.minY)) + Math.max(...boundsList.map((bounds) => bounds.maxY))) / 2),
-  };
-
-  const selectedIdSet = new Set(selectedEntities.map((entity) => entity.id));
-  pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (!selectedIdSet.has(entity.id) || !canSelectEntity(entity)) {
-      return entity;
-    }
-    return rotateEntity(entity, center, angleDeg);
-  });
-  uiState.activeTool = "select";
-  syncAfterStateChange();
-  setStatus("Rotated selection 90° clockwise.");
-  return true;
-}
-
 function commitMoveEntityOffset(entityIds, offset) {
   state.entities = state.entities.map((entity) => {
     if (!entityIds.includes(entity.id)) {
@@ -6910,49 +6592,6 @@ function createCopiedEntities(sourceEntities, offset) {
     return copied;
   });
   return { copied, idMap };
-}
-
-function applyTransformDraft() {
-  const transformDraft = uiState.transformDraft;
-  if (!transformDraft) {
-    return false;
-  }
-
-  clearTransformPreviewTimer();
-
-  const offset = getTransformOffset(transformDraft);
-  if (offset.dx === 0 && offset.dy === 0) {
-    draw();
-    renderStatusPanel();
-    setStatus(`${capitalize(transformDraft.mode)} distance must be greater than zero.`);
-    return false;
-  }
-
-  pushUndoState();
-
-  if (transformDraft.mode === "move") {
-    commitMoveEntityOffset(transformDraft.entityIds, offset);
-  } else if (transformDraft.mode === "copy") {
-    const sourceEntities = transformDraft.entities.filter((entity) => canSelectEntity(entity));
-    const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
-    state.entities.push(...newEntities);
-    duplicateGroupsForCopiedEntities(sourceEntities, idMap);
-  }
-
-  if (transformDraft.mode === "move") {
-    uiState.transformDraft = null;
-    state.selectedEntityIds = [];
-    uiState.activeTool = "select";
-    syncAfterStateChange();
-    setStatus("Move applied.");
-    return true;
-  }
-
-  uiState.transformDraft.numericInputBuffer = "";
-  uiState.transformDraft.currentPoint = uiState.transformDraft.startPoint;
-  syncAfterStateChange();
-  updateTransformDraftStatus("Copy created. Specify next point or press Enter/Escape to finish.");
-  return true;
 }
 
 function getQuantizedDeltaPoint(startPoint, worldPoint, gridMm = FREE_OPERATION_GRID_MM) {
@@ -6980,28 +6619,6 @@ function rectToOutlineLines(rectEntity) {
     { type:"line", layerId: rectEntity.layerId, p1:{x:x2,y:y2}, p2:{x:x1,y:y2} },
     { type:"line", layerId: rectEntity.layerId, p1:{x:x1,y:y2}, p2:{x:x1,y:y1} },
   ];
-}
-
-function explodeSelectedRects() {
-  const selectedBlocks = state.selectedEntityIds.map(getEntityById).filter((e)=>e&&e.type==="blockInstance");
-  if (selectedBlocks.length) {
-    pushUndoState();
-    selectedBlocks.forEach((instance)=>explodeBlockInstance(instance.id));
-    syncAfterStateChange();
-    setStatus(`${selectedBlocks.length} block instance${selectedBlocks.length===1?"":"s"} exploded.`);
-    return;
-  }
-  const rects = state.selectedEntityIds.map(getEntityById).filter((e)=>e&&e.type==="rect"&&canSelectEntity(e));
-  if (!rects.length) { setStatus("Select at least one rectangle object to explode."); return false; }
-  pushUndoState();
-  const rectIds = new Set(rects.map((r)=>r.id));
-  const newLines = rects.flatMap((r)=>rectToOutlineLines(r).map((line)=>({ ...line, id:createEntityId() })));
-  state.entities = state.entities.filter((e)=>!rectIds.has(e.id));
-  state.entities.push(...newLines);
-  state.selectedEntityIds = newLines.map((l)=>l.id);
-  syncAfterStateChange();
-  setStatus("Rectangle objects exploded.");
-  return true;
 }
 
 function deleteSelectedEntities() {
@@ -9342,7 +8959,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.transformDraft) {
-    updateTransformDraft(constrainedWorld, snappedWorld, { snapped: Boolean(snapCandidate) });
+    getToolController(uiState.activeTool).update(constrainedWorld, snappedWorld, { snapped: Boolean(snapCandidate) });
     renderStatusPanel();
     return;
   }
@@ -9704,7 +9321,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
     return;
   }
   if (uiState.activeTool === "matchProperties") {
-    handleMatchPropertiesToolClick(roundWorldPoint(rawWorldPoint));
+    getToolController("match-properties").handleClick(roundWorldPoint(rawWorldPoint));
     return;
   }
 
@@ -9725,11 +9342,11 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
         ? "copy"
         : uiState.activeTool;
       const baseSnapCandidate = resolveSnapCandidate(rawWorldPoint);
-      startTransformDraft(baseSnapCandidate ? baseSnapCandidate.point : roundWorldPoint(rawWorldPoint), mode);
+      getToolController(uiState.activeTool).start(baseSnapCandidate ? baseSnapCandidate.point : roundWorldPoint(rawWorldPoint), mode);
       return;
     }
     if (uiState.transformDraft.numericInputBuffer) {
-      applyTransformNumericEdit();
+      getToolController(uiState.activeTool).applyNumeric();
       return;
     }
     {
@@ -9739,12 +9356,12 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
         ? destinationSnapCandidate.point
         : getQuantizedDeltaPoint(uiState.transformDraft.startPoint, constrainedPoint);
     }
-    applyTransformDraft();
+    getToolController(uiState.activeTool).apply();
     return;
   }
 
   if (uiState.activeTool === "mirror") {
-    handleMirrorToolClick(worldPoint);
+    getToolController("mirror").handleClick(worldPoint);
     return;
   }
 
@@ -10324,7 +9941,7 @@ function setActiveTool(tool, options = {}) {
     renderStatusPanel();
   }
   if (isMoveCopyTool(tool)) {
-    updateMoveCopyStatus(tool);
+    getToolController(tool)?.activate?.();
     return;
   }
   if (tool === "dimension") {
@@ -10335,10 +9952,7 @@ function setActiveTool(tool, options = {}) {
     setStatus("Wire: pick start point.");
     return;
   }
-  if (tool === "matchProperties") {
-    setStatus("Select source object.");
-    return;
-  }
+
   if (tool === "circle") {
     setStatus("Circle: pick center point.");
     return;
@@ -10351,19 +9965,12 @@ function setActiveTool(tool, options = {}) {
     setStatus("Filled Region: pick first point.");
     return;
   }
-  const toolController = getToolController(tool);
+  const toolController = getToolController(tool === "matchProperties" ? "match-properties" : tool);
   if (toolController?.activate) {
     toolController.activate();
     return;
   }
-  if (tool === "mirror") {
-    if (!getSelectedTransformableEntities().length) {
-      setStatus("Mirror: Select objects first.");
-    } else {
-      setStatus("Mirror: pick axis first point.");
-    }
-    return;
-  }
+
   setStatus(`${capitalize(tool)} tool active.`);
 }
 
@@ -11173,51 +10780,7 @@ function onKeyDown(event) {
     return;
   }
 
-  if (uiState.transformDraft && !textInputActive) {
-    if (/^\d$/.test(event.key)) {
-      event.preventDefault();
-      uiState.transformDraft.numericInputBuffer += event.key;
-      scheduleTransformNumericPreview();
-      updateTransformDraftStatus(
-        `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
-          uiState.transformDraft.startPoint
-        )}.`
-      );
-      draw();
-      return;
-    }
 
-    if (event.key === "Backspace") {
-      if (uiState.transformDraft.numericInputBuffer) {
-        event.preventDefault();
-        uiState.transformDraft.numericInputBuffer = uiState.transformDraft.numericInputBuffer.slice(
-          0,
-          -1
-        );
-        clearTransformPreviewTimer();
-        if (!uiState.transformDraft.numericInputBuffer) {
-          uiState.transformDraft.currentPoint = uiState.hoverWorld;
-        } else {
-          scheduleTransformNumericPreview();
-        }
-        updateTransformDraftStatus(
-          `${capitalize(uiState.transformDraft.mode)} start set at ${formatWorldPoint(
-            uiState.transformDraft.startPoint
-          )}.`
-        );
-        draw();
-        return;
-      }
-    }
-
-    if (event.key === "Enter") {
-      if (uiState.transformDraft.numericInputBuffer) {
-        event.preventDefault();
-        applyTransformNumericEdit();
-        return;
-      }
-    }
-  }
 
   if (
     !textInputActive
@@ -11305,12 +10868,12 @@ function bindEvents() {
   toolButtons.matchProperties.addEventListener("click", () => setActiveTool("matchProperties"));
   toolButtons.move.addEventListener("click", () => setActiveTool("move"));
   toolButtons.copy.addEventListener("click", () => setActiveTool("copy"));
-  toolButtons.group.addEventListener("click", createGroupFromSelection);
-  toolButtons.ungroup.addEventListener("click", ungroupSelection);
+  toolButtons.group.addEventListener("click", () => getToolController("group").execute());
+  toolButtons.ungroup.addEventListener("click", () => getToolController("ungroup").execute());
   toolButtons.makeBlock.addEventListener("click", () => {
     makeBlockFromSelection();
   });
-  toolButtons.rotate.addEventListener("click", () => rotateSelectedEntities(90));
+  toolButtons.rotate.addEventListener("click", () => getToolController("rotate").execute(90));
   toolButtons.mirror.addEventListener("click", () => setActiveTool("mirror"));
   toolButtons.align.addEventListener("click", () => setActiveTool("align"));
   toolButtons.extend.addEventListener("click", () => setActiveTool("extend"));
@@ -11339,7 +10902,7 @@ function bindEvents() {
     linkDxfButton.addEventListener("click", () => linkDxfInput.click());
     linkDxfInput.addEventListener("change", linkDxfUnderlayFromInput);
   }
-  explodeButton.addEventListener("click", explodeSelectedRects);
+  explodeButton.addEventListener("click", () => getToolController("explode").execute());
   addLayerButton.addEventListener("click", addLayer);
   deleteLayerButton.addEventListener("click", deleteActiveLayer);
   moveLayerObjectsButton.addEventListener("click", () => {
@@ -11671,7 +11234,7 @@ window.DraftLiteDebug = {
   },
 
   explodeSelectedRects() {
-    return explodeSelectedRects();
+    return getToolController("explode").execute();
   },
 
   buildDxfText() {

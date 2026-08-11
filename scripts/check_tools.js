@@ -9,6 +9,12 @@ const rootDir = path.resolve(__dirname, "..");
 const context = vm.createContext({ window: {} });
 const toolFiles = [
   "docs/tools/registry.js",
+  "docs/tools/modify/moveCopy.js",
+  "docs/tools/modify/rotate.js",
+  "docs/tools/modify/mirror.js",
+  "docs/tools/modify/group.js",
+  "docs/tools/modify/matchProperties.js",
+  "docs/tools/modify/explode.js",
   "docs/tools/modify/align.js",
   "docs/tools/modify/extend.js",
   "docs/tools/modify/offset.js",
@@ -34,7 +40,7 @@ assert.throws(() => registry.register("invalid factory", () => {}), /Tool ID/);
 assert.throws(() => registry.register("not-a-factory", {}), /factory/);
 assert.throws(() => registry.register("align", () => ({})), /already registered/);
 
-const expectedIds = ["align", "extend", "fillet", "grip-edit", "offset", "rectangle-edit", "selection", "trim"];
+const expectedIds = ["align", "copy", "explode", "extend", "fillet", "grip-edit", "group", "match-properties", "mirror", "move", "offset", "rectangle-edit", "rotate", "selection", "trim", "ungroup"];
 assert.deepEqual(Array.from(registry.list()), expectedIds, "tools should each be registered exactly once in deterministic order");
 for (const id of expectedIds) {
   assert.equal(registry.has(id), true, `${id} should be registered`);
@@ -47,6 +53,18 @@ for (const id of expectedIds) {
     if (hook in controller) assert.equal(typeof controller[hook], "function", `${id}.${hook} should be a function`);
   }
 }
+
+for (const id of ["move", "copy"]) {
+  const controller = registry.get(id)({ getUiState: () => ({ transformDraft: null }), getState: () => ({ selectedEntityIds: [] }), canStartTransformTool: () => false });
+  assert.equal(typeof controller.start, "function", `${id} should share the transform start contract`);
+  assert.equal(typeof controller.update, "function", `${id} should share the transform update contract`);
+  assert.equal(typeof controller.apply, "function", `${id} should share the transform apply contract`);
+  assert.equal(typeof controller.applyNumeric, "function", `${id} should share numeric confirmation`);
+}
+for (const id of ["rotate", "group", "ungroup", "explode"]) {
+  assert.equal(typeof registry.get(id)({}).execute, "function", `${id} should expose the immediate execute contract`);
+}
+assert.equal(typeof registry.get("match-properties")({}).handleClick, "function", "match-properties should instantiate without DOM access");
 
 const selectionUiState = { selectionWindow: null };
 const selectionController = registry.get("selection")({
