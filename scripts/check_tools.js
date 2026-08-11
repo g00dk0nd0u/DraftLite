@@ -334,18 +334,19 @@ function createStretchHarness(entities) {
   const state = { entities: JSON.parse(JSON.stringify(entities)), selectedEntityIds: [], groups: [{ id: "group-1", entityIds: entities.map((entity) => entity.id) }] };
   const ui = { activeTool: "stretch", stretchDraft: null };
   let undoCount = 0;
+  let constrainedCount = 0;
   const controller = registry.get("stretch")({
     getState: () => state, getUiState: () => ui,
     canSelectEntity: (entity) => entity.visible !== false && entity.locked !== true,
     worldToScreen: ({ x, y }) => ({ x, y }), deepClone: (value) => JSON.parse(JSON.stringify(value)),
     roundToUnit: Math.round, roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
-    resolveSnapCandidate: () => null, getConstrainedWorldPoint: (point) => point,
+    resolveSnapCandidate: () => null, getConstrainedWorldPoint: (point) => { constrainedCount += 1; return point; },
     getQuantizedDeltaPoint: (base, point) => ({ x: Math.round(point.x - base.x) + base.x, y: Math.round(point.y - base.y) + base.y }),
     clampRectCornerRadius: (entity) => { entity.cornerRadius = Math.min(entity.cornerRadius || 0, entity.width / 2, entity.height / 2); },
     pushUndoState: () => { undoCount += 1; }, syncAfterStateChange() {}, setStatus() {}, draw() {}, renderStatusPanel() {},
     drawSelectionWindow() {}, drawStretchPreviewEntities() {}, clickSelectThresholdPx: 3,
   });
-  return { state, ui, controller, undoCount: () => undoCount };
+  return { state, ui, controller, undoCount: () => undoCount, constrainedCount: () => constrainedCount };
 }
 
 const stretchGeometry = createStretchHarness([]).controller;
@@ -394,9 +395,10 @@ for (const captureRect of [rect(-1, -1, 1, 1), rect(-1, -1, 11, 1), rect(-1, -1,
 
 const crossingHarness = createStretchHarness([line]);
 crossingHarness.controller.activate();
-crossingHarness.controller.handlePrimaryAction({ x: 20, y: 5 }, { x: 20, y: 5 }, {}, { x: 20, y: 5 });
-crossingHarness.controller.finishCrossingWindow({ x: -5, y: -5 }, { x: -5, y: -5 });
+crossingHarness.controller.handlePrimaryAction({ x: 20, y: 1 }, { x: 20, y: 1 }, {}, { x: 20, y: 1 });
+crossingHarness.controller.finishCrossingWindow({ x: -5, y: -1 }, { x: -5, y: -1 });
 assert.equal(crossingHarness.ui.stretchDraft.phase, "base");
+assert.equal(crossingHarness.ui.stretchDraft.descriptors.length, 1, "a long, thin right-to-left window should capture an endpoint");
 const stableDescriptor = crossingHarness.ui.stretchDraft.descriptors[0];
 crossingHarness.controller.handlePointerMove({ x: 100, y: 100 }, { shiftKey: false }, { x: 100, y: 100 });
 assert.equal(crossingHarness.ui.stretchDraft.descriptors[0], stableDescriptor, "pointer movement must preserve captured descriptors");
@@ -414,6 +416,7 @@ commitHarness.controller.handlePrimaryAction({ x: 0, y: 0 }, { x: 0, y: 0 }, {},
 const previewProposal = commitHarness.controller.createStretchProposal(commitHarness.ui.stretchDraft.descriptors[0], { dx: 2, dy: 3 }).entity;
 commitHarness.controller.handlePrimaryAction({ x: 2, y: 3 }, { x: 2, y: 3 }, { shiftKey: true }, { x: 2, y: 3 });
 assert.deepEqual(commitHarness.state.entities[0], previewProposal); assert.equal(commitHarness.undoCount(), 1); assert.deepEqual(commitHarness.state.groups[0].entityIds, ["line-1"]);
+assert.ok(commitHarness.constrainedCount() > 0, "Stretch destination resolution should use injected getConstrainedWorldPoint");
 
 const atomicHarness = createStretchHarness([line, rectangle]);
 atomicHarness.controller.activate(); atomicHarness.controller.handlePrimaryAction({ x: 5, y: 11 }, { x: 5, y: 11 }, {}, { x: 5, y: 11 });
@@ -430,5 +433,16 @@ assert.ok(indexSource.indexOf('tools/modify/stretch.js') < indexSource.indexOf('
 assert.ok(appSource.includes('getToolController("stretch").handlePrimaryAction'), "app.js should route Stretch through its controller");
 const stretchSource = fs.readFileSync(path.join(rootDir, "docs/tools/modify/stretch.js"), "utf8");
 assert.equal(stretchSource.includes("selectEntitiesByWindow"), false); assert.equal(stretchSource.includes("expandSelectionWithGroups"), false);
+const constrainedStart = appSource.indexOf("function getConstrainedWorldPoint");
+const constrainedEnd = appSource.indexOf("\n}", constrainedStart) + 2;
+const constrainedBody = appSource.slice(constrainedStart, constrainedEnd);
+assert.match(constrainedBody, /stretchDraft\?\.phase === "destination"[\s\S]*stretchDraft\.basePoint[\s\S]*applyOrthoConstraint/,
+  "getConstrainedWorldPoint should apply shared Ortho to the Stretch destination phase");
+const progressStart = appSource.indexOf("function isCommandInProgress");
+const progressEnd = appSource.indexOf("\n}", progressStart) + 2;
+assert.ok(appSource.slice(progressStart, progressEnd).includes("uiState.stretchDraft"), "Stretch should guard Space repeat while in progress");
+const repeatSetStart = appSource.indexOf("const MODIFY_REPEAT_TOOL_IDS");
+const repeatSetEnd = appSource.indexOf("]);", repeatSetStart) + 3;
+assert.equal(appSource.slice(repeatSetStart, repeatSetEnd).includes('"stretch"'), false, "Stretch v1 should not become a repeatable command");
 
 console.log("Tool registry and controller checks passed.");

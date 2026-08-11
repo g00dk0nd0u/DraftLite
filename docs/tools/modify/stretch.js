@@ -138,7 +138,7 @@
       const width = Math.abs(windowDraft.currentScreen.x - windowDraft.startScreen.x);
       const height = Math.abs(windowDraft.currentScreen.y - windowDraft.startScreen.y);
       current.window = null;
-      if (width < context.clickSelectThresholdPx || height < context.clickSelectThresholdPx) {
+      if (Math.hypot(width, height) < context.clickSelectThresholdPx) {
         context.setStatus("Stretch: drag a right-to-left crossing window."); context.draw(); return false;
       }
       if (windowDraft.currentScreen.x > windowDraft.startScreen.x) {

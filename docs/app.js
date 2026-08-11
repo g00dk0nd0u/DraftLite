@@ -737,6 +737,7 @@ function isCommandInProgress() {
     || uiState.offsetDraft
     || uiState.trimDraft
     || uiState.filletDraft
+    || uiState.stretchDraft
     || uiState.dimensionDraft
     || uiState.matchPropertiesSourceId
     || uiState.selectionWindow
@@ -1700,6 +1701,8 @@ function getConstrainedWorldPoint(worldPoint, shiftKey) {
     constrainedWorld = applyOrthoConstraint(uiState.lineDraft.start, constrainedWorld, orthoEnabled);
   } else if (uiState.transformDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.transformDraft.startPoint, constrainedWorld, orthoEnabled);
+  } else if (uiState.stretchDraft?.phase === "destination" && uiState.stretchDraft.basePoint) {
+    constrainedWorld = applyOrthoConstraint(uiState.stretchDraft.basePoint, constrainedWorld, orthoEnabled);
   } else if (uiState.gripEditDraft) {
     constrainedWorld = applyOrthoConstraint(uiState.gripEditDraft.startPoint, constrainedWorld, orthoEnabled);
   } else if (uiState.mirrorDraft && uiState.mirrorDraft.firstPoint) {
