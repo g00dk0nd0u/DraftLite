@@ -13,6 +13,7 @@ const toolFiles = [
   "docs/tools/modify/rotate.js",
   "docs/tools/modify/mirror.js",
   "docs/tools/modify/group.js",
+  "docs/tools/modify/makeBlock.js",
   "docs/tools/modify/matchProperties.js",
   "docs/tools/modify/explode.js",
   "docs/tools/modify/align.js",
@@ -29,6 +30,8 @@ const toolFiles = [
   "docs/tools/draw/circle.js",
   "docs/tools/draw/arc.js",
   "docs/tools/draw/filledRegion.js",
+  "docs/tools/annotate/text.js",
+  "docs/tools/annotate/dimension.js",
 ];
 
 for (const relativePath of toolFiles) {
@@ -47,7 +50,7 @@ assert.throws(() => registry.register("camelCaseTool", () => ({})), /lowercase, 
 assert.throws(() => registry.register("not-a-factory", {}), /factory/);
 assert.throws(() => registry.register("align", () => ({})), /already registered/);
 
-const expectedIds = ["align", "arc", "circle", "copy", "explode", "extend", "filled-region", "fillet", "grip-edit", "group", "line", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "trim", "ungroup", "wire"];
+const expectedIds = ["align", "arc", "circle", "copy", "dimension", "explode", "extend", "filled-region", "fillet", "grip-edit", "group", "line", "make-block", "match-properties", "mirror", "move", "offset", "rectangle", "rectangle-edit", "rotate", "selection", "text", "trim", "ungroup", "wire"];
 assert.deepEqual(Array.from(registry.list()), expectedIds, "tools should each be registered exactly once in deterministic order");
 for (const id of expectedIds) {
   assert.equal(registry.has(id), true, `${id} should be registered`);
@@ -92,7 +95,7 @@ assert.equal(copyController.handleKeyDown({ key: "Enter" }), false, "empty Enter
 assert.equal(copyUiState.transformDraft, copyDraft, "empty Enter should preserve the Copy draft");
 assert.equal(copyUiState.activeTool, "copy", "empty Enter should preserve the active Copy tool");
 
-for (const id of ["rotate", "group", "ungroup", "explode"]) {
+for (const id of ["rotate", "group", "ungroup", "explode", "make-block"]) {
   assert.equal(typeof registry.get(id)({}).execute, "function", `${id} should expose the immediate execute contract`);
 }
 assert.equal(typeof registry.get("match-properties")({}).handleClick, "function", "match-properties should instantiate without DOM access");
@@ -173,6 +176,123 @@ assert.equal(regionUi.filledRegionDraft.points.length, 2, "invalid Filled Region
 regionController.handleClick({ x: 10, y: 10 }, eventFor(""));
 assert.equal(regionController.finish(), true);
 assert.equal(regions, 1);
+
+function createTextCheck(promptValue, layer) {
+  const textState = { activeLayerId: "layer-1", entities: [], selectedEntityIds: [] };
+  let undoCount = 0;
+  let promptCount = 0;
+  let syncCount = 0;
+  let status = "";
+  const controller = registry.get("text")({
+    getState: () => textState,
+    getLayerById: () => layer,
+    promptTextContent: () => { promptCount += 1; return promptValue; },
+    setStatus: (value) => { status = value; },
+    pushUndoState: () => { undoCount += 1; },
+    createEntityId: () => "ent-1",
+    roundToUnit: Math.round,
+    mmToUnits: (value) => value * 10,
+    syncAfterStateChange: () => { syncCount += 1; },
+  });
+  controller.handleClick({ x: 12.4, y: 25.6 });
+  return { textState, undoCount, promptCount, syncCount, status };
+}
+
+const createdText = createTextCheck(" Hello ", { visible: true, locked: false });
+assert.equal(createdText.undoCount, 1);
+assert.equal(createdText.syncCount, 1);
+assert.deepEqual(JSON.parse(JSON.stringify(createdText.textState.entities[0])), {
+  id: "ent-1", type: "text", layerId: "layer-1", x: 12, y: 26, text: "Hello",
+  height: 1000, rotation: 0, align: "left", textAnchor: "center", color: "",
+});
+assert.deepEqual(JSON.parse(JSON.stringify(createdText.textState.selectedEntityIds)), ["ent-1"]);
+for (const [value, expectedStatus] of [[null, "Text placement cancelled."], ["   ", "Empty text was not created."]]) {
+  const result = createTextCheck(value, { visible: true, locked: false });
+  assert.equal(result.undoCount, 0);
+  assert.equal(result.textState.entities.length, 0);
+  assert.equal(result.status, expectedStatus);
+}
+for (const layer of [null, { visible: false, locked: false }, { visible: true, locked: true }]) {
+  const result = createTextCheck("Hello", layer);
+  assert.equal(result.promptCount, 0);
+  assert.equal(result.undoCount, 0);
+  assert.equal(result.textState.entities.length, 0);
+}
+
+const dimensionState = { activeLayerId: "layer-1", entities: [], selectedEntityIds: [] };
+const dimensionUi = { dimensionDraft: null, dimensionEndpointEditDraft: null, dimensionOffsetEditDraft: null, hoverWorld: { x: 10, y: 20 } };
+let dimensionUndoCount = 0;
+let dimensionId = 0;
+const dimensionContext = {
+  getState: () => dimensionState, getUiState: () => dimensionUi,
+  getLayerById: () => ({ visible: true, locked: false }),
+  roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }), roundToUnit: Math.round,
+  createEntityId: () => `dim-${++dimensionId}`,
+  createDefaultDimensionEntity: (fields) => ({ type: "dimension", ...fields, p1: { ...fields.p1 }, p2: { ...fields.p2 }, offsetPoint: { ...fields.offsetPoint } }),
+  createDimensionWithPreservedOffset: (entity, endpoint, point, signedOffset) => {
+    const next = { ...entity, p1: { ...entity.p1 }, p2: { ...entity.p2 }, offsetPoint: { x: point.x, y: signedOffset } };
+    next[endpoint] = { ...point };
+    if (next.p1.x === next.p2.x && next.p1.y === next.p2.y) return null;
+    return next;
+  },
+  getDimensionGeometry: (entity) => ({ signedOffset: entity.offsetPoint.y, midpoint: { x: 5, y: 0 }, normal: { x: 0, y: 1 } }),
+  pushUndoState: () => { dimensionUndoCount += 1; }, syncAfterStateChange() {}, setStatus() {}, draw() {}, renderStatusPanel() {},
+  getEntityById: (id) => dimensionState.entities.find((entity) => entity.id === id), canSelectEntity: () => true,
+  deepClone: (value) => JSON.parse(JSON.stringify(value)), getSnapPoint: (point) => ({ ...point }), isLayerVisible: () => true, drawDimensionEntity() {},
+};
+const dimensionController = registry.get("dimension")(dimensionContext);
+dimensionController.handleClick({ x: 0, y: 0 });
+assert.equal(dimensionUi.dimensionDraft.step, 1);
+dimensionController.handleClick({ x: 10, y: 0 });
+assert.equal(dimensionUi.dimensionDraft.step, 2);
+dimensionController.handleClick({ x: 10, y: 5 });
+assert.equal(dimensionUi.dimensionDraft.mode, "chain");
+assert.deepEqual(dimensionUi.dimensionDraft.chainStartPoint, { x: 10, y: 0 });
+assert.equal(dimensionUi.dimensionDraft.signedOffset, 5);
+dimensionController.handleClick({ x: 20, y: 0 });
+assert.equal(dimensionState.entities.length, 2);
+assert.equal(dimensionState.entities[1].offsetPoint.y, 5, "chain should preserve the first signed offset");
+assert.deepEqual(dimensionUi.dimensionDraft.chainStartPoint, { x: 20, y: 0 });
+assert.equal(dimensionUndoCount, 2, "each dimension should have one undo step");
+
+const edited = dimensionState.entities[1];
+const originalP2 = { ...edited.p2 };
+dimensionController.startEndpointEdit({ entityId: edited.id, endpoint: "p1", point: edited.p1 }, edited.p1);
+dimensionController.updateEndpointEdit({ x: 12, y: 0 });
+dimensionController.applyEndpointEdit();
+assert.deepEqual(edited.p1, { x: 12, y: 0 });
+assert.deepEqual(edited.p2, originalP2);
+assert.equal(dimensionUi.dimensionEndpointEditDraft, null);
+assert.equal(dimensionUndoCount, 3);
+const endpointSnapshot = JSON.stringify(edited);
+dimensionController.startEndpointEdit({ entityId: edited.id, endpoint: "p1", point: edited.p1 }, edited.p1);
+dimensionController.cancelEndpointEdit();
+assert.equal(JSON.stringify(edited), endpointSnapshot);
+assert.equal(dimensionUndoCount, 3);
+
+const originalP1 = { ...edited.p1 };
+const offsetHit = { entityId: edited.id, point: { ...edited.offsetPoint } };
+dimensionController.startOffsetEdit(offsetHit);
+assert.deepEqual(dimensionUi.dimensionOffsetEditDraft.midpoint, { x: 5, y: 0 });
+assert.deepEqual(dimensionUi.dimensionOffsetEditDraft.normal, { x: 0, y: 1 });
+dimensionController.updateOffsetEdit({ x: 99, y: 8 });
+assert.deepEqual(JSON.parse(JSON.stringify(dimensionUi.dimensionOffsetEditDraft.currentPoint)), { x: 5, y: 8 });
+dimensionController.applyOffsetEdit();
+assert.deepEqual(edited.offsetPoint, { x: 5, y: 8 });
+assert.deepEqual(edited.p1, originalP1);
+assert.deepEqual(edited.p2, originalP2);
+assert.equal(dimensionUndoCount, 4);
+const offsetSnapshot = JSON.stringify(edited);
+dimensionController.startOffsetEdit({ entityId: edited.id, point: edited.offsetPoint });
+dimensionController.cancelOffsetEdit();
+assert.equal(JSON.stringify(edited), offsetSnapshot);
+assert.equal(dimensionUndoCount, 4);
+
+const appSource = fs.readFileSync(path.join(rootDir, "docs/app.js"), "utf8");
+const endpointRoute = appSource.indexOf("findDimensionEndpointHandleAtPoint(roundWorldPoint(rawWorldPoint))");
+const offsetRoute = appSource.indexOf("findDimensionOffsetHandleAtPoint(roundWorldPoint(rawWorldPoint))", endpointRoute);
+const selectionRoute = appSource.indexOf('getToolController("selection").handleClick', offsetRoute);
+assert.ok(endpointRoute >= 0 && endpointRoute < offsetRoute && offsetRoute < selectionRoute, "Select routing should preserve Dimension endpoint -> offset -> Selection priority");
 
 const selectionUiState = { selectionWindow: null };
 const selectionController = registry.get("selection")({

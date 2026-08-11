@@ -74,7 +74,7 @@ user_tools/                     Repository support utilities
 
 The `docs/core/units.js` and `docs/core/geometry.js` classic scripts begin the incremental extraction of pure unit and geometry helpers from `app.js`. They preserve direct-open compatibility and introduce no build system.
 
-Human-invoked tool lifecycles are registered through `window.DraftLiteTools`. Phase 2 keeps selection routing, line grip editing, and rectangle edge editing in `docs/tools/selection/`, while document state and shared services remain owned by `docs/app.js`.
+New human-invoked commands belong under `docs/tools/<category>/` and register through `window.DraftLiteTools`; document state and shared services remain owned by `docs/app.js`.
 
 ## Run
 
@@ -102,7 +102,9 @@ Then open [http://127.0.0.1:8123/](http://127.0.0.1:8123/).
 - Completed: Phase 1 — Issue #99
 - Completed: Phase 2 — Issue #100
 - Completed: Phase 3 — Issue #101
-- Current: Phase 4 — Issue #102
+- Completed: Phase 4 — Issue #102
+- Completed by this branch: Phase 5 — Issue #103
+- Tool modularization roadmap — Issue #98 complete pending merge/verification
 
 - Stabilization sequence Issues #69–#72 completed.
 - Completed: chained Multi-target Align — Issue #83.
