@@ -1572,6 +1572,14 @@ function resolveSnapCandidate(worldPoint) {
   }, null);
 }
 
+function updatePointerSnapMarker(worldPoint) {
+  const snapCandidate = resolveSnapCandidate(worldPoint);
+  uiState.snapMarker = snapCandidate
+    ? { kind: snapCandidate.kind, point: snapCandidate.point }
+    : null;
+  return snapCandidate;
+}
+
 function getSnapPoint(worldPoint, options = {}) {
   const closestCandidate = resolveSnapCandidate(worldPoint);
 
@@ -4387,7 +4395,10 @@ function drawDraftFilledRegion(draft) {
 }
 
 function drawSelectedEntityHandles(entity) {
-  if (!state.selectedEntityIds.includes(entity.id)) {
+  if (
+    !state.selectedEntityIds.includes(entity.id)
+    || (uiState.activeTool === "stretch" && uiState.stretchDraft?.phase === "base")
+  ) {
     return;
   }
   const edgeHovered = uiState.hoverRectEdge && uiState.hoverRectEdge.entityId === entity.id;
@@ -8543,9 +8554,8 @@ function onPointerMove(event) {
   }
   const worldPoint = screenToWorld(screenPoint);
   const constrainedWorld = getConstrainedWorldPoint(worldPoint, event.shiftKey);
-  const snapCandidate = resolveSnapCandidate(constrainedWorld);
+  const snapCandidate = updatePointerSnapMarker(constrainedWorld);
   const snappedWorld = snapCandidate ? snapCandidate.point : quantizeFreePointToGrid(constrainedWorld);
-  uiState.snapMarker = snapCandidate ? { kind: snapCandidate.kind, point: snapCandidate.point } : null;
   uiState.pointerWorld = worldPoint;
   uiState.hoverWorld = snappedWorld;
   pointerReadout.textContent = `X: ${unitsToMm(snappedWorld.x)} mm, Y: ${unitsToMm(snappedWorld.y)} mm`;
