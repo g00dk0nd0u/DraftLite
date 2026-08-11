@@ -303,6 +303,11 @@ const uiState = {
   matchPropertiesSourceId: null,
   selectionWindow: null,
   snapMarker: null,
+  trackingOrigins: [],
+  trackingCandidate: null,
+  trackingGuides: [],
+  trackingSnap: null,
+  trackingAcquisitionTimer: null,
   isShiftPressed: false,
   linePreviewTimer: null,
   gripPreviewTimer: null,
@@ -418,6 +423,7 @@ const modularToolContext = Object.freeze({
   drawSelectionWindow,
   drawStretchPreviewEntities,
   resolveSnapCandidate,
+  resolveOrthoAwareSnapCandidate,
   getConstrainedWorldPoint,
   getTopmostSelectableEntityAtPoint,
   supportsMatchedProperties,
@@ -635,6 +641,7 @@ function clearTransientState() {
   uiState.matchPropertiesSourceId = null;
   uiState.selectionWindow = null;
   uiState.snapMarker = null;
+  clearObjectSnapTracking();
   uiState.hoverGrip = null;
   uiState.hoverDimensionEndpointHandle = null;
   uiState.hoverDimensionOffsetHandle = null;
@@ -1551,7 +1558,7 @@ function collectSnapCandidates(worldPoint) {
   return candidates;
 }
 
-function resolveSnapCandidate(worldPoint) {
+function resolveDirectSnapCandidate(worldPoint) {
   const candidates = collectSnapCandidates(worldPoint);
   return candidates.reduce((best, candidate) => {
     if (candidate.distancePx > state.settings.snapTolerancePx) {
@@ -1572,8 +1579,139 @@ function resolveSnapCandidate(worldPoint) {
   }, null);
 }
 
-function updatePointerSnapMarker(worldPoint) {
-  const snapCandidate = resolveSnapCandidate(worldPoint);
+const TRACKING_ACQUISITION_DELAY_MS = 300;
+const TRACKING_MAX_ORIGINS = 2;
+const TRACKING_ELIGIBLE_KINDS = new Set(["endpoint", "midpoint", "center"]);
+
+function pointsEqual(pointA, pointB) {
+  return Boolean(pointA && pointB && pointA.x === pointB.x && pointA.y === pointB.y);
+}
+
+function acquireTrackingOrigin(candidate) {
+  if (!candidate || !TRACKING_ELIGIBLE_KINDS.has(candidate.kind)) {
+    return false;
+  }
+  const point = roundWorldPoint(candidate.point);
+  if (uiState.trackingOrigins.some((origin) => pointsEqual(origin.point, point))) {
+    return false;
+  }
+  uiState.trackingOrigins = [
+    ...uiState.trackingOrigins.slice(-(TRACKING_MAX_ORIGINS - 1)),
+    { kind: candidate.kind, point },
+  ];
+  uiState.trackingGuides = uiState.trackingOrigins.map((origin) => origin.point);
+  return true;
+}
+
+function clearTrackingAcquisitionTimer() {
+  if (uiState.trackingAcquisitionTimer) {
+    window.clearTimeout(uiState.trackingAcquisitionTimer);
+    uiState.trackingAcquisitionTimer = null;
+  }
+  uiState.trackingCandidate = null;
+}
+
+function clearObjectSnapTracking() {
+  clearTrackingAcquisitionTimer();
+  uiState.trackingOrigins = [];
+  uiState.trackingGuides = [];
+  uiState.trackingSnap = null;
+}
+
+function updateTrackingAcquisition(candidate) {
+  const eligibleCandidate = candidate && TRACKING_ELIGIBLE_KINDS.has(candidate.kind)
+    ? { kind: candidate.kind, point: roundWorldPoint(candidate.point) }
+    : null;
+  if (!eligibleCandidate || uiState.trackingOrigins.some((origin) => pointsEqual(origin.point, eligibleCandidate.point))) {
+    clearTrackingAcquisitionTimer();
+    return;
+  }
+  if (
+    uiState.trackingCandidate
+    && uiState.trackingCandidate.kind === eligibleCandidate.kind
+    && pointsEqual(uiState.trackingCandidate.point, eligibleCandidate.point)
+  ) {
+    return;
+  }
+  clearTrackingAcquisitionTimer();
+  uiState.trackingCandidate = eligibleCandidate;
+  uiState.trackingAcquisitionTimer = window.setTimeout(() => {
+    uiState.trackingAcquisitionTimer = null;
+    const acquired = acquireTrackingOrigin(uiState.trackingCandidate);
+    uiState.trackingCandidate = null;
+    if (acquired) {
+      draw();
+    }
+  }, TRACKING_ACQUISITION_DELAY_MS);
+}
+
+function resolveTrackingCandidate(worldPoint) {
+  const origins = uiState.trackingOrigins || [];
+  const tolerancePx = state.settings.snapTolerancePx;
+  if (!origins.length) {
+    return null;
+  }
+
+  const intersections = [];
+  for (let firstIndex = 0; firstIndex < origins.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < origins.length; secondIndex += 1) {
+      const first = origins[firstIndex].point;
+      const second = origins[secondIndex].point;
+      [{ x: first.x, y: second.y }, { x: second.x, y: first.y }].forEach((point) => {
+        if (!intersections.some((existing) => pointsEqual(existing, point))) {
+          intersections.push(point);
+        }
+      });
+    }
+  }
+  const intersection = intersections
+    .map((point) => ({ kind: "tracking-intersection", point, distancePx: distanceScreenPx(worldPoint, point) }))
+    .filter((candidate) => candidate.distancePx <= tolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0];
+  if (intersection) {
+    return intersection;
+  }
+
+  const candidates = origins.flatMap((origin) => {
+    const horizontalPoint = roundWorldPoint({ x: worldPoint.x, y: origin.point.y });
+    const verticalPoint = roundWorldPoint({ x: origin.point.x, y: worldPoint.y });
+    return [
+      { kind: "tracking-horizontal", point: horizontalPoint, distancePx: distanceScreenPx(worldPoint, horizontalPoint) },
+      { kind: "tracking-vertical", point: verticalPoint, distancePx: distanceScreenPx(worldPoint, verticalPoint) },
+    ];
+  });
+  return candidates
+    .filter((candidate) => candidate.distancePx <= tolerancePx)
+    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+}
+
+function resolveSnapCandidate(worldPoint) {
+  return resolveDirectSnapCandidate(worldPoint) || resolveTrackingCandidate(worldPoint);
+}
+
+function resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint = worldPoint) {
+  const directCandidate = resolveDirectSnapCandidate(worldPoint);
+  if (directCandidate) {
+    return directCandidate;
+  }
+  const trackingCandidate = resolveTrackingCandidate(worldPoint);
+  if (!trackingCandidate) {
+    return null;
+  }
+  if (worldPoint.x !== rawWorldPoint.x && trackingCandidate.point.x !== worldPoint.x) {
+    return null;
+  }
+  if (worldPoint.y !== rawWorldPoint.y && trackingCandidate.point.y !== worldPoint.y) {
+    return null;
+  }
+  return trackingCandidate;
+}
+
+function updatePointerSnapMarker(worldPoint, rawWorldPoint = worldPoint) {
+  const directCandidate = resolveDirectSnapCandidate(worldPoint);
+  updateTrackingAcquisition(resolveDirectSnapCandidate(rawWorldPoint));
+  const snapCandidate = directCandidate || resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint);
+  uiState.trackingSnap = snapCandidate && snapCandidate.kind.startsWith("tracking-") ? snapCandidate : null;
   uiState.snapMarker = snapCandidate
     ? { kind: snapCandidate.kind, point: snapCandidate.point }
     : null;
@@ -1588,10 +1726,12 @@ function getSnapPoint(worldPoint, options = {}) {
       kind: closestCandidate.kind,
       point: closestCandidate.point,
     };
+    uiState.trackingSnap = closestCandidate.kind.startsWith("tracking-") ? closestCandidate : null;
     return closestCandidate.point;
   }
 
   uiState.snapMarker = null;
+  uiState.trackingSnap = null;
   return options.quantizeFree === true
     ? quantizeFreePointToGrid(worldPoint)
     : roundWorldPoint(worldPoint);
@@ -1721,7 +1861,16 @@ function getConstrainedWorldPoint(worldPoint, shiftKey) {
 }
 
 function resolveConstrainedSnapPoint(worldPoint, shiftKey) {
-  return getSnapPoint(getConstrainedWorldPoint(worldPoint, shiftKey), { quantizeFree: true });
+  const constrainedWorld = getConstrainedWorldPoint(worldPoint, shiftKey);
+  const candidate = resolveOrthoAwareSnapCandidate(constrainedWorld, worldPoint);
+  if (candidate) {
+    uiState.snapMarker = { kind: candidate.kind, point: candidate.point };
+    uiState.trackingSnap = candidate.kind.startsWith("tracking-") ? candidate : null;
+    return candidate.point;
+  }
+  uiState.snapMarker = null;
+  uiState.trackingSnap = null;
+  return quantizeFreePointToGrid(constrainedWorld);
 }
 
 function cancelSelectDrag(message = "Drag move cancelled.") {
@@ -4145,6 +4294,8 @@ function draw() {
 
   drawBorrowedHoverHandle();
 
+  drawObjectSnapTracking();
+
   if (uiState.snapMarker) {
     drawSnapMarker(uiState.snapMarker);
   }
@@ -5254,6 +5405,47 @@ function drawSnapMarker(snapMarker) {
     ctx.lineTo(screenPoint.x + 6, screenPoint.y);
     ctx.moveTo(screenPoint.x, screenPoint.y - 6);
     ctx.lineTo(screenPoint.x, screenPoint.y + 6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawObjectSnapTracking() {
+  if (!uiState.trackingOrigins.length) {
+    return;
+  }
+  const width = uiState.canvasRect.width;
+  const height = uiState.canvasRect.height;
+  ctx.save();
+  ctx.strokeStyle = "rgba(58, 139, 153, 0.66)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([9, 6]);
+  uiState.trackingGuides.forEach((point) => {
+    const screenPoint = worldToScreen(point);
+    ctx.beginPath();
+    ctx.moveTo(0, screenPoint.y);
+    ctx.lineTo(width, screenPoint.y);
+    ctx.moveTo(screenPoint.x, 0);
+    ctx.lineTo(screenPoint.x, height);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#fffaf2";
+  ctx.strokeStyle = "rgba(58, 139, 153, 0.95)";
+  uiState.trackingOrigins.forEach((origin) => {
+    const screenPoint = worldToScreen(origin.point);
+    ctx.beginPath();
+    ctx.rect(screenPoint.x - 3, screenPoint.y - 3, 6, 6);
+    ctx.fill();
+    ctx.stroke();
+  });
+  if (uiState.trackingSnap?.kind === "tracking-intersection") {
+    const screenPoint = worldToScreen(uiState.trackingSnap.point);
+    ctx.beginPath();
+    ctx.moveTo(screenPoint.x - 6, screenPoint.y - 6);
+    ctx.lineTo(screenPoint.x + 6, screenPoint.y + 6);
+    ctx.moveTo(screenPoint.x + 6, screenPoint.y - 6);
+    ctx.lineTo(screenPoint.x - 6, screenPoint.y + 6);
     ctx.stroke();
   }
   ctx.restore();
@@ -8554,7 +8746,7 @@ function onPointerMove(event) {
   }
   const worldPoint = screenToWorld(screenPoint);
   const constrainedWorld = getConstrainedWorldPoint(worldPoint, event.shiftKey);
-  const snapCandidate = updatePointerSnapMarker(constrainedWorld);
+  const snapCandidate = updatePointerSnapMarker(constrainedWorld, worldPoint);
   const snappedWorld = snapCandidate ? snapCandidate.point : quantizeFreePointToGrid(constrainedWorld);
   uiState.pointerWorld = worldPoint;
   uiState.hoverWorld = snappedWorld;
@@ -8955,7 +9147,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event, scre
     }
     {
       const constrainedPoint = getConstrainedWorldPoint(rawSnapWorldPoint, event.shiftKey);
-      const destinationSnapCandidate = resolveSnapCandidate(constrainedPoint);
+      const destinationSnapCandidate = resolveOrthoAwareSnapCandidate(constrainedPoint, rawSnapWorldPoint);
       uiState.transformDraft.currentPoint = destinationSnapCandidate
         ? destinationSnapCandidate.point
         : getQuantizedDeltaPoint(uiState.transformDraft.startPoint, constrainedPoint);

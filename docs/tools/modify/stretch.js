@@ -92,7 +92,9 @@
     function resolveDestination(rawPoint, shiftKey) {
       const current = draft();
       const constrained = context.getConstrainedWorldPoint(rawPoint, shiftKey);
-      const candidate = context.resolveSnapCandidate(constrained);
+      const candidate = context.resolveOrthoAwareSnapCandidate
+        ? context.resolveOrthoAwareSnapCandidate(constrained, rawPoint)
+        : context.resolveSnapCandidate(constrained);
       return freezePoint(candidate ? candidate.point : context.getQuantizedDeltaPoint(current.basePoint, constrained));
     }
     function activate() {
