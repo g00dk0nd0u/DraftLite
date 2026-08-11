@@ -308,6 +308,7 @@ const snapContext = vm.createContext({
     entities: [],
     settings: { snapTolerancePx: 10 },
   },
+  uiState: { snapMarker: null },
   isLayerVisible: () => true,
   distanceScreenPx: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
   roundWorldPoint: ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }),
@@ -317,16 +318,20 @@ vm.runInContext([
   readAppFunction("getRectSnapPoints"),
   readAppFunction("collectSnapCandidates"),
   readAppFunction("resolveSnapCandidate"),
+  readAppFunction("updatePointerSnapMarker"),
 ].join("\n"), snapContext);
 
 const plainSnapValue = (value) => JSON.parse(JSON.stringify(value));
 const routedStretchActions = [];
+let routedGripActions = 0;
 const primaryActionContext = vm.createContext({
-  uiState: { activeTool: "stretch" },
+  uiState: { activeTool: "stretch", stretchDraft: { phase: "base" } },
   resolveConstrainedSnapPoint: () => ({ x: 20, y: 30 }),
-  getToolController: () => ({
+  getToolController: (id) => id === "stretch" ? {
     handlePrimaryAction: (...args) => routedStretchActions.push(args),
-  }),
+  } : {
+    handleClick: () => { routedGripActions += 1; },
+  },
 });
 vm.runInContext(readAppFunction("handleCanvasPrimaryAction"), primaryActionContext);
 primaryActionContext.handleCanvasPrimaryAction(
@@ -340,6 +345,7 @@ assert.deepEqual(
   { x: 20, y: 30 },
   "The canvas primary-action route should pass its resolved shared snap point to Stretch"
 );
+assert.equal(routedGripActions, 0, "Stretch base-point clicks must not route into selection grip/direct-edit handlers");
 
 const snapRect = { id: "snap-rect", type: "rect", layerId: "layer-1", x: 20, y: 30, width: 40, height: 20 };
 const snapLine = { id: "snap-line", type: "line", layerId: "layer-1", p1: { x: 100, y: 100 }, p2: { x: 120, y: 100 } };
@@ -357,6 +363,31 @@ assert.equal(lineEndpointCandidate.kind, "endpoint", "Line endpoint snapping sho
 assert.deepEqual(plainSnapValue(lineEndpointCandidate.point), { x: 100, y: 100 });
 const closerCornerCandidate = snapContext.resolveSnapCandidate({ x: 23, y: 30 });
 assert.deepEqual(plainSnapValue(closerCornerCandidate.point), { x: 20, y: 30 }, "The closer Rectangle corner should naturally win over its edge midpoint");
+
+snapContext.uiState = {
+  activeTool: "stretch",
+  stretchDraft: { phase: "base" },
+  snapMarker: null,
+};
+const pointerCornerCandidate = snapContext.updatePointerSnapMarker({ x: 20.25, y: 30.25 });
+assert.equal(pointerCornerCandidate.kind, "endpoint", "Stretch base pointer movement should retain the Rectangle endpoint candidate");
+assert.deepEqual(plainSnapValue(snapContext.uiState.snapMarker), {
+  kind: "endpoint",
+  point: { x: 20, y: 30 },
+}, "Stretch base pointer movement should expose the Rectangle corner through uiState.snapMarker");
+
+let selectedHandleLookups = 0;
+const selectedHandleContext = vm.createContext({
+  state: { selectedEntityIds: ["snap-rect"] },
+  uiState: { activeTool: "stretch", stretchDraft: { phase: "base" } },
+  getSelectedEntityHandles: () => { selectedHandleLookups += 1; return []; },
+});
+vm.runInContext(readAppFunction("drawSelectedEntityHandles"), selectedHandleContext);
+selectedHandleContext.drawSelectedEntityHandles(snapRect);
+assert.equal(selectedHandleLookups, 0, "Selected Rectangle handles should not overdraw OSNAP markers during Stretch base picking");
+selectedHandleContext.uiState = { activeTool: "select", stretchDraft: null };
+selectedHandleContext.drawSelectedEntityHandles(snapRect);
+assert.equal(selectedHandleLookups, 1, "Ordinary Select handle rendering should remain enabled outside Stretch base picking");
 
 const endpointRoute = appSource.indexOf("findDimensionEndpointHandleAtPoint(roundWorldPoint(rawWorldPoint))");
 const offsetRoute = appSource.indexOf("findDimensionOffsetHandleAtPoint(roundWorldPoint(rawWorldPoint))", endpointRoute);
