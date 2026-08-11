@@ -359,6 +359,40 @@ const modularToolContext = Object.freeze({
   filletLinesWithRadius,
   unitsToMm,
   mmToUnits,
+  clearGripPreviewTimer,
+  distanceScreenPx,
+  formatWorldPoint,
+  getSnapPoint,
+  roundToGridUnit,
+  renderPropertiesPanel,
+  getRectEdgeNumericStatus,
+  getRectEdgeEditActiveStatus,
+  getRectEdgeNumericPreviewPoint,
+  getResizedRectFromAnchorPoint,
+  clampRectCornerRadius,
+  getRectMoveAnchorPoints,
+  getRectEdges,
+  distancePointToSegmentScreenPx,
+  worldToScreen,
+  hitTestEntity,
+  findSelectedMoveAnchorAtPoint,
+  findBorrowedMoveBaseHandleAtPoint,
+  startHandleDrivenSelectionAction,
+  getSelectedTransformableEntities,
+  getAnchorSnapPoint,
+  resolveFreeDragPoint,
+  getTransformOffset,
+  cancelSelectDrag,
+  createCopiedEntities,
+  duplicateGroupsForCopiedEntities,
+  commitMoveEntityOffset,
+  getSelectionRect,
+  selectEntityAtPoint,
+  selectEntitiesByWindow,
+  finishMoveCopySelectionPhase,
+  clickSelectThresholdPx: CLICK_SELECT_THRESHOLD_PX,
+  getGripController: () => getToolController("grip-edit"),
+  getRectangleController: () => getToolController("rectangle-edit"),
 });
 
 function getToolController(toolId) {
@@ -1726,26 +1760,6 @@ function endTransformDraft(message = `${capitalize(uiState.activeTool)} command 
 
 function cancelSelectDrag(message = "Drag move cancelled.") {
   uiState.selectDragDraft = null;
-  draw();
-  renderStatusPanel();
-  setStatus(message);
-}
-
-function updateGripEditStatus(prefix) {
-  if (!uiState.gripEditDraft) {
-    return;
-  }
-
-  const inputSuffix = uiState.gripEditDraft.numericInputBuffer
-    ? ` Length: ${uiState.gripEditDraft.numericInputBuffer} mm`
-    : " Length: -";
-  setStatus(`${prefix}${inputSuffix}`);
-  renderStatusPanel();
-}
-
-function cancelGripEdit(message = "Grip edit cancelled.") {
-  clearGripPreviewTimer();
-  uiState.gripEditDraft = null;
   draw();
   renderStatusPanel();
   setStatus(message);
@@ -5728,19 +5742,6 @@ function getRectEdgeNumericStatus(draft) {
   return `Rectangle Edge Edit | ${draft.edge} edge | ${draft.numericInputBuffer} mm | Enter: apply | Esc: cancel`;
 }
 
-function updateRectEdgeEditStatus() {
-  if (!uiState.rectEdgeEditDraft) {
-    return;
-  }
-  setStatus(
-    uiState.rectEdgeEditDraft.numericInputBuffer
-      ? getRectEdgeNumericStatus(uiState.rectEdgeEditDraft)
-      : getRectEdgeEditActiveStatus(uiState.rectEdgeEditDraft)
-  );
-  renderPropertiesPanel();
-  renderStatusPanel();
-}
-
 function getResizedRectFromAnchorPoint(draft, anchorPoint) {
   const original = draft.originalRect;
   const right = original.x + original.width;
@@ -5763,75 +5764,6 @@ function getResizedRectFromAnchorPoint(draft, anchorPoint) {
     nextRect.width = Math.max(minSize, nextRight - original.x);
   }
   return roundRectBox(nextRect);
-}
-
-function applyRectEdgeNumericPreview() {
-  if (!uiState.rectEdgeEditDraft || !uiState.rectEdgeEditDraft.numericInputBuffer) {
-    return false;
-  }
-  const previewPoint = getRectEdgeNumericPreviewPoint();
-  if (!previewPoint) {
-    return false;
-  }
-  uiState.rectEdgeEditDraft.currentPoint = previewPoint;
-  updateRectEdgeEditStatus();
-  draw();
-  return true;
-}
-
-function applyRectEdgeNumericEdit() {
-  if (!uiState.rectEdgeEditDraft || !uiState.rectEdgeEditDraft.numericInputBuffer) {
-    return false;
-  }
-  const previewPoint = getRectEdgeNumericPreviewPoint();
-  if (!previewPoint) {
-    setStatus("Enter a valid rectangle edge distance.");
-    return false;
-  }
-  uiState.rectEdgeEditDraft.currentPoint = previewPoint;
-  return applyRectEdgeEdit();
-}
-
-function applyRectEdgeEdit() {
-  const draft = uiState.rectEdgeEditDraft;
-  if (!draft) {
-    return false;
-  }
-  const entity = getEntityById(draft.entityId);
-  if (!entity || entity.type !== "rect" || !canSelectEntity(entity)) {
-    uiState.rectEdgeEditDraft = null;
-    draw();
-    renderPropertiesPanel();
-    renderStatusPanel();
-    return false;
-  }
-
-  const nextRect = getResizedRectFromAnchorPoint(draft, draft.currentPoint);
-  if (
-    nextRect.x === draft.originalRect.x &&
-    nextRect.y === draft.originalRect.y &&
-    nextRect.width === draft.originalRect.width &&
-    nextRect.height === draft.originalRect.height
-  ) {
-    uiState.rectEdgeEditDraft = null;
-    draw();
-    renderPropertiesPanel();
-    renderStatusPanel();
-    setStatus("Rectangle edge edit cancelled.");
-    return false;
-  }
-
-  pushUndoState();
-  entity.x = nextRect.x;
-  entity.y = nextRect.y;
-  entity.width = nextRect.width;
-  entity.height = nextRect.height;
-  clampRectCornerRadius(entity);
-  uiState.rectEdgeEditDraft = null;
-  state.selectedEntityIds = [];
-  syncAfterStateChange();
-  setStatus("Rectangle resized.");
-  return true;
 }
 
 function getDimensionOffsetHandle(entity) {
@@ -6536,192 +6468,6 @@ function scheduleTransformNumericPreview() {
   }, 250);
 }
 
-function findEditableGripAtPoint(worldPoint) {
-  const candidates = state.selectedEntityIds
-    .map(getEntityById)
-    .filter((entity) => entity && entity.type === "line" && canSelectEntity(entity))
-    .flatMap((entity) => [
-      {
-        entity,
-        endpoint: "p1",
-        point: entity.p1,
-        distancePx: distanceScreenPx(worldPoint, entity.p1),
-      },
-      {
-        entity,
-        endpoint: "p2",
-        point: entity.p2,
-        distancePx: distanceScreenPx(worldPoint, entity.p2),
-      },
-    ])
-    .filter((candidate) => candidate.distancePx <= state.settings.snapTolerancePx)
-    .sort((a, b) => a.distancePx - b.distancePx);
-
-  return candidates[0] || null;
-}
-
-function startGripEdit(gripHit, worldPoint) {
-  uiState.gripEditDraft = {
-    entityId: gripHit.entity.id,
-    endpoint: gripHit.endpoint,
-    fixedPoint: deepClone(gripHit.endpoint === "p1" ? gripHit.entity.p2 : gripHit.entity.p1),
-    startPoint: deepClone(gripHit.point),
-    currentPoint: worldPoint,
-    originalEntity: deepClone(gripHit.entity),
-    numericInputBuffer: "",
-  };
-  updateGripEditStatus(
-    `Grip edit started from ${formatWorldPoint(worldPoint)} with ${gripHit.endpoint.toUpperCase()} active.`
-  );
-  draw();
-}
-
-function updateGripEdit(worldPoint) {
-  if (!uiState.gripEditDraft) {
-    return;
-  }
-  if (uiState.gripEditDraft.numericInputBuffer) {
-    return;
-  }
-  uiState.gripEditDraft.currentPoint = worldPoint;
-  draw();
-}
-
-function applyGripEdit() {
-  const gripEditDraft = uiState.gripEditDraft;
-  if (!gripEditDraft) {
-    return false;
-  }
-
-  const nextPoint = getSnapPoint(gripEditDraft.currentPoint);
-  if (nextPoint.x === gripEditDraft.startPoint.x && nextPoint.y === gripEditDraft.startPoint.y) {
-    cancelGripEdit("Grip edit cancelled.");
-    return false;
-  }
-  if (
-    nextPoint.x === gripEditDraft.fixedPoint.x &&
-    nextPoint.y === gripEditDraft.fixedPoint.y
-  ) {
-    setStatus("Line length must be greater than zero.");
-    draw();
-    renderStatusPanel();
-    return false;
-  }
-
-  pushUndoState();
-  state.entities = state.entities.map((entity) => {
-    if (entity.id !== gripEditDraft.entityId) {
-      return entity;
-    }
-    if (!canSelectEntity(entity)) {
-      return entity;
-    }
-    return {
-      ...entity,
-      p1: gripEditDraft.endpoint === "p1" ? nextPoint : gripEditDraft.fixedPoint,
-      p2: gripEditDraft.endpoint === "p2" ? nextPoint : gripEditDraft.fixedPoint,
-    };
-  });
-  uiState.gripEditDraft = null;
-  state.selectedEntityIds = [];
-  syncAfterStateChange();
-  setStatus("Grip edit applied.");
-  return true;
-}
-
-function createGripEditFromNumericInput() {
-  if (!uiState.gripEditDraft) {
-    return false;
-  }
-
-  clearGripPreviewTimer();
-
-  const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
-  const lengthMm = Number.parseInt(rawLengthMm, 10);
-  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
-    setStatus("Enter a positive grip edit distance in mm.");
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.startPoint.x;
-  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.startPoint.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    setStatus("Move the pointer to indicate a grip edit direction before pressing Enter.");
-    return false;
-  }
-
-  const deltaUnits = mmToUnits(lengthMm);
-  if (deltaUnits <= 0) {
-    setStatus("Line length must be greater than zero.");
-    return false;
-  }
-
-  uiState.gripEditDraft.currentPoint = {
-    x: roundToGridUnit(
-      uiState.gripEditDraft.startPoint.x + (directionX / directionLength) * deltaUnits
-    ),
-    y: roundToGridUnit(
-      uiState.gripEditDraft.startPoint.y + (directionY / directionLength) * deltaUnits
-    ),
-  };
-  return applyGripEdit();
-}
-
-function applyGripNumericEdit() {
-  return createGripEditFromNumericInput();
-}
-
-function applyGripNumericPreview() {
-  if (!uiState.gripEditDraft || !uiState.gripEditDraft.numericInputBuffer) {
-    return false;
-  }
-
-  const rawLengthMm = uiState.gripEditDraft.numericInputBuffer;
-  const lengthMm = Number.parseInt(rawLengthMm, 10);
-  if (!rawLengthMm || !Number.isFinite(lengthMm) || lengthMm <= 0) {
-    return false;
-  }
-
-  const directionX = uiState.hoverWorld.x - uiState.gripEditDraft.startPoint.x;
-  const directionY = uiState.hoverWorld.y - uiState.gripEditDraft.startPoint.y;
-  const directionLength = Math.hypot(directionX, directionY);
-  if (directionLength === 0) {
-    return false;
-  }
-
-  const deltaUnits = mmToUnits(lengthMm);
-  if (deltaUnits <= 0) {
-    return false;
-  }
-
-  uiState.gripEditDraft.currentPoint = {
-    x: roundToGridUnit(
-      uiState.gripEditDraft.startPoint.x + (directionX / directionLength) * deltaUnits
-    ),
-    y: roundToGridUnit(
-      uiState.gripEditDraft.startPoint.y + (directionY / directionLength) * deltaUnits
-    ),
-  };
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function scheduleGripNumericPreview() {
-  if (!uiState.gripEditDraft) {
-    return;
-  }
-  clearGripPreviewTimer();
-  if (!uiState.gripEditDraft.numericInputBuffer) {
-    return;
-  }
-  uiState.gripPreviewTimer = window.setTimeout(() => {
-    uiState.gripPreviewTimer = null;
-    applyGripNumericPreview();
-  }, 250);
-}
-
 function getSelectedTransformableEntities() {
   return state.selectedEntityIds
     .map(getEntityById)
@@ -7226,88 +6972,6 @@ function resolveFreeDragPoint(worldPoint, startPoint = null) {
     : quantizeFreePointToGrid(worldPoint);
 }
 
-function updateSelectDragStatus(message) {
-  setStatus(message);
-  renderStatusPanel();
-}
-
-function startSelectDragWithMode(worldPoint, mode = "move", options = {}) {
-  const selectedEntities = getSelectedTransformableEntities();
-  if (!selectedEntities.length) {
-    return false;
-  }
-
-  const hasSnapAnchorPoint = Boolean(options.snapAnchorPoint);
-  const startPoint = hasSnapAnchorPoint
-    ? roundWorldPoint(options.snapAnchorPoint)
-    : roundWorldPoint(worldPoint);
-
-  uiState.selectDragDraft = {
-    mode,
-    startPoint,
-    currentPoint: startPoint,
-    snapAnchorPoint: hasSnapAnchorPoint ? roundWorldPoint(options.snapAnchorPoint) : null,
-    pointerStartPoint: hasSnapAnchorPoint
-      ? roundWorldPoint(options.pointerStartPoint || worldPoint)
-      : roundWorldPoint(worldPoint),
-    entityIds: selectedEntities.map((entity) => entity.id),
-    entities: deepClone(selectedEntities),
-  };
-  updateSelectDragStatus(
-    `Drag ${mode} started at ${formatWorldPoint(uiState.selectDragDraft.startPoint)}.`
-  );
-  draw();
-  renderStatusPanel();
-  return true;
-}
-
-function updateSelectDrag(worldPoint, snappedWorldPoint = worldPoint) {
-  if (!uiState.selectDragDraft) {
-    return;
-  }
-  if (uiState.selectDragDraft.snapAnchorPoint) {
-    const freeAnchorPoint = roundWorldPoint({
-      x: uiState.selectDragDraft.snapAnchorPoint.x + (snappedWorldPoint.x - uiState.selectDragDraft.pointerStartPoint.x),
-      y: uiState.selectDragDraft.snapAnchorPoint.y + (snappedWorldPoint.y - uiState.selectDragDraft.pointerStartPoint.y),
-    });
-    uiState.selectDragDraft.currentPoint = getAnchorSnapPoint(freeAnchorPoint, uiState.selectDragDraft.entityIds) || freeAnchorPoint;
-  } else {
-    uiState.selectDragDraft.currentPoint = resolveFreeDragPoint(worldPoint, uiState.selectDragDraft.startPoint);
-  }
-  updateSelectDragStatus(`Drag ${uiState.selectDragDraft.mode} active.`);
-  draw();
-}
-
-function applySelectDrag() {
-  const selectDragDraft = uiState.selectDragDraft;
-  if (!selectDragDraft) {
-    return false;
-  }
-
-  const offset = getTransformOffset(selectDragDraft);
-  if (offset.dx === 0 && offset.dy === 0) {
-    cancelSelectDrag(`Drag ${selectDragDraft.mode} cancelled.`);
-    return false;
-  }
-
-  pushUndoState();
-  if (selectDragDraft.mode === "copy") {
-    const sourceEntities = selectDragDraft.entities.filter((entity) => canSelectEntity(entity));
-    const { copied: newEntities, idMap } = createCopiedEntities(sourceEntities, offset);
-    state.entities.push(...newEntities);
-    duplicateGroupsForCopiedEntities(sourceEntities, idMap);
-    state.selectedEntityIds = newEntities.map((entity) => entity.id);
-  } else {
-    commitMoveEntityOffset(selectDragDraft.entityIds, offset);
-    state.selectedEntityIds = [];
-  }
-  uiState.selectDragDraft = null;
-  syncAfterStateChange();
-  setStatus(selectDragDraft.mode === "copy" ? "Drag copy applied." : "Drag move applied.");
-  return true;
-}
-
-
 function rectToOutlineLines(rectEntity) {
   const x1 = rectEntity.x; const y1 = rectEntity.y; const x2 = rectEntity.x + rectEntity.width; const y2 = rectEntity.y + rectEntity.height;
   return [
@@ -7758,43 +7422,6 @@ function findBorrowedMoveBaseHandleAtPoint(worldPoint, options = {}) {
     .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
 }
 
-function findRectEdgeAtPoint(worldPoint) {
-  return state.entities
-    .filter((entity) => entity.type === "rect" && canSelectEntity(entity))
-    .slice()
-    .reverse()
-    .map((entity) => {
-      const handleHit = getRectMoveAnchorPoints(entity)
-        .some((candidate) => distanceScreenPx(worldPoint, candidate.point) <= state.settings.snapTolerancePx);
-      if (handleHit) {
-        return null;
-      }
-      const edgeHit = getRectEdges(entity)
-        .find((edgeDef) => distancePointToSegmentScreenPx(worldPoint, edgeDef.p1, edgeDef.p2) <= state.settings.snapTolerancePx);
-      return edgeHit ? { entityId: entity.id, edge: edgeHit.edge } : null;
-    })
-    .find(Boolean) || null;
-}
-
-function startRectEdgeEdit(rectEntity, edge, worldPoint) {
-  if (!rectEntity || rectEntity.type !== "rect" || !canSelectEntity(rectEntity)) {
-    return false;
-  }
-  state.selectedEntityIds = [rectEntity.id];
-  syncAfterStateChange(false);
-  uiState.rectEdgeEditDraft = {
-    entityId: rectEntity.id,
-    edge,
-    originalRect: { x: rectEntity.x, y: rectEntity.y, width: rectEntity.width, height: rectEntity.height },
-    startPoint: worldPoint,
-    currentPoint: worldPoint,
-    numericInputBuffer: "",
-  };
-  updateRectEdgeEditStatus();
-  draw();
-  return true;
-}
-
 function startHandleDrivenSelectionAction(handleHit, rawWorldPoint, worldPoint, event) {
   const entity = getEntityById(handleHit.entityId);
   if (!entity || !canSelectEntity(entity)) {
@@ -7803,7 +7430,7 @@ function startHandleDrivenSelectionAction(handleHit, rawWorldPoint, worldPoint, 
   state.selectedEntityIds = [entity.id];
   syncAfterStateChange(false);
   if (handleHit.type === "lineEndpoint") {
-    startGripEdit(
+    getToolController("grip-edit").start(
       {
         entity,
         endpoint: handleHit.endpoint,
@@ -7813,7 +7440,7 @@ function startHandleDrivenSelectionAction(handleHit, rawWorldPoint, worldPoint, 
     );
     return true;
   }
-  return startSelectDragWithMode(
+  return getToolController("selection").startDrag(
     rawWorldPoint,
     event.altKey || event.ctrlKey ? "copy" : "move",
     {
@@ -9709,7 +9336,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.selectDragDraft) {
-    updateSelectDrag(worldPoint, snappedWorld);
+    getToolController("selection").updateDrag(worldPoint, snappedWorld);
     renderStatusPanel();
     return;
   }
@@ -9721,7 +9348,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.gripEditDraft) {
-    updateGripEdit(snappedWorld);
+    getToolController("grip-edit").update(snappedWorld);
     renderStatusPanel();
     return;
   }
@@ -9735,7 +9362,7 @@ function onPointerMove(event) {
   }
   if (uiState.rectEdgeEditDraft) {
     if (uiState.rectEdgeEditDraft.numericInputBuffer) {
-      applyRectEdgeNumericPreview();
+      getToolController("rectangle-edit").previewNumeric();
       return;
     }
     uiState.rectEdgeEditDraft.currentPoint = snappedWorld;
@@ -9745,8 +9372,7 @@ function onPointerMove(event) {
   }
 
   if (uiState.selectionWindow) {
-    uiState.selectionWindow.currentScreen = screenPoint;
-    uiState.selectionWindow.currentWorld = worldPoint;
+    getToolController("selection").updateWindow(screenPoint, worldPoint);
     draw();
     renderStatusPanel();
     return;
@@ -9785,7 +9411,7 @@ function onPointerMove(event) {
         uiState.hoverRectEdge = null;
       } else {
         uiState.hoverDimensionOffsetHandle = null;
-        const gripHit = findEditableGripAtPoint(roundedWorldPoint);
+        const gripHit = getToolController("grip-edit").findAtPoint(roundedWorldPoint);
         if (gripHit) {
           uiState.hoverGrip = gripHit;
           uiState.hoverMoveAnchor = null;
@@ -9806,7 +9432,7 @@ function onPointerMove(event) {
             if (uiState.hoverBorrowedHandle) {
               uiState.hoverRectEdge = null;
             } else {
-              uiState.hoverRectEdge = findRectEdgeAtPoint(roundedWorldPoint);
+              uiState.hoverRectEdge = getToolController("rectangle-edit").findAtPoint(roundedWorldPoint);
             }
           }
         }
@@ -10123,7 +9749,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   }
 
   const activeToolController = getActiveToolController();
-  if (activeToolController?.handleClick) {
+  if (uiState.activeTool !== "select" && activeToolController?.handleClick) {
     activeToolController.handleClick(roundWorldPoint(rawWorldPoint), event);
     return;
   }
@@ -10139,85 +9765,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
       startDimensionOffsetEdit(dimensionOffsetHandleHit, worldPoint);
       return;
     }
-    if (uiState.gripEditDraft) {
-      if (uiState.gripEditDraft.numericInputBuffer) {
-        applyGripNumericEdit();
-        return;
-      }
-      uiState.gripEditDraft.currentPoint = worldPoint;
-      applyGripEdit();
-      return;
-    }
-    if (uiState.rectEdgeEditDraft) {
-      if (uiState.rectEdgeEditDraft.numericInputBuffer) {
-        applyRectEdgeNumericEdit();
-        return;
-      }
-      uiState.rectEdgeEditDraft.currentPoint = worldPoint;
-      applyRectEdgeEdit();
-      return;
-    }
-    const gripHit = findEditableGripAtPoint(worldPoint);
-    if (gripHit) {
-      startGripEdit(gripHit, worldPoint);
-      return;
-    }
-    const moveAnchorHit = findSelectedMoveAnchorAtPoint(roundWorldPoint(rawWorldPoint));
-    if (moveAnchorHit) {
-      startSelectDragWithMode(
-        rawWorldPoint,
-        event.altKey || event.ctrlKey ? "copy" : "move",
-        {
-          snapAnchorPoint: moveAnchorHit.point,
-          pointerStartPoint: rawWorldPoint,
-        }
-      );
-      return;
-    }
-    const borrowedHandleHit = findBorrowedMoveBaseHandleAtPoint(roundWorldPoint(rawWorldPoint), {
-      excludeEntityIds: state.selectedEntityIds,
-    });
-    if (borrowedHandleHit) {
-      if (state.selectedEntityIds.length) {
-        startSelectDragWithMode(
-          rawWorldPoint,
-          event.altKey || event.ctrlKey ? "copy" : "move",
-          {
-            snapAnchorPoint: borrowedHandleHit.point,
-            pointerStartPoint: rawWorldPoint,
-          }
-        );
-        return;
-      }
-      if (startHandleDrivenSelectionAction(borrowedHandleHit, rawWorldPoint, worldPoint, event)) {
-        return;
-      }
-    }
-    const rectEdgeHit = findRectEdgeAtPoint(roundWorldPoint(rawWorldPoint));
-    if (rectEdgeHit) {
-      const rectEntity = getEntityById(rectEdgeHit.entityId);
-      if (startRectEdgeEdit(rectEntity, rectEdgeHit.edge, worldPoint)) {
-        return;
-      }
-    }
-    const selectedHit = state.selectedEntityIds
-      .map(getEntityById)
-      .filter((entity) => entity && canSelectEntity(entity))
-      .slice()
-      .reverse()
-      .find((entity) => hitTestEntity(entity, roundWorldPoint(rawWorldPoint)));
-    if (selectedHit) {
-      startSelectDragWithMode(rawWorldPoint, event.altKey || event.ctrlKey ? "copy" : "move");
-      return;
-    }
-    uiState.selectionWindow = {
-      append: event.shiftKey,
-      startScreen: worldToScreen(rawWorldPoint),
-      currentScreen: worldToScreen(rawWorldPoint),
-      startWorld: rawWorldPoint,
-      currentWorld: rawWorldPoint,
-    };
-    draw();
+    getToolController("selection").handleClick(rawWorldPoint, worldPoint, event);
   }
 }
 
@@ -10528,27 +10076,13 @@ function onWindowMouseUp(event) {
   }
 
   if (uiState.selectionWindow) {
-    const selectionWindow = {
-      ...uiState.selectionWindow,
-      currentScreen: getScreenPointFromEvent(event),
-      currentWorld: screenToWorld(getScreenPointFromEvent(event)),
-    };
-    const rect = getSelectionRect(selectionWindow);
-    uiState.selectionWindow = null;
-
-    if (Math.hypot(rect.width, rect.height) < CLICK_SELECT_THRESHOLD_PX) {
-      selectEntityAtPoint(selectionWindow.currentWorld, selectionWindow.append);
-      finishMoveCopySelectionPhase();
-      return;
-    }
-
-    selectEntitiesByWindow(selectionWindow);
-    finishMoveCopySelectionPhase();
+    const screenPoint = getScreenPointFromEvent(event);
+    getToolController("selection").finishWindow(screenPoint, screenToWorld(screenPoint));
     return;
   }
 
   if (uiState.selectDragDraft) {
-    applySelectDrag();
+    getToolController("selection").applyDrag();
     return;
   }
   if (uiState.dimensionEndpointEditDraft) {
@@ -11588,79 +11122,12 @@ function onKeyDown(event) {
     return;
   }
 
-  if (uiState.gripEditDraft && !textInputActive) {
-    if (/^\d$/.test(event.key)) {
-      event.preventDefault();
-      uiState.gripEditDraft.numericInputBuffer += event.key;
-      scheduleGripNumericPreview();
-      updateGripEditStatus("Grip edit active.");
-      draw();
-      return;
-    }
-
-    if (event.key === "Backspace") {
-      if (uiState.gripEditDraft.numericInputBuffer) {
-        event.preventDefault();
-        uiState.gripEditDraft.numericInputBuffer = uiState.gripEditDraft.numericInputBuffer.slice(
-          0,
-          -1
-        );
-        clearGripPreviewTimer();
-        if (!uiState.gripEditDraft.numericInputBuffer) {
-          uiState.gripEditDraft.currentPoint = uiState.hoverWorld;
-        } else {
-          scheduleGripNumericPreview();
-        }
-        updateGripEditStatus("Grip edit active.");
-        draw();
-        return;
-      }
-    }
-
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (uiState.gripEditDraft.numericInputBuffer) {
-        applyGripNumericEdit();
-        return;
-      }
-      applyGripEdit();
-      return;
-    }
+  if (uiState.gripEditDraft && !textInputActive && getToolController("grip-edit").handleKeyDown(event)) {
+    return;
   }
 
-  if (uiState.rectEdgeEditDraft && !textInputActive) {
-    if (/^\d$/.test(event.key) || (event.key === "." && !uiState.rectEdgeEditDraft.numericInputBuffer.includes("."))) {
-      event.preventDefault();
-      uiState.rectEdgeEditDraft.numericInputBuffer += event.key;
-      applyRectEdgeNumericPreview();
-      updateRectEdgeEditStatus();
-      draw();
-      renderStatusPanel();
-      return;
-    }
-
-    if (event.key === "Backspace") {
-      if (uiState.rectEdgeEditDraft.numericInputBuffer) {
-        event.preventDefault();
-        uiState.rectEdgeEditDraft.numericInputBuffer = uiState.rectEdgeEditDraft.numericInputBuffer.slice(0, -1);
-        if (!uiState.rectEdgeEditDraft.numericInputBuffer) {
-          uiState.rectEdgeEditDraft.currentPoint = uiState.hoverWorld;
-          updateRectEdgeEditStatus();
-        } else {
-          applyRectEdgeNumericPreview();
-          updateRectEdgeEditStatus();
-        }
-        draw();
-        renderStatusPanel();
-        return;
-      }
-    }
-
-    if (event.key === "Enter" && uiState.rectEdgeEditDraft.numericInputBuffer) {
-      event.preventDefault();
-      applyRectEdgeNumericEdit();
-      return;
-    }
+  if (uiState.rectEdgeEditDraft && !textInputActive && getToolController("rectangle-edit").handleKeyDown(event)) {
+    return;
   }
 
   if (uiState.lineDraft && !textInputActive) {
@@ -12173,7 +11640,7 @@ window.DraftLiteDebug = {
       x: (edgeDef.p1.x + edgeDef.p2.x) / 2,
       y: (edgeDef.p1.y + edgeDef.p2.y) / 2,
     });
-    return findRectEdgeAtPoint(worldPoint);
+    return getToolController("rectangle-edit").findAtPoint(worldPoint);
   },
 
   resizeRectEdgeForTest(rectId, edge, deltaMm) {
