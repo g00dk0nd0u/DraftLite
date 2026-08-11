@@ -63,4 +63,24 @@ assert.deepEqual(
   "selection window initialization should be deterministic"
 );
 
+selectionUiState.selectionWindow = null;
+const blankSelectionController = registry.get("selection")({
+  getState: () => ({ selectedEntityIds: [] }),
+  getUiState: () => selectionUiState,
+  getGripController: () => ({ isInProgress: () => false, findAtPoint: () => null }),
+  getRectangleController: () => ({ isInProgress: () => false, findAtPoint: () => null }),
+  findSelectedMoveAnchorAtPoint: () => null,
+  findBorrowedMoveBaseHandleAtPoint: () => null,
+  getEntityById: () => null,
+  roundWorldPoint: ({ x, y }) => ({ x, y }),
+  worldToScreen: ({ x, y }) => ({ x, y }),
+  draw() {},
+});
+blankSelectionController.handleClick(
+  { x: 10, y: 20 },
+  { x: 10, y: 20 },
+  { shiftKey: true, altKey: false, ctrlKey: false }
+);
+assert.equal(selectionUiState.selectionWindow.append, true, "Shift + blank selection should start an appended selection window");
+
 console.log("Tool registry and controller checks passed.");

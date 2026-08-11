@@ -9749,7 +9749,7 @@ function handleCanvasPrimaryAction(rawWorldPoint, rawSnapWorldPoint, event) {
   }
 
   const activeToolController = getActiveToolController();
-  if (activeToolController?.handleClick) {
+  if (uiState.activeTool !== "select" && activeToolController?.handleClick) {
     activeToolController.handleClick(roundWorldPoint(rawWorldPoint), event);
     return;
   }
