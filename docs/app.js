@@ -1580,7 +1580,7 @@ function resolveDirectSnapCandidate(worldPoint) {
 }
 
 const TRACKING_ACQUISITION_DELAY_MS = 300;
-const TRACKING_MAX_ORIGINS = 2;
+const TRACKING_DIRECTION_THRESHOLD_PX = 3;
 const TRACKING_ELIGIBLE_KINDS = new Set(["endpoint", "midpoint", "center"]);
 
 function pointsEqual(pointA, pointB) {
@@ -1595,11 +1595,8 @@ function acquireTrackingOrigin(candidate) {
   if (uiState.trackingOrigins.some((origin) => pointsEqual(origin.point, point))) {
     return false;
   }
-  uiState.trackingOrigins = [
-    ...uiState.trackingOrigins.slice(-(TRACKING_MAX_ORIGINS - 1)),
-    { kind: candidate.kind, point },
-  ];
-  uiState.trackingGuides = uiState.trackingOrigins.map((origin) => origin.point);
+  uiState.trackingOrigins = [{ kind: candidate.kind, point }];
+  uiState.trackingGuides = [];
   return true;
 }
 
@@ -1645,48 +1642,53 @@ function updateTrackingAcquisition(candidate) {
   }, TRACKING_ACQUISITION_DELAY_MS);
 }
 
-function resolveTrackingCandidate(worldPoint) {
-  const origins = uiState.trackingOrigins || [];
-  const tolerancePx = state.settings.snapTolerancePx;
-  if (!origins.length) {
+function getActiveTrackingMovementVector(rawWorldPoint) {
+  let basePoint = null;
+  if (uiState.lineDraft) {
+    basePoint = uiState.lineDraft.start;
+  } else if (uiState.rectangleDraft) {
+    basePoint = uiState.rectangleDraft.start;
+  } else if (uiState.transformDraft) {
+    basePoint = uiState.transformDraft.startPoint;
+  } else if (uiState.stretchDraft?.phase === "destination") {
+    basePoint = uiState.stretchDraft.basePoint;
+  }
+  if (!basePoint || distanceScreenPx(basePoint, rawWorldPoint) < TRACKING_DIRECTION_THRESHOLD_PX) {
     return null;
   }
+  return { dx: rawWorldPoint.x - basePoint.x, dy: rawWorldPoint.y - basePoint.y };
+}
 
-  const intersections = [];
-  for (let firstIndex = 0; firstIndex < origins.length; firstIndex += 1) {
-    for (let secondIndex = firstIndex + 1; secondIndex < origins.length; secondIndex += 1) {
-      const first = origins[firstIndex].point;
-      const second = origins[secondIndex].point;
-      [{ x: first.x, y: second.y }, { x: second.x, y: first.y }].forEach((point) => {
-        if (!intersections.some((existing) => pointsEqual(existing, point))) {
-          intersections.push(point);
-        }
-      });
-    }
+function getActiveTrackingGuide(rawWorldPoint) {
+  const origin = uiState.trackingOrigins?.[0];
+  const movement = getActiveTrackingMovementVector(rawWorldPoint);
+  if (!origin || !movement) {
+    return null;
   }
-  const intersection = intersections
-    .map((point) => ({ kind: "tracking-intersection", point, distancePx: distanceScreenPx(worldPoint, point) }))
-    .filter((candidate) => candidate.distancePx <= tolerancePx)
-    .sort((a, b) => a.distancePx - b.distancePx)[0];
-  if (intersection) {
-    return intersection;
-  }
+  return {
+    kind: Math.abs(movement.dx) >= Math.abs(movement.dy) ? "vertical" : "horizontal",
+    point: origin.point,
+  };
+}
 
-  const candidates = origins.flatMap((origin) => {
-    const horizontalPoint = roundWorldPoint({ x: worldPoint.x, y: origin.point.y });
-    const verticalPoint = roundWorldPoint({ x: origin.point.x, y: worldPoint.y });
-    return [
-      { kind: "tracking-horizontal", point: horizontalPoint, distancePx: distanceScreenPx(worldPoint, horizontalPoint) },
-      { kind: "tracking-vertical", point: verticalPoint, distancePx: distanceScreenPx(worldPoint, verticalPoint) },
-    ];
-  });
-  return candidates
-    .filter((candidate) => candidate.distancePx <= tolerancePx)
-    .sort((a, b) => a.distancePx - b.distancePx)[0] || null;
+function resolveTrackingCandidate(worldPoint, rawWorldPoint = worldPoint) {
+  const guide = getActiveTrackingGuide(rawWorldPoint);
+  uiState.trackingGuides = guide ? [guide] : [];
+  const tolerancePx = state.settings.snapTolerancePx;
+  if (!guide) {
+    return null;
+  }
+  const point = guide.kind === "vertical"
+    ? roundWorldPoint({ x: guide.point.x, y: worldPoint.y })
+    : roundWorldPoint({ x: worldPoint.x, y: guide.point.y });
+  const candidate = { kind: `tracking-${guide.kind}`, point, distancePx: distanceScreenPx(worldPoint, point) };
+  return candidate.distancePx <= tolerancePx ? candidate : null;
 }
 
 function resolveSnapCandidate(worldPoint) {
-  return resolveDirectSnapCandidate(worldPoint) || resolveTrackingCandidate(worldPoint);
+  const directCandidate = resolveDirectSnapCandidate(worldPoint);
+  const trackingCandidate = resolveTrackingCandidate(worldPoint);
+  return directCandidate || trackingCandidate;
 }
 
 function resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint = worldPoint) {
@@ -1694,7 +1696,7 @@ function resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint = worldPoint) 
   if (directCandidate) {
     return directCandidate;
   }
-  const trackingCandidate = resolveTrackingCandidate(worldPoint);
+  const trackingCandidate = resolveTrackingCandidate(worldPoint, rawWorldPoint);
   if (!trackingCandidate) {
     return null;
   }
@@ -1710,7 +1712,8 @@ function resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint = worldPoint) 
 function updatePointerSnapMarker(worldPoint, rawWorldPoint = worldPoint) {
   const directCandidate = resolveDirectSnapCandidate(worldPoint);
   updateTrackingAcquisition(resolveDirectSnapCandidate(rawWorldPoint));
-  const snapCandidate = directCandidate || resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint);
+  const constrainedCandidate = resolveOrthoAwareSnapCandidate(worldPoint, rawWorldPoint);
+  const snapCandidate = directCandidate || constrainedCandidate;
   uiState.trackingSnap = snapCandidate && snapCandidate.kind.startsWith("tracking-") ? snapCandidate : null;
   uiState.snapMarker = snapCandidate
     ? { kind: snapCandidate.kind, point: snapCandidate.point }
@@ -5420,13 +5423,16 @@ function drawObjectSnapTracking() {
   ctx.strokeStyle = "rgba(58, 139, 153, 0.66)";
   ctx.lineWidth = 1;
   ctx.setLineDash([9, 6]);
-  uiState.trackingGuides.forEach((point) => {
-    const screenPoint = worldToScreen(point);
+  uiState.trackingGuides.forEach((guide) => {
+    const screenPoint = worldToScreen(guide.point);
     ctx.beginPath();
-    ctx.moveTo(0, screenPoint.y);
-    ctx.lineTo(width, screenPoint.y);
-    ctx.moveTo(screenPoint.x, 0);
-    ctx.lineTo(screenPoint.x, height);
+    if (guide.kind === "horizontal") {
+      ctx.moveTo(0, screenPoint.y);
+      ctx.lineTo(width, screenPoint.y);
+    } else {
+      ctx.moveTo(screenPoint.x, 0);
+      ctx.lineTo(screenPoint.x, height);
+    }
     ctx.stroke();
   });
   ctx.setLineDash([]);
@@ -5439,15 +5445,6 @@ function drawObjectSnapTracking() {
     ctx.fill();
     ctx.stroke();
   });
-  if (uiState.trackingSnap?.kind === "tracking-intersection") {
-    const screenPoint = worldToScreen(uiState.trackingSnap.point);
-    ctx.beginPath();
-    ctx.moveTo(screenPoint.x - 6, screenPoint.y - 6);
-    ctx.lineTo(screenPoint.x + 6, screenPoint.y + 6);
-    ctx.moveTo(screenPoint.x + 6, screenPoint.y - 6);
-    ctx.lineTo(screenPoint.x - 6, screenPoint.y + 6);
-    ctx.stroke();
-  }
   ctx.restore();
 }
 
